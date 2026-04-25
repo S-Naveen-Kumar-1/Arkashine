@@ -28,7 +28,7 @@ export function SplashScreen({ navigation }) {
       }),
     ]).start();
 
-    const t = setTimeout(() => navigation.replace('Login'), 2200);
+    const t = setTimeout(() => navigation.replace('LoginScreen'), 2200);
     return () => clearTimeout(t);
   }, []);
 

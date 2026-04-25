@@ -1,0 +1,15 @@
+// src/store/reducers/themeReducer.js
+import { THEME_TOGGLE } from '../../config/actionTypes';
+
+const initTheme = { isDark: true };
+
+export function themeReducer(state = initTheme, action) {
+  switch (action.type) {
+    case THEME_TOGGLE:
+      return { isDark: !state.isDark };
+    default:
+      return state;
+  }
+}
+
+export default themeReducer;
