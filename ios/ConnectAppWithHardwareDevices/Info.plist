@@ -47,6 +47,8 @@
 		<string>FontAwesome6_Solid.ttf</string>
 		<string>SimpleLineIcons.ttf</string>
 		<string>FontAwesome6_Brands.ttf</string>
+		<string>Outfit-Regular.ttf</string>
+		<string>Poppins-Regular.ttf</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

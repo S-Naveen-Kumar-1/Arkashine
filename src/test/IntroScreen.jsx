@@ -1,4 +1,5 @@
 // src/screens/test/IntroScreen.js
+
 import React from 'react';
 import {
   View,
@@ -9,30 +10,26 @@ import {
   ScrollView,
 } from 'react-native';
 import { useDispatch } from 'react-redux';
-import { testReset, toggleTheme } from '../store/actions';
+import { testReset } from '../store/actions';
 import { AppButton, TopBar } from '../components/common';
 import { Spacing, Radius, Shadow, Typography } from '../theme';
 import useTheme from '../hooks/useTheme';
-
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 const STEPS = [
   {
-    icon: '🌱',
-    step: 'Step 1',
+    icon: 'sprout',
     text: 'Take 5g of soil sample from the test area',
   },
   {
-    icon: '⚗️',
-    step: 'Step 2',
+    icon: 'flask-outline',
     text: 'Add 40ml extractant solution to the sample',
   },
   {
-    icon: '🔄',
-    step: 'Step 3',
+    icon: 'sync',
     text: 'Mix properly for 2 minutes until dissolved',
   },
   {
-    icon: '🧪',
-    step: 'Step 4',
+    icon: 'test-tube',
     text: 'Pour the solution into the SOILENZ device',
   },
 ];
@@ -48,146 +45,273 @@ export default function IntroScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
+    <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
+
       <TopBar
         title="New Soil Test"
         onBack={() => navigation.goBack()}
         rightIcon={theme.dark ? '☀️' : '🌙'}
-        onRight={() => dispatch(toggleTheme())}
         theme={theme}
       />
-      <ScrollView contentContainerStyle={s.scroll}>
-        {/* Hero illustration */}
+
+      <ScrollView contentContainerStyle={s.scroll} bounces={false}>
+        {/* HERO */}
         <View
           style={[
             s.hero,
-            { backgroundColor: T.primaryDim, borderColor: T.cardBorder },
+            {
+              backgroundColor: theme.dark ? 'rgba(34,197,94,0.08)' : '#ECFDF5',
+              borderColor: T.cardBorder,
+            },
+            Shadow.md,
           ]}
         >
-          <Text style={s.heroEmoji}>🌾</Text>
+          {/* Badge */}
+          <View style={[s.badge, { backgroundColor: T.primary }]}>
+            <Text style={s.badgeText}>SOILENZ DEVICE</Text>
+          </View>
+
+          <Icon name="leaf" size={40} color={T.primary} />
+
           <Text
             style={[
-              Typography.h2,
-              { color: T.primary, textAlign: 'center', marginTop: 8 },
+              Typography.h1,
+              { color: T.text, textAlign: 'center', marginTop: 10 },
             ]}
           >
-            Soil Testing{'\n'}Made Easy
+             Soil Testing{'\n'}Made Easy
           </Text>
-          <Text style={[s.heroSub, { color: T.textSub }]}>
-            SOILENZ connects to your hardware device via Bluetooth and provides
-            accurate soil nutrient analysis
+
+          <Text
+            style={[
+              Typography.body,
+              {
+                color: T.textSub,
+                textAlign: 'center',
+                marginTop: 8,
+                paddingHorizontal: 10,
+              },
+            ]}
+          >
+            Accurate nutrient analysis using your SOILENZ device
           </Text>
         </View>
 
-        {/* Steps */}
-        <Text style={[Typography.h4, { color: T.text, marginBottom: 14 }]}>
+        {/* SECTION TITLE */}
+        <Text
+          style={[Typography.h4, { color: T.text, marginBottom: Spacing.sm }]}
+        >
           How it works
         </Text>
+
+        {/* STEPS */}
         {STEPS.map((st, i) => (
           <View
             key={i}
             style={[
               s.stepCard,
-              { backgroundColor: T.card, borderColor: T.cardBorder },
+              {
+                backgroundColor: theme.dark ? T.surface : '#FFFFFF',
+                borderColor: T.cardBorder,
+              },
               Shadow.sm,
             ]}
           >
+            {/* Step Number */}
             <View
               style={[
                 s.stepNum,
-                { backgroundColor: T.primaryDim, borderColor: T.primary },
+                {
+                  backgroundColor: T.primary,
+                  borderColor: T.primary,
+                },
               ]}
             >
-              <Text style={s.stepEmoji}>{st.icon}</Text>
+              <Text style={s.stepNumText}>{i + 1}</Text>
             </View>
-            <View style={{ flex: 1, marginLeft: 14 }}>
-              <Text style={[s.stepLabel, { color: T.primary }]}>{st.step}</Text>
-              <Text style={[s.stepText, { color: T.text }]}>{st.text}</Text>
+
+            {/* Step Content */}
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+            >
+              <Icon
+                name={st.icon}
+                size={18}
+                color={T.primary}
+                style={{ marginRight: 8 }}
+              />
+
+              <Text style={[s.stepText, { color: T.text, flex: 1 }]}>
+                {st.text}
+              </Text>
             </View>
           </View>
         ))}
 
-        {/* Mixture spec box */}
+        {/* SPEC BOX */}
         <View
           style={[
             s.specBox,
-            { backgroundColor: T.primaryDim, borderColor: T.primary },
+            {
+              backgroundColor: theme.dark ? 'rgba(34,197,94,0.12)' : '#DCFCE7',
+              borderColor: T.primary,
+            },
           ]}
         >
-          <Text style={s.specTitle}>📋 Solution Specification</Text>
+          <Text style={[s.specTitle, { color: T.primary }]}>
+            Solution Ratio
+          </Text>
+
           <View style={s.specRow}>
-            <Text style={s.specItem}>
-              🪨 Soil sample: <Text style={{ fontWeight: '900' }}>5 grams</Text>
-            </Text>
-            <Text style={s.specItem}>
-              💧 Extractant: <Text style={{ fontWeight: '900' }}>40 ml</Text>
-            </Text>
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            >
+              <Icon name="shovel" size={16} color={T.primary} />
+              <Text style={[s.specItem, { color: T.text }]}>
+                Soil: <Text style={s.bold}>5g</Text>
+              </Text>
+            </View>
+
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            >
+              <Icon name="water" size={16} color={T.primary} />
+              <Text style={[s.specItem, { color: T.text }]}>
+                Extractant: <Text style={s.bold}>40ml</Text>
+              </Text>
+            </View>
           </View>
         </View>
 
+        {/* CTA */}
         <AppButton
-          label="Start Test"
+          label="Start Soil Test"
           onPress={handleStart}
           color={T.primary}
           textColor="#fff"
           size="lg"
           icon="🚀"
-          style={{ marginTop: 8 }}
+          style={[
+            s.cta,
+            {
+              shadowColor: T.primary,
+            },
+          ]}
         />
+
+        {/* FOOTER NOTE */}
         <Text style={[s.hint, { color: T.muted }]}>
-          Make sure your SOILENZ device is powered on and nearby
+          Ensure your SOILENZ device is powered on and nearby
         </Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+/* ================= STYLES ================= */
+
 const s = StyleSheet.create({
-  bg: { flex: 1 },
-  scroll: { padding: Spacing.lg, paddingBottom: 40 },
+  container: { flex: 1 },
+
+  scroll: {
+    padding: 12,
+    paddingBottom: 20,
+  },
+
   hero: {
     borderRadius: Radius.xl,
     borderWidth: 1,
-    padding: Spacing.xl,
+    paddingVertical: 14, // ↓ reduced
+    paddingHorizontal: 12, // ↓ reduced
     alignItems: 'center',
-    marginBottom: Spacing.lg,
+    marginBottom: 12, // ↓ reduced
   },
-  heroEmoji: { fontSize: 64 },
-  heroSub: { fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+
+  heroEmoji: {
+    fontSize: 48, // ↓ reduced from 64
+  },
+
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+    marginBottom: 6,
+  },
+
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+
   stepCard: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: Radius.lg,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 10,
+    padding: 10, // ↓ reduced from 16
+    marginBottom: 8, // ↓ reduced
+    gap: 8,
   },
+
   stepNum: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    borderWidth: 1.5,
+    width: 34, // ↓ reduced
+    height: 34,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepEmoji: { fontSize: 24 },
-  stepLabel: {
+
+  stepNumText: {
+    color: '#fff',
+    fontWeight: '900',
     fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 2,
   },
-  stepText: { fontSize: 14, lineHeight: 20 },
+
+  stepText: {
+    fontSize: 13, // ↓ reduced
+    lineHeight: 18,
+  },
+
   specBox: {
     borderRadius: Radius.md,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: Spacing.lg,
+    padding: 10, // ↓ reduced
+    marginTop: 6,
+    marginBottom: 10,
   },
-  specTitle: { fontSize: 13, fontWeight: '800', marginBottom: 8 },
-  specRow: { flexDirection: 'row', gap: 20 },
-  specItem: { fontSize: 14 },
-  hint: { fontSize: 12, textAlign: 'center', marginTop: 10 },
+
+  specTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+
+  specRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+
+  specItem: {
+    fontSize: 13,
+  },
+
+  bold: {
+    fontWeight: '900',
+  },
+
+  cta: {
+    marginTop: 4, // ↓ reduced
+    borderRadius: Radius.lg,
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+
+  hint: {
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 6,
+  },
 });

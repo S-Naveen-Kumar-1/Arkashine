@@ -1,51 +1,53 @@
-// src/store/reducers/authReducer.js
 import {
+  LOGIN_FAILED,
   LOGIN_REQUEST,
   LOGIN_SUCCESS,
-  LOGIN_FAILED,
+  LOGOUT_REQUEST,
+  REGISTER_FAILED,
   REGISTER_REQUEST,
   REGISTER_SUCCESS,
-  REGISTER_FAILED,
-  LOGOUT_REQUEST,
 } from '../../config/actionTypes';
 
 const initialState = {
   loading: false,
   user: null,
   token: null,
+  refreshToken: null,
   error: null,
   status: null,
+  isLoggedIn: false,
 };
 
 export default function authReducer(state = initialState, action) {
   switch (action.type) {
-    case LOGIN_REQUEST:
-    case REGISTER_REQUEST:
-      return { ...state, loading: true, error: null, status: null };
-
-    case LOGIN_SUCCESS:
-    case REGISTER_SUCCESS:
+    case 'LOGIN_USER':
       return {
         ...state,
-        loading: false,
-        status: 'success',
-        user: action.payload.user,
-        token: action.payload.token,
+        loading: true,
         error: null,
       };
 
-    case LOGIN_FAILED:
-    case REGISTER_FAILED:
+    case 'LOGIN_USER_SUCCESS':
       return {
         ...state,
         loading: false,
-        status: 'failed',
-        error: action.payload,
+        user: action.payload?.data?.user ?? null,
+        token: action.payload?.data?.access ?? null,
+        refreshToken: action.payload?.data?.refresh ?? null,
+        isLoggedIn: true,
+        error: null,
       };
 
-    case LOGOUT_REQUEST:
-      return { ...initialState };
-
+    case 'LOGIN_USER_FAIL':
+      return {
+        ...state,
+        loading: false,
+        error:
+          action.payload?.error?.response?.data?.detail ||
+          action.error?.response?.data?.detail ||
+          action.payload?.error?.message ||
+          'Login failed',
+      };
     default:
       return state;
   }

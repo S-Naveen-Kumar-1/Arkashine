@@ -1,5 +1,6 @@
 // src/screens/test/PourScreen.js
-import React, { useEffect } from 'react';
+
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,32 +8,54 @@ import {
   SafeAreaView,
   StatusBar,
   Animated,
+  Easing,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { testPourDetected, startSettleTimer } from '../store/actions';
 import { AppButton, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
-import { Spacing, Radius, Typography } from '../theme';
+import { Spacing, Radius, Typography, Shadow } from '../theme';
 
 export default function PourScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
   const { pourDetected } = useSelector(s => s.test);
-  const dropAnim = new Animated.Value(0);
+
+  // ✅ FIX: persist animated values
+  const dropAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Animate drop
+    // 💧 Drop animation (smooth + realistic)
     Animated.loop(
       Animated.sequence([
         Animated.timing(dropAnim, {
           toValue: 1,
-          duration: 800,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
         Animated.timing(dropAnim, {
           toValue: 0,
-          duration: 400,
+          duration: 500,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    ).start();
+
+    // 🔵 Pulse animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.4,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 700,
           useNativeDriver: true,
         }),
       ]),
@@ -40,10 +63,9 @@ export default function PourScreen({ navigation }) {
   }, []);
 
   useEffect(() => {
-    if (pourDetected) navigation.replace('Timer');
+    if (pourDetected) navigation.replace('TimerScreen');
   }, [pourDetected]);
 
-  // Simulate hardware pour signal (in real app, comes from BLE)
   const simulatePour = () => {
     dispatch(testPourDetected());
     dispatch(startSettleTimer());
@@ -52,118 +74,178 @@ export default function PourScreen({ navigation }) {
 
   const dropY = dropAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 30],
+    outputRange: [-10, 40],
   });
 
   return (
-    <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
+    <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
+
       <TopBar
         title="Pour Sample"
         onBack={() => navigation.goBack()}
         theme={theme}
       />
 
-      <View style={s.center}>
-        {/* Illustration */}
+      <View style={s.wrapper}>
+        {/* 💧 DEVICE VISUAL */}
         <View
           style={[
             s.deviceBox,
-            { backgroundColor: T.card, borderColor: T.cardBorder },
+            {
+              backgroundColor: theme.dark ? T.surface : '#FFFFFF',
+              borderColor: T.cardBorder,
+            },
+            Shadow.md,
           ]}
         >
           <Text style={s.deviceEmoji}>🧫</Text>
+
           <Animated.Text
             style={[s.dropEmoji, { transform: [{ translateY: dropY }] }]}
           >
             💧
           </Animated.Text>
-          <Text style={s.deviceLabel}>SOILENZ Device</Text>
+
+          <Text style={[s.deviceLabel, { color: T.textSub }]}>
+            SOILENZ Device
+          </Text>
         </View>
 
+        {/* 📋 INSTRUCTION */}
         <View
           style={[
-            s.instrCard,
-            { backgroundColor: T.primaryDim, borderColor: T.primary },
+            s.instructionCard,
+            {
+              backgroundColor: theme.dark ? 'rgba(34,197,94,0.12)' : '#DCFCE7',
+              borderColor: T.primary,
+            },
           ]}
         >
           <Text style={s.instrIcon}>⬇️</Text>
+
           <Text
             style={[Typography.h3, { color: T.primary, textAlign: 'center' }]}
           >
-            Pour the prepared solution
+            Pour the Solution
           </Text>
-          <Text style={[s.instrSub, { color: T.textSub }]}>
-            Pour the pH-EC bottle solution (5gm soil + 40ml extractant) into the
+
+          <Text style={[s.instrText, { color: T.textSub }]}>
+            Pour the prepared solution (5g soil + 40ml extractant) into the
             SOILENZ device opening
           </Text>
         </View>
 
+        {/* ⏳ WAITING STATE */}
         <View
           style={[
-            s.waitBox,
-            { backgroundColor: T.card, borderColor: T.cardBorder },
+            s.waitCard,
+            {
+              backgroundColor: theme.dark ? T.surface : '#FFFFFF',
+              borderColor: T.cardBorder,
+            },
+            Shadow.sm,
           ]}
         >
           <Animated.View
             style={[
               s.pulseDot,
-              { backgroundColor: T.yellow, transform: [{ scale: dropAnim }] },
+              {
+                backgroundColor: T.yellow,
+                transform: [{ scale: pulseAnim }],
+              },
             ]}
           />
-          <Text style={[s.waitText, { color: T.textSub }]}>
-            Waiting for hardware signal...
-          </Text>
-          <Text style={[s.waitHint, { color: T.muted }]}>
-            The device will detect when solution is poured
-          </Text>
+
+          <View style={{ flex: 1 }}>
+            <Text style={[s.waitTitle, { color: T.text }]}>
+              Waiting for detection...
+            </Text>
+            <Text style={[s.waitSub, { color: T.muted }]}>
+              Device will auto-detect the poured solution
+            </Text>
+          </View>
         </View>
 
-        {/* Dev helper — remove in production */}
+        {/* 🧪 DEV BUTTON */}
         <AppButton
-          label="Simulate Pour (Dev)"
+          label="Simulate Pour"
           onPress={simulatePour}
-          color={T.blue}
-          textColor="#fff"
+          color={T.primary}
+          textColor={T.primary}
           outlined
-          style={{ marginTop: 24 }}
+          style={{
+            marginTop: 28,
+            backgroundColor: T.primaryDim,
+            borderColor: T.primary,
+            opacity: 0.9,
+          }}
         />
       </View>
     </SafeAreaView>
   );
 }
 
+/* ================= STYLES ================= */
+
 const s = StyleSheet.create({
-  bg: { flex: 1 },
-  center: {
+  container: { flex: 1 },
+
+  wrapper: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.lg,
   },
+
   deviceBox: {
-    width: 160,
-    height: 160,
-    borderRadius: 28,
-    borderWidth: 2,
+    width: 180,
+    height: 180,
+    borderRadius: 30,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 32,
+    marginBottom: 36,
   },
-  deviceEmoji: { fontSize: 60 },
-  dropEmoji: { position: 'absolute', top: -30, fontSize: 32 },
-  deviceLabel: { fontSize: 12, fontWeight: '700', marginTop: 6 },
-  instrCard: {
+
+  deviceEmoji: {
+    fontSize: 70,
+  },
+
+  dropEmoji: {
+    position: 'absolute',
+    top: -20,
+    fontSize: 34,
+  },
+
+  deviceLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+
+  instructionCard: {
     borderRadius: Radius.xl,
     borderWidth: 1,
     padding: Spacing.lg,
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
     width: '100%',
   },
-  instrIcon: { fontSize: 36, marginBottom: 10 },
-  instrSub: { fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
-  waitBox: {
+
+  instrIcon: {
+    fontSize: 36,
+    marginBottom: 10,
+  },
+
+  instrText: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
+  },
+
+  waitCard: {
     borderRadius: Radius.lg,
     borderWidth: 1,
     padding: 16,
@@ -172,11 +254,20 @@ const s = StyleSheet.create({
     gap: 12,
     width: '100%',
   },
-  pulseDot: { width: 12, height: 12, borderRadius: 6 },
-  waitText: { fontSize: 14, fontWeight: '700', flex: 1 },
-  waitHint: { fontSize: 12, marginTop: 2 },
+
+  pulseDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+
+  waitTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  waitSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────

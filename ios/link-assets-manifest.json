@@ -70,6 +70,14 @@
       "sha1": "56acefc0731f35ee23b195b1c8cb5fa94a0db97b"
     },
     {
+      "path": "assets/fonts/Outfit-Regular.ttf",
+      "sha1": "7724dc42adf3e8caa9a1f7f64bc02016f201f550"
+    },
+    {
+      "path": "assets/fonts/Poppins-Regular.ttf",
+      "sha1": "fdd3002e7d814ee47c1c1b8487c72c6bbb3a2d00"
+    },
+    {
       "path": "assets/fonts/SimpleLineIcons.ttf",
       "sha1": "9ffb81a5a11112e292f2cc323e98486bad597599"
     },

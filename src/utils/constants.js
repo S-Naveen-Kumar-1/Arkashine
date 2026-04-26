@@ -1,0 +1,15 @@
+export const nutrients = [
+  { key: 'P', label: 'P (kg/ha)' },
+  { key: 'K', label: 'K (kg/ha)' },
+  { key: 'Ca', label: 'Ca' },
+  { key: 'Mg', label: 'Mg' },
+  { key: 'S', label: 'S' },
+  { key: 'Zn', label: 'Zn' },
+  { key: 'Mn', label: 'Mn' },
+  { key: 'Fe', label: 'Fe' },
+  { key: 'Cu', label: 'Cu' },
+  { key: 'B', label: 'B' },
+  { key: 'ph', label: 'pH' },
+  { key: 'ec', label: 'EC' },
+  { key: 'oc', label: 'OC (%)' },
+];

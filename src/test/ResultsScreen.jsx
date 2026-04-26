@@ -208,7 +208,7 @@ export default function ResultsScreen({ navigation }) {
           style={{ marginBottom: 12 }}
         />
         <AppButton
-          label="Print Report"
+          label="Download Report"
           onPress={() => navigation.navigate('Report')}
           color={T.blue}
           textColor="#fff"

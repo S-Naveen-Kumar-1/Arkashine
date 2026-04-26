@@ -1,5 +1,5 @@
 // src/components/common/index.js
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,11 @@ import {
   StyleSheet,
   ActivityIndicator,
   Animated,
+  Easing
 } from 'react-native';
 import { Radius, Shadow, Typography } from '../../theme';
+
+import Svg, { Circle } from 'react-native-svg';
 
 // ── AppButton ─────────────────────────────────────────────────────────────────
 export function AppButton({
@@ -180,22 +183,37 @@ export function SectionHeader({ title, subtitle, theme, center }) {
 }
 
 // ── ProgressRing ──────────────────────────────────────────────────────────────
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
 export function ProgressRing({
   size = 200,
   progress = 0,
   total = 100,
   color = '#22C55E',
-  bg = '#1E3A5F',
+  bg = '#E5E7EB',
+  strokeWidth = 12,
   children,
 }) {
-  const strokeWidth = 12;
-  const radius = (size - strokeWidth * 2) / 2;
+  const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const pct = Math.min(Math.max(progress / total, 0), 1);
-  const dash = circumference * pct;
 
-  // Pure RN approximation using border approach
-  const degrees = pct * 360;
+  const pct = Math.min(Math.max(progress / total, 0), 1);
+  const animated = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(animated, {
+      toValue: pct,
+      duration: 500,
+      easing: Easing.out(Easing.ease),
+    }).start();
+  }, [pct]);
+
+  const strokeDashoffset = animated.interpolate({
+    inputRange: [0, 1],
+    outputRange: [circumference, 0],
+  });
+
   return (
     <View
       style={{
@@ -205,35 +223,37 @@ export function ProgressRing({
         justifyContent: 'center',
       }}
     >
-      {/* Background ring */}
-      <View
-        style={{
-          position: 'absolute',
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          borderWidth: strokeWidth,
-          borderColor: bg,
-        }}
-      />
-      {/* Progress arc — simple border trick */}
-      <View
-        style={{
-          position: 'absolute',
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          borderWidth: strokeWidth,
-          borderColor: color,
-          borderTopColor: degrees > 0 ? color : 'transparent',
-          borderRightColor: degrees > 90 ? color : 'transparent',
-          borderBottomColor: degrees > 180 ? color : 'transparent',
-          borderLeftColor: degrees > 270 ? color : 'transparent',
-          transform: [{ rotate: '-90deg' }],
-          opacity: 0.9,
-        }}
-      />
-      {children}
+      <Svg width={size} height={size}>
+        {/* Background circle */}
+        <Circle
+          stroke={bg}
+          fill="none"
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={strokeWidth}
+        />
+
+        {/* Animated progress */}
+        <AnimatedCircle
+          stroke={color}
+          fill="none"
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${circumference}`}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          rotation="-90"
+          origin={`${size / 2}, ${size / 2}`}
+        />
+      </Svg>
+
+      {/* Center content */}
+      <View style={{ position: 'absolute', alignItems: 'center' }}>
+        {children}
+      </View>
     </View>
   );
 }

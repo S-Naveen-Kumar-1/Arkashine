@@ -31,28 +31,24 @@ import {
   REPORT_LANGUAGE_SET,
 } from '../../config/actionTypes';
 
-// ── AUTH ─────────────────────────────────────────────────────
-export const loginUser = (username, password) => async dispatch => {
-  dispatch({ type: LOGIN_REQUEST });
-  try {
-    // Simulate API call — replace with real endpoint
-    await new Promise(r => setTimeout(r, 1000));
-    if (username && password.length >= 6) {
-      dispatch({
-        type: LOGIN_SUCCESS,
-        payload: {
-          user: { username, id: Date.now() },
-          token: 'token_' + Date.now(),
-        },
-      });
-    } else {
-      dispatch({ type: LOGIN_FAILED, payload: 'Invalid username or password' });
-    }
-  } catch (e) {
-    dispatch({ type: LOGIN_FAILED, payload: e.message });
-  }
-};
+import axios from 'axios';
 
+export function loginUser({ username, password }) {
+  console.log('Dispatching loginUser with:', { username, password });
+  return {
+    type: 'LOGIN_USER',
+    payload: {
+      request: {
+        url: '/api/mobile/auth/login/',
+        method: 'POST',
+        data: {
+          username,
+          password,
+        },
+      },
+    },
+  };
+}
 export const registerUser = (name, email, password) => async dispatch => {
   dispatch({ type: REGISTER_REQUEST });
   try {
@@ -100,7 +96,7 @@ export const startSettleTimer = () => dispatch => {
   setTimeout(() => {
     clearInterval(interval);
     dispatch({ type: TEST_TIMER_DONE });
-  }, 180);
+  }, 180000);
 };
 
 export const startSensorCountdown = onTick => dispatch => {

@@ -11,7 +11,10 @@ import ResultsScreen from './test/ResultsScreen';
 import { RecommendationsScreen } from './main/RecommendationsScreen';
 import FarmerDetailsScreen from './main/FarmerDetailsScreen';
 import { SplashScreen } from './screens/SplashScreen';
-
+import { DashboardScreen } from './screens/dashboard/DashboardScreen';
+import ProfileScreen from './screens/profile/ProfileScreen';
+import { ProductsListingScreen } from './screens/Products/ProductListing';
+import AppTabS from './components/AppTabs';
 export const AppStack = () => {
   return (
     <NavigationContainer>
@@ -91,6 +94,38 @@ export const AppStack = () => {
         <Stack.Screen
           name="FarmerDetailsScreen"
           component={FarmerDetailsScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="DashboardScreen"
+          component={DashboardScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="ProfileScreen"
+          component={ProfileScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="ProductsListingScreen"
+          component={ProductsListingScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="AppTabs"
+          component={AppTabS}
           options={{
             headerShown: false,
             // gestureEnabled: false,

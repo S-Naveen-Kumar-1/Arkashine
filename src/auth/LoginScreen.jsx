@@ -19,6 +19,7 @@ import { loginUser, toggleTheme } from '../store/actions/index';
 import { AppButton } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../theme';
+import { showMessage } from 'react-native-flash-message';
 
 export default function LoginScreen({ navigation }) {
   const dispatch = useDispatch();
@@ -53,10 +54,24 @@ export default function LoginScreen({ navigation }) {
     return Object.keys(e).length === 0;
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
+          navigation.navigate('AppTabs');
+
     if (!validate()) return;
-    dispatch(loginUser(username, password));
-    navigation.navigate('IntroScreen');
+    const loginres = await dispatch(loginUser({ username, password }));
+    console.log('Login Response:', loginres.payload.data);
+    if (loginres.payload?.data?.access) {
+      showMessage({
+        message: 'Login Successful',
+        type: 'success',
+      });
+    } else {
+      console.log(
+        'Login failed, error:',
+        loginres.payload?.error || loginres.error,
+      );
+    }
+    navigation.navigate('AppTabs');
   };
 
   const handleUsernameDone = () => {
@@ -143,9 +158,7 @@ export default function LoginScreen({ navigation }) {
               Shadow.lg,
             ]}
           >
-            <Text style={[Typography.h3, { color: T.text }]}>
-              Welcome Back
-            </Text>
+            <Text style={[Typography.h3, { color: T.text }]}>Welcome Back</Text>
             <Text style={[s.cardSub, { color: T.textSub }]}>
               Sign in to your account
             </Text>
@@ -216,6 +229,8 @@ export default function LoginScreen({ navigation }) {
                   placeholderTextColor={T.textSub}
                   value={username}
                   onChangeText={setUsername}
+                  autoCapitalize="none"
+                  autoCorrect={false}
                   onFocus={() => handleInputFocus('username', 80)}
                   onBlur={() => setFocusedInput(null)}
                   returnKeyType="next"
@@ -357,12 +372,12 @@ export default function LoginScreen({ navigation }) {
           </View>
 
           {/* Footer */}
-          <View style={s.footer}>
+          {/* <View style={s.footer}>
             <Text style={[s.version, { color: T.muted }]}>SOILENZ v1.0</Text>
             <Text style={[s.footerSub, { color: T.muted }]}>
               Agricultural Intelligence Platform
             </Text>
-          </View>
+          </View> */}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -371,158 +386,171 @@ export default function LoginScreen({ navigation }) {
 
 const s = StyleSheet.create({
   bg: { flex: 1 },
+
   scroll: {
     flexGrow: 1,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.lg,
+    paddingHorizontal: 16,
+    paddingVertical: 12, // ↓ reduced
   },
+
   themeBtn: {
     position: 'absolute',
-    top: 16,
-    right: 16,
+    top: 12,
+    right: 12,
     zIndex: 10,
-    width: 48,
-    height: 48,
-    borderRadius: Radius.lg,
+    width: 42, // ↓ reduced
+    height: 42,
+    borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     ...Shadow.sm,
   },
+
+  /* 🔽 LOGO SECTION */
   logoWrap: {
     alignItems: 'center',
-    marginBottom: Spacing.xl * 1.5,
+    marginBottom: 18, // ↓ reduced from xl*1.5
   },
+
   logoCircle: {
-    width: 110,
-    height: 110,
-    borderRadius: 32,
+    width: 90,   // ↓ reduced
+    height: 90,
+    borderRadius: 26,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   tagline: {
-    fontSize: 14,
-    marginTop: 12,
-    letterSpacing: 0.3,
-    fontWeight: '500',
+    fontSize: 13,
+    marginTop: 6, // ↓ reduced
+    letterSpacing: 0.2,
   },
+
+  /* 🔽 CARD */
   card: {
     borderRadius: Radius.xl,
     borderWidth: 1,
-    padding: Spacing.lg,
-    marginBottom: Spacing.xl,
+    padding: 14, // ↓ reduced from lg
+    marginBottom: 12,
   },
+
   cardSub: {
-    fontSize: 14,
-    marginBottom: Spacing.lg,
-    fontWeight: '400',
-    letterSpacing: 0.2,
+    fontSize: 13,
+    marginBottom: 10, // ↓ reduced
   },
+
+  /* 🔽 ERROR */
   errorBanner: {
     borderRadius: Radius.md,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: Spacing.lg,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginBottom: 10,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
   },
-  errorText: {
-    fontSize: 13,
-    fontWeight: '500',
-    flex: 1,
-  },
+
+  /* 🔽 INPUTS */
   inputGroup: {
-    marginBottom: Spacing.md,
+    marginBottom: 10, // ↓ reduced
   },
+
   inputLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 6, // ↓ reduced
   },
+
   label: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
-    letterSpacing: 0.3,
   },
+
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: Radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 0,
-    height: 52,
-    overflow: 'hidden',
+    paddingHorizontal: 12,
+    height: 46, // ↓ reduced from 52
   },
+
   textInput: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    paddingVertical: 0,
-    margin: 0,
+    fontSize: 14, // ↓ reduced
   },
+
   eyeBtn: {
-    padding: 8,
-    marginRight: -8,
+    padding: 6,
+    marginRight: -6,
   },
+
   errorMsg: {
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 11,
   },
+
+  /* 🔽 FORGOT */
   forgotBtn: {
     alignSelf: 'flex-end',
-    marginTop: Spacing.md,
-    marginBottom: Spacing.lg,
-    paddingVertical: 6,
+    marginTop: 6,
+    marginBottom: 10,
   },
+
   forgotText: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 12,
   },
+
+  /* 🔽 BUTTON */
   signInBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radius.md,
-    paddingVertical: 14,
-    marginBottom: Spacing.lg,
+    paddingVertical: 12, // ↓ reduced
+    marginBottom: 10,
   },
+
   signInText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 0.2,
   },
+
+  /* 🔽 DIVIDER */
   divider: {
     height: 1,
-    marginVertical: Spacing.lg,
+    marginVertical: 10, // ↓ reduced
   },
+
   registerLinkRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
   },
+
   registerText: {
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 12,
   },
+
   registerAction: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
+
+  /* 🔽 FOOTER */
   footer: {
     alignItems: 'center',
-    marginTop: Spacing.lg,
-    paddingBottom: 40,
+    marginTop: 10,
+    paddingBottom: 20,
   },
+
   version: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  footerSub: {
     fontSize: 11,
-    marginTop: 4,
-    fontWeight: '500',
+  },
+
+  footerSub: {
+    fontSize: 10,
+    marginTop: 2,
   },
 });
