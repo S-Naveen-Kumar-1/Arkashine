@@ -128,7 +128,7 @@ export function RecommendationsScreen({ navigation }) {
         }
         ListFooterComponent={
           <AppButton
-            label="Print Full Report"
+            label="Download Full Report"
             onPress={() => navigation.navigate('Report')}
             color={T.blue}
             textColor="#fff"

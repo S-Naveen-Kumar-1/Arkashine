@@ -15,6 +15,13 @@ import { DashboardScreen } from './screens/dashboard/DashboardScreen';
 import ProfileScreen from './screens/profile/ProfileScreen';
 import { ProductsListingScreen } from './screens/Products/ProductListing';
 import AppTabS from './components/AppTabs';
+import CalibrationGateScreen from './phtest/CalibrationGateScreen';
+import CalibrationMenuScreen from './phtest/CalibrationMenuScreen';
+import PHCalibrationScreen from './phtest/PHCalibrationScreen';
+import ECCalibrationScreen from './phtest/ECCalibrationScreen';
+import CalibrationSummaryScreen from './phtest/CalibrationSummaryScreen';
+import MixerScreen from './phtest/MixerScreen';
+import Phecresultscreen from './phtest/Phecresultscreen'; 
 export const AppStack = () => {
   return (
     <NavigationContainer>
@@ -126,6 +133,62 @@ export const AppStack = () => {
         <Stack.Screen
           name="AppTabs"
           component={AppTabS}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="CalibrationGateScreen"
+          component={CalibrationGateScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="CalibrationMenuScreen"
+          component={CalibrationMenuScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="PHCalibrationScreen"
+          component={PHCalibrationScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="ECCalibrationScreen"
+          component={ECCalibrationScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="CalibrationSummaryScreen"
+          component={CalibrationSummaryScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="MixerScreen"
+          component={MixerScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="PHECResultScreen"
+          component={Phecresultscreen}
           options={{
             headerShown: false,
             // gestureEnabled: false,

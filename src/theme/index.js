@@ -29,6 +29,7 @@ export const lightTheme = {
     statusBar: 'dark-content',
     shadow: 'rgba(0,0,0,0.08)',
     overlay: 'rgba(100, 95, 95, 0.45)',
+    warning: '#F59E0B',
   },
 };
 
@@ -61,6 +62,7 @@ export const darkTheme = {
     statusBar: 'light-content',
     shadow: 'rgba(0,0,0,0.4)',
     overlay: 'rgba(0,0,0,0.7)',
+    warning: '#FBBF24',
   },
 };
 
