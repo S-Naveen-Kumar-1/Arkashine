@@ -1,32 +1,37 @@
-// src/screens/phtest/MixerScreen.js
-// Triggers mixing motor on hardware device (60 sec), then reads pH & EC
+// src/screens/phtest/MixerScreen.jsx
+// Triggers mixing motor on hardware device (60 sec), then reads pH & EC with BLE
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
   Animated,
   Easing,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { Radius, Spacing, Typography } from '../theme';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Radius, Spacing } from '../theme';
 import { TopBar, ProgressRing } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useBLE, CMD } from '../contexts/BLEContext';
 
-const MOTOR_DURATION = 60; // seconds
+const MOTOR_DURATION = 60;
 
 export default function MixerScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
-  const [motorState, setMotorState] = useState('idle'); // 'idle' | 'running' | 'done'
+  const { sendCommand, isConnected, log } = useBLE();
+
+  const [motorState, setMotorState] = useState('idle');
   const [timeLeft, setTimeLeft] = useState(MOTOR_DURATION);
+  const [cmdError, setCmdError] = useState(null);
   const timerRef = useRef(null);
 
-  // Spin animation for motor icon
   const spinAnim = useRef(new Animated.Value(0)).current;
   const spinLoop = useRef(null);
 
@@ -52,20 +57,49 @@ export default function MixerScreen({ navigation }) {
     outputRange: ['0deg', '360deg'],
   });
 
-  // Start motor
-  const handleStart = () => {
+  const handleStart = async () => {
+    if (!isConnected) {
+      Alert.alert('Not connected', 'Please connect to your device first.');
+      return;
+    }
+
+    setCmdError(null);
     setMotorState('running');
     setTimeLeft(MOTOR_DURATION);
     startSpin();
-    // sendMotorCommand('on');   ← real HW call
 
-    timerRef.current = setInterval(() => {
+    try {
+      // Send motor ON command
+      log('MIXER', 'Sending MOTOR_ON command...');
+      await sendCommand(CMD.MOTOR_ON, '', true, 5000);
+      log('MIXER', 'Motor started ✅', 'success');
+    } catch (e) {
+      log('MIXER', `Motor start error: ${e.message}`, 'error');
+      setCmdError(`Failed to start motor: ${e.message}`);
+      stopSpin();
+      setMotorState('idle');
+      Alert.alert('Motor Error', e.message);
+      return;
+    }
+
+    timerRef.current = setInterval(async () => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timerRef.current);
           stopSpin();
           setMotorState('done');
-          // sendMotorCommand('off');   ← real HW call
+
+          // Send motor OFF command
+          (async () => {
+            try {
+              log('MIXER', 'Sending MOTOR_OFF command...');
+              await sendCommand(CMD.MOTOR_OFF, '', true, 5000);
+              log('MIXER', 'Motor stopped ✅', 'success');
+            } catch (e) {
+              log('MIXER', `Motor stop warning: ${e.message}`, 'warn');
+            }
+          })();
+
           return 0;
         }
         return prev - 1;
@@ -153,6 +187,19 @@ export default function MixerScreen({ navigation }) {
             : 'Mixing Complete ✅'}
         </Text>
 
+        {/* Error banner */}
+        {cmdError && (
+          <View
+            style={[
+              s.errorBanner,
+              { backgroundColor: '#EF444422', borderColor: '#EF4444' },
+            ]}
+          >
+            <Icon name="alert-circle" size={16} color="#EF4444" />
+            <Text style={[s.errorText, { color: '#EF4444' }]}>{cmdError}</Text>
+          </View>
+        )}
+
         {/* Instruction card */}
         <View
           style={[
@@ -225,8 +272,8 @@ export default function MixerScreen({ navigation }) {
               { backgroundColor: T.cardAlt, borderColor: T.border },
             ]}
           >
-            <View style={[s.runningDot, { backgroundColor: T.primary }]} />
-            <Text style={[s.runningText, { color: T.text }]}>
+            <ActivityIndicator color={T.primary} size="small" />
+            <Text style={[s.runningText, { color: T.text, flex: 1 }]}>
               Motor running — do not remove beaker
             </Text>
           </View>
@@ -282,6 +329,7 @@ const s = StyleSheet.create({
     height: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#10B981',
   },
   motorLabel: {
     fontSize: 17,
@@ -289,6 +337,17 @@ const s = StyleSheet.create({
     marginBottom: Spacing.md,
     textAlign: 'center',
   },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: Spacing.sm,
+    marginBottom: Spacing.md,
+    width: '100%',
+  },
+  errorText: { flex: 1, fontSize: 12, fontWeight: '600' },
   instrCard: {
     borderRadius: Radius.lg,
     borderWidth: 1,
@@ -332,7 +391,6 @@ const s = StyleSheet.create({
     width: '100%',
     marginBottom: Spacing.sm,
   },
-  runningDot: { width: 10, height: 10, borderRadius: 5 },
   runningText: { fontSize: 13, fontWeight: '600' },
   hint: {
     fontSize: 12,

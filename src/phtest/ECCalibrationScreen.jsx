@@ -1,25 +1,25 @@
-// src/screens/phtest/ECCalibrationScreen.js
-// 3-point EC calibration: 0.0 dS/m → 1.413 dS/m → 12.88 dS/m
-// Mirror structure of PHCalibrationScreen
+// src/screens/phtest/ECCalibrationScreen.jsx
+// 3-point EC calibration with full BLE integration
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
   Animated,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { Radius, Spacing, Typography } from '../theme';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Radius, Spacing } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useBLE, CMD } from '../contexts/BLEContext';
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
 const EC_POINTS = [
   {
     id: 'ec0',
@@ -50,96 +50,183 @@ const EC_POINTS = [
   },
 ];
 
-// ─── Simulated live voltage (replace with real HW read) ───────────────────────
-function useLiveVoltage(active) {
-  const [voltage, setVoltage] = useState(0.0);
+const STABLE_WINDOW = 10;
+const STABLE_VARIANCE = 0.005;
+
+function useStabilityTracker(liveVoltage, active) {
   const [stable, setStable] = useState(false);
-  const interval = useRef(null);
+  const [progress, setProgress] = useState(0);
+  const history = useRef([]);
 
   useEffect(() => {
     if (!active) {
-      setVoltage(0.0);
+      history.current = [];
       setStable(false);
-      if (interval.current) clearInterval(interval.current);
+      setProgress(0);
       return;
     }
+    if (liveVoltage == null || isNaN(liveVoltage)) return;
 
-    let ticks = 0;
-    interval.current = setInterval(() => {
-      ticks++;
-      const noise = (Math.random() - 0.5) * 0.002;
-      const targets = [0.04, 0.28, 1.92];
-      const target = targets[(active - 1) % 3];
-      setVoltage(
-        parseFloat((target + noise * Math.max(0, 1 - ticks / 18)).toFixed(4)),
-      );
-      if (ticks >= 18) setStable(true);
-    }, 500);
+    history.current = [
+      ...history.current.slice(-(STABLE_WINDOW - 1)),
+      liveVoltage,
+    ];
+    const n = history.current.length;
+    const pct = Math.min(100, Math.round((n / STABLE_WINDOW) * 100));
+    setProgress(pct);
 
-    return () => clearInterval(interval.current);
-  }, [active]);
+    if (n >= STABLE_WINDOW) {
+      const mean = history.current.reduce((a, b) => a + b, 0) / n;
+      const variance =
+        history.current.reduce((sum, v) => sum + (v - mean) ** 2, 0) / n;
+      const stdDev = Math.sqrt(variance);
+      setStable(stdDev < STABLE_VARIANCE);
+    }
+  }, [liveVoltage, active]);
 
-  return { voltage, stable };
+  return { stable, progress };
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
 export default function ECCalibrationScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors;
   const fullFlow = route?.params?.fullFlow ?? false;
   const phCalData = route?.params?.phCalData ?? null;
 
+  const { sendCommand, sensorData, isConnected, log } = useBLE();
+
   const [step, setStep] = useState(0);
-  const [phase, setPhase] = useState('prep'); // 'prep' | 'reading' | 'done'
+  const [phase, setPhase] = useState('prep');
   const [captured, setCaptured] = useState({});
+  const [cmdError, setCmdError] = useState(null);
+  const [isCalibrationStarted, setIsCalibrationStarted] = useState(false);
 
   const point = EC_POINTS[step];
-  const { voltage, stable } = useLiveVoltage(
-    phase === 'reading' ? step + 1 : 0,
-  );
+  const isReading = phase === 'reading' || phase === 'capturing';
+  const liveVoltage = sensorData?.voltage ?? null;
+
+  const { stable, progress } = useStabilityTracker(liveVoltage, isReading);
 
   const pulse = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (phase !== 'reading') return;
-    const anim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1.5,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    anim.start();
-    return () => anim.stop();
-  }, [phase]);
+  const pulseAnim = useRef(null);
 
-  const handleCapture = useCallback(() => {
-    if (!stable) {
+  useEffect(() => {
+    if (isReading) {
+      pulseAnim.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, {
+            toValue: 1.5,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulse, {
+            toValue: 1.0,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      pulseAnim.current.start();
+    } else {
+      pulseAnim.current?.stop();
+      pulse.setValue(1);
+    }
+    return () => pulseAnim.current?.stop();
+  }, [isReading, pulse]);
+
+  const handleStartReading = useCallback(async () => {
+    if (!isConnected) {
       Alert.alert(
-        'Not Stable',
-        'Wait for the reading to stabilise before capturing.',
+        'Not connected',
+        'Connect to your device before calibrating.',
       );
       return;
     }
-    setCaptured(prev => ({
-      ...prev,
-      [point.id]: { voltage, standardEC: point.standardEC },
-    }));
-    setPhase('done');
-  }, [stable, voltage, point]);
+    setPhase('starting');
+    setCmdError(null);
+    log(
+      'EC_CAL',
+      `Starting EC calibration at step ${step} (${point.standardEC} dS/m)`,
+    );
 
-  const handleNext = useCallback(() => {
+    try {
+      // Begin calibration session on first point only
+      if (step === 0 && !isCalibrationStarted) {
+        await sendCommand(CMD.START_EC_CAL, '', true, 5000);
+        log('EC_CAL', 'CAL_EC_START acknowledged ✅', 'success');
+        setIsCalibrationStarted(true);
+      }
+
+      // Request continuous voltage readings
+      await sendCommand(CMD.START_READING, '', true, 5000);
+      log('EC_CAL', 'Voltage reading started ✅', 'success');
+
+      setPhase('reading');
+    } catch (e) {
+      log('EC_CAL', `Start error: ${e.message}`, 'error');
+      setCmdError(`Failed to start reading: ${e.message}`);
+      setPhase('prep');
+    }
+  }, [isConnected, step, point, sendCommand, log, isCalibrationStarted]);
+
+  const handleCapture = useCallback(async () => {
+    if (!stable) {
+      Alert.alert(
+        'Not Stable',
+        'Wait for the voltage to stabilise before capturing.',
+      );
+      return;
+    }
+    if (liveVoltage == null) {
+      Alert.alert('No Reading', 'No voltage data received from device.');
+      return;
+    }
+
+    setPhase('capturing');
+    log('EC_CAL', `Capturing EC ${point.standardEC} dS/m @ ${liveVoltage} V`);
+
+    try {
+      // Send calibration point to device: CAL_EC:<standardEC>
+      const resp = await sendCommand(
+        CMD.CAL_EC_POINT,
+        `${point.standardEC.toFixed(3)}`,
+        true,
+        6000,
+      );
+      log('EC_CAL', `CAL_EC:${point.standardEC} response: ${resp}`, 'success');
+
+      setCaptured(prev => ({
+        ...prev,
+        [point.id]: { voltage: liveVoltage, standardEC: point.standardEC },
+      }));
+      setPhase('done');
+    } catch (e) {
+      log('EC_CAL', `Capture error: ${e.message}`, 'error');
+      setCmdError(`Capture failed: ${e.message}`);
+      setPhase('reading');
+    }
+  }, [stable, liveVoltage, point, sendCommand, log]);
+
+  const handleNext = useCallback(async () => {
     if (step < EC_POINTS.length - 1) {
       setStep(s => s + 1);
       setPhase('prep');
+      setCmdError(null);
     } else {
-      // Build final calibration payload
+      // Last point done — commit calibration
+      log('EC_CAL', 'All EC points captured — sending CAL_EC_DONE');
+      try {
+        await sendCommand(CMD.CAL_EC_DONE, '', true, 6000);
+        log('EC_CAL', 'EC calibration committed ✅', 'success');
+      } catch (e) {
+        log('EC_CAL', `CAL_EC_DONE warning: ${e.message}`, 'warn');
+      }
+
+      // Stop reading
+      try {
+        await sendCommand(CMD.STOP_READING, '', false);
+      } catch (_) {}
+
       const ecCalData = {
         type: 'ec',
         timestamp: Date.now(),
@@ -148,40 +235,37 @@ export default function ECCalibrationScreen({ navigation, route }) {
           voltage: captured[p.id]?.voltage ?? null,
         })),
       };
-
-      const fullCalibration = {
-        savedAt: Date.now(),
-        ph: phCalData ?? null,
-        ec: ecCalData,
-      };
-
-      // saveCalibrationToDevice(fullCalibration);  ← real HW write
-      console.log(
-        '[CAL] Full calibration saved:\n',
-        JSON.stringify(fullCalibration, null, 2),
-      );
+      log('EC_CAL', `EC cal data: ${JSON.stringify(ecCalData)}`);
 
       navigation.replace('CalibrationSummaryScreen', {
         phCalData,
         ecCalData,
       });
     }
-  }, [step, captured, phCalData, navigation]);
+  }, [step, captured, phCalData, navigation, sendCommand, log]);
 
-  const handleSkip = useCallback(() => {
+  const handleSkip = useCallback(async () => {
+    log('EC_CAL', `Skipping EC ${point.standardEC} dS/m`);
+    try {
+      await sendCommand(CMD.STOP_READING, '', false);
+    } catch (_) {}
     setCaptured(prev => ({ ...prev, [point.id]: null }));
-    handleNext();
-  }, [point.id, handleNext]);
+    if (step < EC_POINTS.length - 1) {
+      setStep(s => s + 1);
+      setPhase('prep');
+    } else {
+      handleNext();
+    }
+  }, [point, step, sendCommand, handleNext, log]);
 
   const isDone = phase === 'done';
-  const isReading = phase === 'reading';
-  const isPrep = phase === 'prep';
-  const allDone = step === EC_POINTS.length - 1 && isDone;
+  const isStarting = phase === 'starting';
+  const isCapturing = phase === 'capturing';
+  const allPointsDone = step === EC_POINTS.length - 1 && isDone;
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
-
       <TopBar
         title="EC Calibration"
         onBack={() => navigation.goBack()}
@@ -189,7 +273,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
       />
 
       <ScrollView contentContainerStyle={s.scroll} bounces={false}>
-        {/* ── Step Progress ─────────────────────────────────────────────── */}
+        {/* Step progress */}
         <View style={s.stepRow}>
           {EC_POINTS.map((p, i) => {
             const done = captured[p.id] !== undefined;
@@ -242,7 +326,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
           })}
         </View>
 
-        {/* ── Point Header ──────────────────────────────────────────────── */}
+        {/* Point header */}
         <View
           style={[
             s.pointHeader,
@@ -263,22 +347,43 @@ export default function ECCalibrationScreen({ navigation, route }) {
           </View>
         </View>
 
-        {/* ── PREP ─────────────────────────────────────────────────────── */}
-        {isPrep && (
+        {/* Error banner */}
+        {cmdError && (
+          <View
+            style={[
+              s.errorBanner,
+              { backgroundColor: '#EF444422', borderColor: '#EF4444' },
+            ]}
+          >
+            <Icon name="alert-circle" size={16} color="#EF4444" />
+            <Text style={[s.errorText, { color: '#EF4444' }]}>{cmdError}</Text>
+            <TouchableOpacity onPress={() => setCmdError(null)}>
+              <Icon name="close" size={16} color="#EF4444" />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* PREP PHASE */}
+        {phase === 'prep' && (
           <View
             style={[s.card, { backgroundColor: T.card, borderColor: T.border }]}
           >
             <Text style={[s.cardTitle, { color: T.white }]}>
-              📋 Preparation Required
+              📋 Preparation
             </Text>
             <Text style={[s.cardText, { color: T.text }]}>{point.prepMsg}</Text>
 
-            <View style={[s.prepSteps, { borderColor: T.border }]}>
+            <View
+              style={[
+                s.prepSteps,
+                { borderColor: T.border, backgroundColor: T.cardAlt },
+              ]}
+            >
               {[
-                'Clean probe with distilled water',
+                'Ensure probe is clean and connected to device',
                 'Pour standard EC solution into beaker',
-                'Submerge probe tip completely',
-                'Wait 20–30 sec to stabilise',
+                'Insert probe fully (tip submerged)',
+                'Tap "Start Reading" when ready',
               ].map((t, i) => (
                 <View key={i} style={s.prepStep}>
                   <View style={[s.prepDot, { backgroundColor: point.color }]}>
@@ -291,24 +396,45 @@ export default function ECCalibrationScreen({ navigation, route }) {
 
             <TouchableOpacity
               style={[s.btnPrimary, { backgroundColor: point.color }]}
-              onPress={() => setPhase('reading')}
+              onPress={handleStartReading}
               activeOpacity={0.85}
             >
-              <Icon name="play" size={18} color="#fff" />
+              <Icon name="play-circle" size={20} color="#fff" />
               <Text style={s.btnPrimaryText}>Start Reading</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* ── READING ───────────────────────────────────────────────────── */}
-        {isReading && (
+        {/* STARTING PHASE */}
+        {isStarting && (
           <View
             style={[
               s.card,
+              { backgroundColor: T.card, borderColor: point.color + '55' },
+            ]}
+          >
+            <View style={s.centeredRow}>
+              <ActivityIndicator color={point.color} size="large" />
+              <Text style={[s.cardTitle, { color: T.white, marginTop: 12 }]}>
+                Initialising device…
+              </Text>
+              <Text
+                style={[s.cardText, { color: T.muted, textAlign: 'center' }]}
+              >
+                Sending calibration command to ESP32
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* READING PHASE */}
+        {(phase === 'reading' || phase === 'capturing') && (
+          <View
+            style={[
+              s.readCard,
               {
                 backgroundColor: T.card,
-                borderColor: point.color + '66',
-                borderWidth: 1.5,
+                borderColor: stable ? point.color : T.border,
               },
             ]}
           >
@@ -317,15 +443,18 @@ export default function ECCalibrationScreen({ navigation, route }) {
                 style={[
                   s.liveDot,
                   {
-                    backgroundColor: stable ? T.primary : T.warning,
+                    backgroundColor: stable ? point.color : '#F59E0B',
                     transform: [{ scale: pulse }],
                   },
                 ]}
               />
               <Text
-                style={[s.liveText, { color: stable ? T.primary : T.warning }]}
+                style={[
+                  s.liveText,
+                  { color: stable ? point.color : '#F59E0B' },
+                ]}
               >
-                {stable ? 'Stable — Ready to Capture' : 'Stabilising…'}
+                {stable ? '● STABLE' : '● LIVE — stabilising…'}
               </Text>
             </View>
 
@@ -333,36 +462,21 @@ export default function ECCalibrationScreen({ navigation, route }) {
               <View
                 style={[
                   s.readBox,
-                  { borderColor: T.border, backgroundColor: T.cardAlt },
+                  { borderColor: point.color + '66', flex: 2 },
                 ]}
               >
-                <Text style={[s.readLabel, { color: T.muted }]}>Live EC</Text>
-                <Text style={[s.readValue, { color: T.primary }]}>
-                  {point.standardEC?.toFixed(3)}
+                <Text style={[s.readLabel, { color: T.muted }]}>VOLTAGE</Text>
+                <Text style={[s.readValue, { color: point.color }]}>
+                  {liveVoltage != null ? liveVoltage.toFixed(4) : '---'}
+                </Text>
+                <Text style={[s.readUnit, { color: T.muted }]}>V</Text>
+              </View>
+              <View style={[s.readBox, { borderColor: T.border }]}>
+                <Text style={[s.readLabel, { color: T.muted }]}>TARGET</Text>
+                <Text style={[s.readValue, { color: T.white, fontSize: 20 }]}>
+                  {point.standardEC}
                 </Text>
                 <Text style={[s.readUnit, { color: T.primary }]}>dS/m</Text>
-              </View>
-              <View
-                style={[
-                  s.readBox,
-                  {
-                    borderColor: stable ? point.color : T.warning,
-                    backgroundColor: stable
-                      ? point.color + '18'
-                      : 'rgba(245,158,11,0.1)',
-                  },
-                ]}
-              >
-                <Text style={[s.readLabel, { color: T.muted }]}>Voltage</Text>
-                <Text
-                  style={[
-                    s.readValue,
-                    { color: stable ? point.color : T.warning },
-                  ]}
-                >
-                  {voltage.toFixed(4)}
-                </Text>
-                <Text style={[s.readUnit, { color: T.primary }]}>V</Text>
               </View>
             </View>
 
@@ -371,56 +485,65 @@ export default function ECCalibrationScreen({ navigation, route }) {
                 style={[
                   s.stabilityFill,
                   {
-                    backgroundColor: stable ? T.primary : T.warning,
-                    width: stable ? '100%' : '55%',
+                    width: `${progress}%`,
+                    backgroundColor: stable ? point.color : '#F59E0B',
                   },
                 ]}
               />
             </View>
-            <Text style={[s.stabilityLabel, { color: T.muted }]}>
+            <Text
+              style={[
+                s.stabilityLabel,
+                { color: stable ? point.color : T.muted },
+              ]}
+            >
               {stable
-                ? '✅ Signal stable'
-                : '⏳ Waiting for signal to stabilise…'}
+                ? '✅ Reading stable — ready to capture'
+                : `Collecting samples… ${progress}%`}
             </Text>
 
             <View style={s.actionRow}>
               <TouchableOpacity
-                style={[s.btnOutline, { borderColor: T.border, flex: 1 }]}
-                onPress={handleSkip}
-              >
-                <Text style={[s.btnOutlineText, { color: T.muted }]}>Skip</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 style={[
                   s.btnCapture,
-                  { backgroundColor: stable ? point.color : T.border, flex: 2 },
+                  {
+                    flex: 2,
+                    backgroundColor: stable ? point.color : T.border,
+                    opacity: isCapturing ? 0.7 : 1,
+                  },
                 ]}
                 onPress={handleCapture}
-                disabled={!stable}
+                disabled={!stable || isCapturing}
+                activeOpacity={0.85}
               >
-                <Icon
-                  name="check-circle"
-                  size={18}
-                  color={stable ? '#fff' : T.muted}
-                />
-                <Text
-                  style={[
-                    s.btnCaptureText,
-                    { color: stable ? '#fff' : T.muted },
-                  ]}
-                >
-                  Capture
+                {isCapturing ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Icon name="check-circle" size={18} color="#fff" />
+                )}
+                <Text style={[s.btnCaptureText, { color: '#fff' }]}>
+                  {isCapturing
+                    ? 'Sending to device…'
+                    : `Capture EC ${point.standardEC}`}
                 </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[s.btnOutline, { flex: 1, borderColor: T.border }]}
+                onPress={handleSkip}
+                disabled={isCapturing}
+              >
+                <Text style={[s.btnOutlineText, { color: T.muted }]}>Skip</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
 
-        {/* ── DONE ─────────────────────────────────────────────────────── */}
+        {/* DONE PHASE */}
         {isDone && (
           <View
             style={[
-              s.card,
+              s.doneCard,
               {
                 backgroundColor: T.card,
                 borderColor: captured[point.id] ? T.primary : T.border,
@@ -447,17 +570,15 @@ export default function ECCalibrationScreen({ navigation, route }) {
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[s.cardTitle, { color: T.white }]}>
+                <Text style={[s.doneTitle, { color: T.white }]}>
                   EC {point.standardEC} dS/m{' '}
-                  {captured[point.id] ? 'Captured' : 'Skipped'}
+                  {captured[point.id] ? 'Captured ✅' : 'Skipped'}
                 </Text>
                 {captured[point.id] && (
-                  <Text
-                    style={[s.cardText, { color: T.muted, marginBottom: 0 }]}
-                  >
+                  <Text style={[s.doneVoltage, { color: T.muted }]}>
                     Voltage:{' '}
                     <Text style={{ color: T.primary }}>
-                      {captured[point.id]?.voltage?.toFixed(4)} V
+                      {captured[point.id].voltage.toFixed(4)} V
                     </Text>
                   </Text>
                 )}
@@ -467,11 +588,11 @@ export default function ECCalibrationScreen({ navigation, route }) {
             {Object.keys(captured).length > 0 && (
               <View style={[s.capturedList, { borderColor: T.border }]}>
                 <Text style={[s.capturedListTitle, { color: T.muted }]}>
-                  Points Recorded
+                  Calibration Points Recorded
                 </Text>
                 {EC_POINTS.filter(p => captured[p.id] !== undefined).map(p => (
                   <View key={p.id} style={s.capturedRow}>
-                    <Text style={{ fontSize: 16 }}>
+                    <Text style={{ fontSize: 18 }}>
                       {captured[p.id] ? '✅' : '➖'}
                     </Text>
                     <Text style={[s.capturedRowLabel, { color: T.text }]}>
@@ -495,13 +616,14 @@ export default function ECCalibrationScreen({ navigation, route }) {
             <TouchableOpacity
               style={[
                 s.btnPrimary,
-                { backgroundColor: allDone ? T.primary : point.color },
+                { backgroundColor: allPointsDone ? T.primary : point.color },
               ]}
               onPress={handleNext}
+              activeOpacity={0.85}
             >
               <Text style={s.btnPrimaryText}>
-                {allDone
-                  ? 'Save Calibration & Continue →'
+                {allPointsDone
+                  ? 'Save & Finish EC Calibration'
                   : `Next: EC ${EC_POINTS[step + 1]?.standardEC} dS/m →`}
               </Text>
               <Icon name="arrow-right" size={18} color="#fff" />
@@ -509,15 +631,19 @@ export default function ECCalibrationScreen({ navigation, route }) {
           </View>
         )}
 
-        {!isDone && (
+        {/* Skip all */}
+        {!isDone && !isStarting && (
           <TouchableOpacity
             style={s.skipAll}
-            onPress={() =>
+            onPress={async () => {
+              try {
+                await sendCommand(CMD.STOP_READING, '', false);
+              } catch (_) {}
               navigation.replace('CalibrationSummaryScreen', {
                 phCalData,
                 ecCalData: null,
-              })
-            }
+              });
+            }}
           >
             <Text style={[s.skipAllText, { color: T.muted }]}>
               Skip EC Calibration Entirely
@@ -547,7 +673,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 4,
   },
-  stepLabel: { fontSize: 10, fontWeight: '700', textAlign: 'center' },
+  stepNum: { fontSize: 13, fontWeight: '900' },
+  stepLabel: { fontSize: 11, fontWeight: '700' },
   stepLine: { flex: 1, height: 2, marginBottom: 20 },
   pointHeader: {
     flexDirection: 'row',
@@ -558,8 +685,18 @@ const s = StyleSheet.create({
     padding: Spacing.md,
     marginBottom: Spacing.md,
   },
-  pointTitle: { fontSize: 15, fontWeight: '800' },
+  pointTitle: { fontSize: 16, fontWeight: '800' },
   pointSub: { fontSize: 13, marginTop: 2 },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  errorText: { flex: 1, fontSize: 12, fontWeight: '600' },
   card: {
     borderRadius: Radius.lg,
     borderWidth: 1,
@@ -567,11 +704,8 @@ const s = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   cardTitle: { fontSize: 15, fontWeight: '800', marginBottom: Spacing.sm },
-  cardText: {
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: Spacing.md,
-  },
+  cardText: { fontSize: 13, lineHeight: 20, marginBottom: Spacing.md },
+  centeredRow: { alignItems: 'center', paddingVertical: Spacing.lg },
   prepSteps: {
     borderRadius: Radius.md,
     borderWidth: 1,
@@ -589,6 +723,12 @@ const s = StyleSheet.create({
   },
   prepDotNum: { color: '#fff', fontSize: 11, fontWeight: '900' },
   prepStepText: { fontSize: 13, flex: 1 },
+  readCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
   liveRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -625,6 +765,12 @@ const s = StyleSheet.create({
     marginBottom: Spacing.md,
     textAlign: 'center',
   },
+  doneCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
   doneHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -638,6 +784,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  doneTitle: { fontSize: 16, fontWeight: '800' },
+  doneVoltage: { fontSize: 13, marginTop: 3 },
   capturedList: {
     borderRadius: Radius.md,
     borderWidth: 1,
@@ -654,11 +802,10 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingVertical: 5,
+    paddingVertical: 6,
   },
-  capturedRowLabel: { flex: 1, fontSize: 13, fontWeight: '700' },
-  capturedRowVal: { fontSize: 13, fontWeight: '800', fontFamily: 'Courier' },
-  actionRow: { flexDirection: 'row', gap: 12 },
+  capturedRowLabel: { flex: 1, fontSize: 14, fontWeight: '700' },
+  capturedRowVal: { fontSize: 14, fontWeight: '800', fontFamily: 'Courier' },
   btnPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -668,7 +815,7 @@ const s = StyleSheet.create({
     borderRadius: Radius.lg,
     marginTop: Spacing.xs,
   },
-  btnPrimaryText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  btnPrimaryText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   btnOutline: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -687,6 +834,7 @@ const s = StyleSheet.create({
     borderRadius: Radius.lg,
   },
   btnCaptureText: { fontSize: 15, fontWeight: '800' },
+  actionRow: { flexDirection: 'row', gap: 12 },
   skipAll: { alignItems: 'center', paddingVertical: Spacing.md },
   skipAllText: { fontSize: 13, textDecorationLine: 'underline' },
 });

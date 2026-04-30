@@ -1,26 +1,27 @@
-// src/screens/phtest/PHECResultScreen.js
-// Reads pH & EC from hardware device and displays results with status
+// src/screens/phtest/PHECResultScreen.jsx
+// Reads pH & EC from hardware device and displays results with BLE integration
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ScrollView,
   TouchableOpacity,
   Modal,
   Animated,
   Easing,
+  Alert,
 } from 'react-native';
-import { Radius, Spacing, Typography } from '../theme';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Radius, Spacing } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useBLE, CMD } from '../contexts/BLEContext';
 
-// ─── Interpretation helpers ───────────────────────────────────────────────────
-
+// Interpretation helpers
 function getPHStatus(ph, T) {
   if (ph === null || ph === undefined) return null;
   if (ph < 5.5)
@@ -123,69 +124,111 @@ function getECStatus(ec, T) {
   };
 }
 
-// Simulate reading from hardware — replace with real BLE/serial read
-function useHardwareReading() {
-  const [ph, setPH] = useState(null);
-  const [ec, setEC] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Simulate 2s acquisition delay from hardware
-    const t = setTimeout(() => {
-      // In real app: const { ph, ec } = await readFromDevice();
-      setPH(parseFloat((6.3 + (Math.random() - 0.5) * 0.4).toFixed(2)));
-      setEC(parseFloat((1.82 + (Math.random() - 0.5) * 1.2).toFixed(3)));
-      setLoading(false);
-    }, 2200);
-    return () => clearTimeout(t);
-  }, []);
-
-  return { ph, ec, loading };
-}
-
-// ─── Component ──────────────────���─────────────────────────────────────────────
 export default function PHECResultScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
-  const { ph, ec, loading } = useHardwareReading();
+  const { sendCommand, sensorData, isConnected, log } = useBLE();
 
-  const phStatus = getPHStatus(ph, T);
-  const ecStatus = getECStatus(ec, T);
+  const [reading, setReading] = useState({
+    ph: null,
+    ec: null,
+    loading: true,
+    error: null,
+  });
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [hasShownAlert, setHasShownAlert] = useState(false);
 
-  // Loading animation
   const spinAnim = useRef(new Animated.Value(0)).current;
+
   useEffect(() => {
-    if (!loading) return;
-    Animated.loop(
-      Animated.timing(spinAnim, {
-        toValue: 1,
-        duration: 1000,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-    ).start();
-  }, [loading]);
+    const acquireReadings = async () => {
+      if (!isConnected) {
+        setReading(prev => ({
+          ...prev,
+          loading: false,
+          error: 'Device not connected',
+        }));
+        return;
+      }
+
+      try {
+        log('RESULT', 'Requesting final pH & EC readings...');
+
+        // Send READ_VOLTAGE command to trigger a single comprehensive reading
+        await sendCommand(CMD.READ_VOLTAGE, '', true, 8000);
+        log('RESULT', 'Read command sent, waiting for data...', 'success');
+
+        // Wait a bit for the sensor data to be populated via notifications
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        const { ph, ec, voltage } = sensorData;
+
+        if (ph === null && ec === null) {
+          log('RESULT', 'No sensor data received', 'warn');
+          setReading(prev => ({
+            ...prev,
+            loading: false,
+            error: 'Could not acquire sensor readings. Try again.',
+          }));
+        } else {
+          setReading({
+            ph,
+            ec,
+            loading: false,
+            error: null,
+          });
+          log('RESULT', `pH: ${ph}, EC: ${ec}`, 'success');
+        }
+      } catch (e) {
+        log('RESULT', `Reading error: ${e.message}`, 'error');
+        setReading(prev => ({
+          ...prev,
+          loading: false,
+          error: `Failed to read from device: ${e.message}`,
+        }));
+      }
+    };
+
+    acquireReadings();
+  }, [isConnected, sensorData, sendCommand, log]);
+
+  useEffect(() => {
+    if (reading.loading) {
+      Animated.loop(
+        Animated.timing(spinAnim, {
+          toValue: 1,
+          duration: 1000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ).start();
+    }
+  }, [reading.loading]);
+
   const spin = spinAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
   });
 
-  // Alert modal state - FIX: Added hasShownAlert to prevent re-triggering
-  const [alertVisible, setAlertVisible] = useState(false);
-  const [hasShownAlert, setHasShownAlert] = useState(false);
+  const phStatus = getPHStatus(reading.ph, T);
+  const ecStatus = getECStatus(reading.ec, T);
 
   useEffect(() => {
-    // if (!loading && ecStatus?.alert && !hasShownAlert) {
-    //   const t = setTimeout(() => {
-    //     setAlertVisible(true);
-    //     setHasShownAlert(true);
-    //   }, 600);
-    //   return () => clearTimeout(t);
-    // }
-    setAlertVisible(true);
-  }, [loading, ecStatus?.alert, hasShownAlert]);
+    if (
+      !reading.loading &&
+      ecStatus?.alert &&
+      !hasShownAlert &&
+      !reading.error
+    ) {
+      const t = setTimeout(() => {
+        setAlertVisible(true);
+        setHasShownAlert(true);
+      }, 600);
+      return () => clearTimeout(t);
+    }
+  }, [reading.loading, ecStatus?.alert, hasShownAlert, reading.error]);
 
-  if (loading) {
+  if (reading.loading) {
     return (
       <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
         <StatusBar barStyle="light-content" backgroundColor={T.bg} />
@@ -209,6 +252,31 @@ export default function PHECResultScreen({ navigation }) {
     );
   }
 
+  if (reading.error) {
+    return (
+      <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
+        <StatusBar barStyle="light-content" backgroundColor={T.bg} />
+        <TopBar
+          title="Reading Error"
+          onBack={() => navigation.goBack()}
+          theme={theme}
+        />
+        <View style={s.loadingBody}>
+          <Icon name="alert-circle" size={56} color="#EF4444" />
+          <Text style={[s.loadingText, { color: '#EF4444' }]}>
+            {reading.error}
+          </Text>
+          <TouchableOpacity
+            style={[s.retryBtn, { backgroundColor: T.primary }]}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={s.retryBtnText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
@@ -220,7 +288,7 @@ export default function PHECResultScreen({ navigation }) {
       />
 
       <ScrollView contentContainerStyle={s.scroll}>
-        {/* ── Big readings row ──────────────────────────────────────────── */}
+        {/* Big readings row */}
         <View style={s.bigRow}>
           {/* pH Big Card */}
           <View
@@ -240,7 +308,7 @@ export default function PHECResultScreen({ navigation }) {
               </Text>
             </View>
             <Text style={[s.bigValue, { color: phStatus?.color ?? T.white }]}>
-              {ph?.toFixed(2)}
+              {reading.ph?.toFixed(2)}
             </Text>
             <Text style={[s.bigStatus, { color: phStatus?.color }]}>
               {phStatus?.emoji} {phStatus?.label}
@@ -265,7 +333,7 @@ export default function PHECResultScreen({ navigation }) {
               </Text>
             </View>
             <Text style={[s.bigValue, { color: ecStatus?.color ?? T.white }]}>
-              {ec?.toFixed(3)}
+              {reading.ec?.toFixed(3)}
             </Text>
             <Text style={[s.bigUnit, { color: T.muted }]}>dS/m</Text>
             <Text style={[s.bigStatus, { color: ecStatus?.color }]}>
@@ -274,7 +342,7 @@ export default function PHECResultScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ── pH Detail ─────────────────────────────────────────────────── */}
+        {/* pH Detail */}
         <DetailCard
           icon="ph"
           title="pH Analysis"
@@ -283,7 +351,7 @@ export default function PHECResultScreen({ navigation }) {
           rows={[
             {
               label: 'Measured Value',
-              value: `${ph?.toFixed(2)}`,
+              value: `${reading.ph?.toFixed(2)}`,
               highlight: true,
             },
             { label: 'Optimal Range', value: '6.0 – 7.0' },
@@ -292,7 +360,7 @@ export default function PHECResultScreen({ navigation }) {
           ]}
         />
 
-        {/* ── EC Detail ─────────────────────────────────────────────────── */}
+        {/* EC Detail */}
         <DetailCard
           icon="lightning-bolt"
           title="EC Analysis"
@@ -301,7 +369,7 @@ export default function PHECResultScreen({ navigation }) {
           rows={[
             {
               label: 'Measured Value',
-              value: `${ec?.toFixed(3)} dS/m`,
+              value: `${reading.ec?.toFixed(3)} dS/m`,
               highlight: true,
             },
             { label: 'Optimal Range', value: '0.8 – 1.6 dS/m' },
@@ -311,9 +379,9 @@ export default function PHECResultScreen({ navigation }) {
         />
 
         {/* pH scale visual */}
-        <PHScale value={ph} T={T} />
+        <PHScale value={reading.ph} T={T} />
 
-        {/* ── Actions ───────────────────────────────────────────────────── */}
+        {/* Actions */}
         <TouchableOpacity
           style={[s.ctaBtn, { backgroundColor: T.primary }]}
           onPress={() => navigation.navigate('RecommendationsScreen')}
@@ -334,7 +402,7 @@ export default function PHECResultScreen({ navigation }) {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ── EC Alert Modal ────────────────────────────────────────────── */}
+      {/* EC Alert Modal */}
       <Modal visible={alertVisible} transparent animationType="fade">
         <View style={m.overlay}>
           <View
@@ -352,7 +420,7 @@ export default function PHECResultScreen({ navigation }) {
             <Text style={[m.body, { color: T.text }]}>
               EC value of{' '}
               <Text style={{ color: T.offline, fontWeight: '900' }}>
-                {ec?.toFixed(3)} dS/m
+                {reading.ec?.toFixed(3)} dS/m
               </Text>{' '}
               indicates excessive mineral salts in the soil.
             </Text>
@@ -373,8 +441,7 @@ export default function PHECResultScreen({ navigation }) {
   );
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
+// Sub-components
 function DetailCard({ icon, title, color, T, rows }) {
   return (
     <View
@@ -460,7 +527,7 @@ function PHScale({ value, T }) {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// Styles
 const s = StyleSheet.create({
   container: { flex: 1 },
   scroll: { padding: Spacing.md, paddingBottom: Spacing.xl },
@@ -472,6 +539,15 @@ const s = StyleSheet.create({
   },
   loadingText: { fontSize: 18, fontWeight: '800' },
   loadingSub: { fontSize: 13 },
+  retryBtn: {
+    height: 52,
+    borderRadius: Radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+  },
+  retryBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   bigRow: { flexDirection: 'row', gap: 12, marginBottom: Spacing.md },
   bigCard: {
     flex: 1,

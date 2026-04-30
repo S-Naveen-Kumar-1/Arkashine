@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  SafeAreaView,
   StatusBar,
   View,
   Text,
@@ -11,6 +10,8 @@ import {
   Animated,
   StyleSheet,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { BleManager } from 'react-native-ble-plx';
 import { requestBLEPermissions } from '../../utils/permissions';
 const bleManager = new BleManager();

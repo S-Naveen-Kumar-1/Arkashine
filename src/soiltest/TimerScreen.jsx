@@ -1,11 +1,12 @@
 // src/screens/test/TimerScreen.js
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, StatusBar } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { testPourDetected } from '../redux/actions';
 import { AppButton, ProgressRing } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Typography } from '../theme';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export function TimerScreen({ navigation }) {
   const theme = useTheme();

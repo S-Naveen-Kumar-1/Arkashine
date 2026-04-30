@@ -22,6 +22,7 @@ import ECCalibrationScreen from './phtest/ECCalibrationScreen';
 import CalibrationSummaryScreen from './phtest/CalibrationSummaryScreen';
 import MixerScreen from './phtest/MixerScreen';
 import Phecresultscreen from './phtest/Phecresultscreen'; 
+import { ScanScreen } from './screens/ble/DeviceScanScreen';
 export const AppStack = () => {
   return (
     <NavigationContainer>
@@ -194,6 +195,15 @@ export const AppStack = () => {
             // gestureEnabled: false,
           }}
         />
+           <Stack.Screen
+          name="ScanScreen"
+          component={ScanScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  SafeAreaView,
   StatusBar,
   ScrollView,
   View,
@@ -9,6 +8,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { C } from '../utils/colors';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBLE } from '../contexts/BLEContext';
 
 export function CalibrationScreen({ navigation, route }) {

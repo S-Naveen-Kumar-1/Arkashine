@@ -26,7 +26,7 @@ export const PRODUCTS = [
     category: 'Testing',
     tag: 'Field Kit',
     active: true,
-    route: 'CalibrationGateScreen',
+    route: 'ScanScreen',
     stats: { tests: 87, lastUsed: '1d ago' },
   },
   {

@@ -4,7 +4,7 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
+
   StatusBar,
   SectionList,
 } from 'react-native';
@@ -12,6 +12,7 @@ import { useSelector } from 'react-redux';
 import { DayCard, TopBar, AppButton } from '../components/common';
 import { Spacing, Typography, Radius } from '../theme';
 import useTheme, { getRecommendations,getNutrientStatus } from '../hooks/useTheme';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export function RecommendationsScreen({ navigation }) {
   const theme = useTheme();

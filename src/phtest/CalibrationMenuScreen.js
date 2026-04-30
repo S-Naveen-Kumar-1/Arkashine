@@ -6,10 +6,10 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Radius, Spacing, Typography } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';

@@ -4,7 +4,7 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
+
   StatusBar,
   ScrollView,
   Alert,
@@ -17,6 +17,7 @@ import {
   Dropdown,
   TopBar,
 } from '../components/common';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 
 import { Spacing, Typography, Radius } from '../theme';

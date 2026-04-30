@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  SafeAreaView,
   StatusBar,
   Animated,
   View,
@@ -8,6 +7,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { C } from '../utils/colors';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export function SplashScreen({ navigation }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;

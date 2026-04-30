@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
 import {
-  SafeAreaView,
   StatusBar,
   ScrollView,
   View,
@@ -11,6 +10,7 @@ import {
 } from 'react-native';
 import { C } from '../utils/colors';
 import { useBLE } from '../contexts/BLEContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export function CommunicationTesterScreen({ navigation, route }) {
   const { user } = route.params;

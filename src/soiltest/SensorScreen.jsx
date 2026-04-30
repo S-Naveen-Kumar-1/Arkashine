@@ -4,7 +4,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Animated,
   Easing,
@@ -15,6 +14,7 @@ import { AppButton, ProgressRing } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Typography } from '../theme';
 import { nutrients } from '../utils/constants';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export function SensorScreen({ navigation }) {
   const dispatch = useDispatch();
@@ -196,12 +196,13 @@ export function SensorScreen({ navigation }) {
 const s = StyleSheet.create({
   bg: { flex: 1 },
 
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.lg,
-  },
+center: {
+  flex: 1,
+  alignItems: 'center',
+  justifyContent: 'flex-start', // ✅ FIX
+  padding: Spacing.lg,
+  paddingTop: 20, // optional spacing
+},
 
   sub: {
     fontSize: 14,

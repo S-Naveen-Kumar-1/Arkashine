@@ -4,10 +4,11 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { useSelector } from 'react-redux';
 import { NutrientCard, AppButton, TopBar, Card } from '../components/common';
 import useTheme, { getNutrientStatus } from '../hooks/useTheme';

@@ -5,11 +5,12 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Animated,
   Easing,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { useDispatch, useSelector } from 'react-redux';
 import { testPourDetected, startSettleTimer } from '../redux/actions';
 import { AppButton, TopBar } from '../components/common';
