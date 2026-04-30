@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { registerUser, toggleTheme } from '../store/actions';
+import { registerUser, toggleTheme } from '../redux/actions';
 import useTheme from '../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../theme';
 

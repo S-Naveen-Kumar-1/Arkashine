@@ -10,7 +10,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useDispatch } from 'react-redux';
-import { testReset } from '../store/actions';
+import { testReset } from '../redux/actions';
 import { AppButton, TopBar } from '../components/common';
 import { Spacing, Radius, Shadow, Typography } from '../theme';
 import useTheme from '../hooks/useTheme';

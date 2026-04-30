@@ -2,7 +2,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, StatusBar } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { testPourDetected } from '../store/actions';
+import { testPourDetected } from '../redux/actions';
 import { AppButton, ProgressRing } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Typography } from '../theme';

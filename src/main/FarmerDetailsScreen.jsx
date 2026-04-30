@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { saveFarmer, setLocation } from '../store/actions';
+import { saveFarmer, setLocation } from '../redux/actions';
 import {
   LabeledInput,
   AppButton,

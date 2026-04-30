@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useDispatch, useSelector } from 'react-redux';
-import { logoutUser, toggleTheme } from '../../store/actions';
+import { logoutUser, toggleTheme } from '../../redux/actions';
 import useTheme from '../../hooks/useTheme';
 import { Spacing, Radius, Shadow, Typography } from '../../theme';
 

@@ -11,7 +11,7 @@ import {
   Easing,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { testPourDetected, startSettleTimer } from '../store/actions';
+import { testPourDetected, startSettleTimer } from '../redux/actions';
 import { AppButton, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Radius, Typography, Shadow } from '../theme';

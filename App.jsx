@@ -1,6 +1,6 @@
 import { Provider } from 'react-redux';
 import { AppStack } from './src/router';
-import { store } from './src/store/store';
+import { store } from './src/redux/store';
 import FlashMessage from 'react-native-flash-message';
 
 function App() {
