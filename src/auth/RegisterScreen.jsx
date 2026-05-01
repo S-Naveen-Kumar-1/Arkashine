@@ -295,6 +295,7 @@ export default function RegisterScreen({ navigation }) {
             returnKeyType={returnKeyType}
             onSubmitEditing={onSubmitEditing}
             blurOnSubmit={false}
+            importantForAutofill="no"
           />
           {isValid && (
             <MaterialCommunityIcons
@@ -770,254 +771,248 @@ export default function RegisterScreen({ navigation }) {
               </Text>
             </Text>
           </TouchableOpacity>
-
-          {/* Terms */}
-          <View style={s.termsSection}>
-            <MaterialCommunityIcons
-              name="shield-check-outline"
-              size={14}
-              color={T.primary}
-            />
-            <Text style={[s.termsText, { color: T.muted }]}>
-              {' '}
-              Your data is encrypted and secure
-            </Text>
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
-
 const s = StyleSheet.create({
   bg: { flex: 1 },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
     borderBottomWidth: 0.5,
   },
+
   headerBtn: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 0.5,
   },
+
   headerTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    letterSpacing: 0.3,
   },
+
   scroll: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.lg,
-    paddingBottom: 80,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingBottom: 40,
   },
+
   progressSection: {
-    marginBottom: Spacing.xl,
-  },
-  progressInfo: {
     marginBottom: 12,
   },
+
+  progressInfo: {
+    marginBottom: 6,
+  },
+
   progressLabel: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
+
   progressTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
-    marginTop: 4,
   },
+
   progressBar: {
-    height: 4,
+    height: 3,
     borderRadius: 2,
   },
+
   progressFill: {
     height: '100%',
     borderRadius: 2,
   },
+
   contentCard: {
     borderRadius: Radius.xl,
-    borderWidth: 0.5,
-    padding: Spacing.xl,
-    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 12,
   },
-  stepContent: {},
+
   stepHeader: {
     alignItems: 'center',
-    marginBottom: Spacing.xl,
+    marginBottom: 10,
   },
+
   stepIcon: {
-    width: 72,
-    height: 72,
+    width: 52,
+    height: 52,
     borderRadius: Radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
-  },
-  stepTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: 0.2,
     marginBottom: 6,
   },
-  stepSubtitle: {
-    fontSize: 13,
-    fontWeight: '500',
+
+  stepTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 2,
   },
+
+  stepSubtitle: {
+    fontSize: 12,
+  },
+
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     borderRadius: Radius.md,
-    padding: 12,
-    marginBottom: Spacing.lg,
+    padding: 10,
+    marginBottom: 10,
     borderWidth: 1,
   },
+
   errorBannerText: {
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 12,
     flex: 1,
   },
+
+  /* ✅ MATCHED INPUTS */
   inputGroup: {
-    marginBottom: Spacing.lg,
+    marginBottom: 10,
   },
+
   inputHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 6,
   },
+
   iconBox: {
-    width: 40,
-    height: 40,
+    width: 28,
+    height: 28,
     borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 8,
   },
+
   inputLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 0.2,
-    marginBottom: 2,
-  },
-  inputHint: {
     fontSize: 12,
-    fontWeight: '400',
+    fontWeight: '600',
   },
+
+  inputHint: {
+    fontSize: 11,
+  },
+
   modernInput: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: Radius.lg,
-    paddingHorizontal: 14,
-    paddingVertical: 0,
-    height: 52,
+    borderRadius: Radius.md, // 🔥 MATCH LOGIN
+    paddingHorizontal: 12,
+    height: 46, // 🔥 MATCH LOGIN
   },
+
   modernTextInput: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    paddingVertical: 0,
+    fontSize: 14,
   },
+
+  /* OTHER */
   passwordRequirements: {
-    marginTop: -8,
-    marginBottom: Spacing.lg,
-    paddingHorizontal: 14,
+    marginTop: -4,
+    marginBottom: 10,
+    paddingHorizontal: 12,
   },
+
   requirement: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
+
   requirementText: {
-    fontSize: 12,
-    fontWeight: '500',
-    marginLeft: 8,
+    fontSize: 11,
+    marginLeft: 6,
   },
+
   showPassRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    marginBottom: Spacing.lg,
+    paddingVertical: 8,
+    marginBottom: 10,
   },
+
   showPassText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
   },
+
   summaryBox: {
     borderRadius: Radius.lg,
-    padding: 14,
-    marginBottom: Spacing.lg,
+    padding: 12,
+    marginBottom: 10,
     borderWidth: 1,
   },
+
   summaryItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
+
   summaryLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginLeft: 10,
+    fontSize: 12,
+    marginLeft: 8,
   },
+
   stepNavigation: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
   },
+
   backBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radius.md,
-    paddingVertical: 12,
-    borderWidth: 1.5,
-    gap: 6,
+    paddingVertical: 10,
+    borderWidth: 1,
   },
+
   backBtnText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
+
   nextBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radius.md,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    gap: 6,
+    paddingVertical: 12,
   },
+
   nextBtnText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
-    letterSpacing: 0.2,
   },
+
   signInFooter: {
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: 'center',
   },
+
   signInFooterText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  termsSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: Spacing.lg,
-    marginTop: Spacing.lg,
-    marginBottom: 40,
-  },
-  termsText: {
-    fontSize: 11,
-    fontWeight: '500',
-    letterSpacing: 0.2,
+    fontSize: 12,
   },
 });

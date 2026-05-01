@@ -80,7 +80,7 @@ export default function IntroScreen({ navigation }) {
               { color: T.text, textAlign: 'center', marginTop: 10 },
             ]}
           >
-             Soil Testing{'\n'}Made Easy
+            Soil Testing{'\n'}Made Easy
           </Text>
 
           <Text

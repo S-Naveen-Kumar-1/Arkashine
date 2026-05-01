@@ -322,11 +322,11 @@ export default function LoginScreen({ navigation }) {
             </View>
 
             {/* Forgot Password Link */}
-            <TouchableOpacity style={s.forgotBtn}>
+            {/* <TouchableOpacity style={s.forgotBtn}>
               <Text style={[s.forgotText, { color: T.primary }]}>
                 Forgot Password?
               </Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
 
             {/* Sign In Button */}
             <TouchableOpacity
