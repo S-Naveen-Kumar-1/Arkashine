@@ -1,14 +1,14 @@
-// src/screens/main/FarmerDetailsScreen.js
+// src/main/FarmerDetailsScreen.jsx
 import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ScrollView,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import { saveFarmer, setLocation } from '../redux/actions';
 import {
@@ -17,16 +17,16 @@ import {
   Dropdown,
   TopBar,
 } from '../components/common';
-
-
-import { Spacing, Typography, Radius } from '../theme';
-import useTheme, { getRecommendations,getNutrientStatus, CROPS } from '../hooks/useTheme';
+import { Spacing, Typography } from '../theme';
+import useTheme, { CROPS } from '../hooks/useTheme';
 
 export default function FarmerDetailsScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
+
   const farmer = useSelector(s => s.farmer);
+  const location = useSelector(s => s.farmer.location);
 
   const [name, setName] = useState(farmer.name || '');
   const [phone, setPhone] = useState(farmer.phone || '');
@@ -47,7 +47,6 @@ export default function FarmerDetailsScreen({ navigation }) {
   const handleGetLocation = () => {
     setLocLoad(true);
     setTimeout(() => {
-      // Simulate geolocation — replace with Geolocation.getCurrentPosition
       dispatch(
         setLocation({
           lat: 12.9716,
@@ -66,13 +65,13 @@ export default function FarmerDetailsScreen({ navigation }) {
     dispatch(saveFarmer({ name, phone, crop }));
     setTimeout(() => {
       setLoading(false);
-      navigation.navigate('Report');
+      navigation.navigate('ReportScreen');
     }, 600);
   };
 
   return (
     <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
-      <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={T.bg} />
       <TopBar
         title="Farmer Details"
         onBack={() => navigation.goBack()}
@@ -83,10 +82,14 @@ export default function FarmerDetailsScreen({ navigation }) {
         contentContainerStyle={s.scroll}
         keyboardShouldPersistTaps="handled"
       >
+        {/* ── Header ───────────────────────────────────────────── */}
         <View
           style={[
             s.headerCard,
-            { backgroundColor: T.primaryDim, borderColor: T.primary },
+            {
+              backgroundColor: T.primaryDim ?? T.primaryGlow,
+              borderColor: T.primary,
+            },
           ]}
         >
           <Text style={{ fontSize: 36 }}>👨‍🌾</Text>
@@ -94,12 +97,13 @@ export default function FarmerDetailsScreen({ navigation }) {
             <Text style={[Typography.h4, { color: T.primary }]}>
               Farmer Information
             </Text>
-            <Text style={[s.headerSub, { color: T.textSub }]}>
+            <Text style={[s.headerSub, { color: T.textSub ?? T.muted }]}>
               Enter details to generate a personalised soil report
             </Text>
           </View>
         </View>
 
+        {/* ── Inputs ───────────────────────────────────────────── */}
         <LabeledInput
           label="Farmer Name"
           value={name}
@@ -128,7 +132,7 @@ export default function FarmerDetailsScreen({ navigation }) {
         />
         {errors.crop ? <Text style={s.errorText}>{errors.crop}</Text> : null}
 
-        {/* Location */}
+        {/* ── Location ─────────────────────────────────────────── */}
         <View
           style={[
             s.locationBox,
@@ -136,14 +140,14 @@ export default function FarmerDetailsScreen({ navigation }) {
           ]}
         >
           <Text style={[s.locationLabel, { color: T.text }]}>📍 Location</Text>
-          <Text style={[s.locationVal, { color: T.textSub }]}>
-            {useSelector(s => s.farmer.location)?.address || 'Not set yet'}
+          <Text style={[s.locationVal, { color: T.muted }]}>
+            {location?.address || 'Not set yet'}
           </Text>
           <AppButton
-            label={locLoad ? 'Getting location...' : 'Get Location'}
+            label={locLoad ? 'Getting location…' : 'Get Location'}
             onPress={handleGetLocation}
             loading={locLoad}
-            color={T.blue}
+            color="#3B82F6"
             textColor="#fff"
             size="sm"
             icon="📡"
@@ -193,5 +197,3 @@ const s = StyleSheet.create({
   locationLabel: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
   locationVal: { fontSize: 13 },
 });
-
-// ─────────────────────────────────────────────────────────────────────────────

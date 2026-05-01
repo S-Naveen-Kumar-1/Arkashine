@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useDispatch, useSelector } from 'react-redux';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { loginUser, toggleTheme } from '../redux/actions/index';
+import { loginUser, toggleTheme, clearAuthError } from '../redux/actions/index';
 import { AppButton } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../theme';
@@ -53,10 +53,21 @@ export default function LoginScreen({ navigation }) {
     setErrors(e);
     return Object.keys(e).length === 0;
   };
+  const resetForm = () => {
+    setUsername('');
+    setPassword('');
+    setErrors({});
+    setFocusedInput(null);
+    setShowPass(false);
 
+    // clear redux error
+    dispatch(clearAuthError());
+
+    // remove focus
+    usernameRef.current?.blur();
+    passwordRef.current?.blur();
+  };
   const handleLogin = async () => {
-          navigation.navigate('AppTabs');
-
     if (!validate()) return;
     const loginres = await dispatch(loginUser({ username, password }));
     console.log('Login Response:', loginres.payload.data);
@@ -65,14 +76,21 @@ export default function LoginScreen({ navigation }) {
         message: 'Login Successful',
         type: 'success',
       });
+      navigation.navigate('AppTabs');
     } else {
+      showMessage({
+        message: loginres.payload?.error || 'Login Failed',
+        type: 'danger',
+      });
       console.log(
         'Login failed, error:',
         loginres.payload?.error || loginres.error,
       );
     }
-    navigation.navigate('AppTabs');
   };
+  useEffect(() => {
+    dispatch(clearAuthError());
+  }, []);
 
   const handleUsernameDone = () => {
     if (username.trim()) {
@@ -359,7 +377,10 @@ export default function LoginScreen({ navigation }) {
             {/* Register Link */}
             <TouchableOpacity
               style={s.registerLinkRow}
-              onPress={() => navigation.navigate('RegisterScreen')}
+              onPress={() => {
+                navigation.navigate('RegisterScreen');
+                resetForm();
+              }}
               activeOpacity={0.7}
             >
               <Text style={[s.registerText, { color: T.textSub }]}>
@@ -414,7 +435,7 @@ const s = StyleSheet.create({
   },
 
   logoCircle: {
-    width: 90,   // ↓ reduced
+    width: 90, // ↓ reduced
     height: 90,
     borderRadius: 26,
     borderWidth: 2,

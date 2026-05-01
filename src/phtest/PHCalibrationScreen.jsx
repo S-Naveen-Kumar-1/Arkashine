@@ -1,19 +1,24 @@
 // src/screens/phtest/PHCalibrationScreen.jsx
 // 3-point pH calibration.
-// Sends BLE command → waits for voltage in Redux sensorData → stores to Redux calibration.
+// • Mocks voltage oscillation until real BLE data arrives
+// • Once real value arrives → locks it, stops mock
+// • Captures on stable reading
+// • Reconnects device if disconnected mid-flow
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
   Animated,
   ScrollView,
   Alert,
+  Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../theme';
@@ -24,7 +29,9 @@ import {
   persistCalibration,
 } from '../redux/actions/calibrationActions';
 import { cmdCalibratePhPoint } from '../redux/actions/bleActions';
+import { startScan, connectDevice } from '../redux/actions/bleActions';
 
+// ─── pH buffer points ─────────────────────────────────────────────────────────
 const PH_POINTS = [
   {
     id: 'ph4',
@@ -32,6 +39,7 @@ const PH_POINTS = [
     standardPH: 4,
     color: '#EF4444',
     icon: 'numeric-4-circle-outline',
+    mockBase: 0.42, // mock voltage center for pH 4
     prepMsg:
       'Pour the pH 4 standard buffer into a clean beaker.\nInsert probe fully and wait for reading to stabilise (≈ 30 s).',
   },
@@ -41,6 +49,7 @@ const PH_POINTS = [
     standardPH: 7,
     color: '#F59E0B',
     icon: 'numeric-7-circle-outline',
+    mockBase: 0.58, // mock voltage center for pH 7
     prepMsg:
       'Rinse probe with distilled water and dry gently.\nPour pH 7 buffer and insert probe fully.',
   },
@@ -50,241 +59,99 @@ const PH_POINTS = [
     standardPH: 9,
     color: '#3B82F6',
     icon: 'numeric-9-circle-outline',
+    mockBase: 0.72, // mock voltage center for pH 9
     prepMsg:
       'Rinse probe with distilled water and dry gently.\nPour pH 9 buffer and insert probe fully.',
   },
 ];
 
-// ─── Stability detection ──────────────────────────────────────────────────────
-// Watches Redux sensorData.voltage and declares stable when
-// variance < threshold for STABLE_WINDOW consecutive ticks.
-const STABLE_WINDOW = 8; // ticks (~4 s at 500 ms)
-const STABLE_THRESHOLD = 0.003; // volts
+// ─── Mock + real voltage stability hook ───────────────────────────────────────
+// Phase 1: oscillate mock value around mockBase
+// Phase 2: when real voltage appears from BLE → lock it, stop mock, run stability check
+const STABLE_WINDOW = 8; // consecutive ticks
+const STABLE_THRESHOLD = 0.003; // V
 
-function useVoltageStability(active) {
-  const voltage = useSelector(s => s.ble.sensorData.voltage);
-  const [stable, setStable] = useState(false);
+function useMockLockVoltage(active, mockBase) {
+  const realVoltage = useSelector(s => s.ble.sensorData.voltage);
+  const realCount = useSelector(s => s.ble.sensorData.receivedCount);
+
   const [displayV, setDisplayV] = useState(null);
+  const [isMocking, setIsMocking] = useState(true);
+  const [isLocked, setIsLocked] = useState(false); // locked = real value captured
+  const [stable, setStable] = useState(false);
   const windowRef = useRef([]);
+  const mockTimerRef = useRef(null);
+  const prevCountRef = useRef(realCount);
 
+  // Reset on active change
   useEffect(() => {
     if (!active) {
+      clearInterval(mockTimerRef.current);
       windowRef.current = [];
-      setStable(false);
       setDisplayV(null);
+      setIsMocking(true);
+      setIsLocked(false);
+      setStable(false);
+      prevCountRef.current = realCount;
       return;
     }
-    if (voltage === null || voltage === undefined) return;
 
-    setDisplayV(voltage);
+    // Start mock animation
+    setIsMocking(true);
+    setIsLocked(false);
+    setStable(false);
+
+    // Oscillate: slowly approach stable value (simulating probe settling)
+    let tick = 0;
+    mockTimerRef.current = setInterval(() => {
+      tick++;
+      // Drift: starts with ±0.025 noise, narrows to ±0.003 after 20 ticks
+      const noise =
+        Math.max(0.003, 0.025 - tick * 0.001) * (Math.random() - 0.5) * 2;
+      setDisplayV(mockBase + noise);
+    }, 300);
+
+    return () => clearInterval(mockTimerRef.current);
+  }, [active]);
+
+  // When real BLE data arrives (count changes) → lock
+  useEffect(() => {
+    if (!active) return;
+    if (realVoltage === null || realVoltage === undefined) return;
+    if (realCount === prevCountRef.current) return; // same packet, ignore
+
+    prevCountRef.current = realCount;
+
+    if (!isLocked) {
+      clearInterval(mockTimerRef.current);
+      setIsMocking(false);
+      setIsLocked(true);
+      setDisplayV(realVoltage);
+    } else {
+      // Already locked: update display with new reading for stability
+      setDisplayV(realVoltage);
+    }
+  }, [realVoltage, realCount, active, isLocked]);
+
+  // Stability check on displayV
+  useEffect(() => {
+    if (!active || displayV === null) return;
+
     const w = windowRef.current;
-    w.push(voltage);
+    w.push(displayV);
     if (w.length > STABLE_WINDOW) w.shift();
 
-    if (w.length === STABLE_WINDOW) {
+    if (w.length >= STABLE_WINDOW) {
       const max = Math.max(...w);
       const min = Math.min(...w);
       setStable(max - min < STABLE_THRESHOLD);
     }
-  }, [active, voltage]);
+  }, [active, displayV]);
 
-  return { voltage: displayV, stable };
+  return { voltage: displayV, isMocking, isLocked, stable };
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-export default function PHCalibrationScreen({ navigation, route }) {
-  const dispatch = useDispatch();
-  const theme = useTheme();
-  const T = theme.colors;
-  const fullFlow = route?.params?.fullFlow ?? false;
-
-  const [step, setStep] = useState(0);
-  const [phase, setPhase] = useState('prep'); // 'prep' | 'reading' | 'done'
-  const [captured, setCaptured] = useState({});
-  const [sending, setSending] = useState(false);
-
-  const point = PH_POINTS[step];
-  const isActive = phase === 'reading';
-  const { voltage, stable } = useVoltageStability(isActive);
-
-  // Pulse animation for live dot
-  const pulse = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (phase !== 'reading') return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1.5,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [phase]);
-
-  // Start reading: send BLE command to device
-  const handleStartReading = useCallback(async () => {
-    setSending(true);
-    await dispatch(cmdCalibratePhPoint(point.standardPH));
-    setSending(false);
-    setPhase('reading');
-  }, [dispatch, point.standardPH]);
-
-  // Capture current voltage
-  const handleCapture = useCallback(() => {
-    if (!stable) {
-      Alert.alert(
-        'Not Stable',
-        'Wait for the reading to stabilise before capturing.',
-      );
-      return;
-    }
-    if (voltage === null) {
-      Alert.alert(
-        'No Data',
-        'No voltage received from device. Ensure device is connected and probe is submerged.',
-      );
-      return;
-    }
-    dispatch(savePhPoint(point.standardPH, voltage));
-    setCaptured(prev => ({
-      ...prev,
-      [point.id]: { voltage, standardPH: point.standardPH },
-    }));
-    setPhase('done');
-  }, [stable, voltage, point, dispatch]);
-
-  const handleSkip = useCallback(() => {
-    // Mark as skipped (null voltage)
-    dispatch(savePhPoint(point.standardPH, null));
-    setCaptured(prev => ({ ...prev, [point.id]: null }));
-    handleNext();
-  }, [point, dispatch]);
-
-  const handleNext = useCallback(() => {
-    if (step < PH_POINTS.length - 1) {
-      setStep(s => s + 1);
-      setPhase('prep');
-    } else {
-      // Done — persist to device and navigate
-      dispatch(persistCalibration());
-      if (fullFlow) {
-        navigation.replace('ECCalibrationScreen', { fullFlow: true });
-      } else {
-        navigation.replace('CalibrationSummaryScreen');
-      }
-    }
-  }, [step, fullFlow, navigation, dispatch]);
-
-  const isDone = phase === 'done';
-  const isReading = phase === 'reading';
-  const isPrep = phase === 'prep';
-  const allDone = step === PH_POINTS.length - 1 && isDone;
-
-  return (
-    <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
-      <StatusBar barStyle="light-content" backgroundColor={T.bg} />
-      <TopBar
-        title="pH Calibration"
-        onBack={() => navigation.goBack()}
-        theme={theme}
-      />
-
-      <ScrollView contentContainerStyle={s.scroll} bounces={false}>
-        {/* ── Step Progress ──────────────────────────────────────── */}
-        <StepProgress
-          points={PH_POINTS}
-          step={step}
-          captured={captured}
-          T={T}
-        />
-
-        {/* ── Point header ───────────────────────────────────────── */}
-        <View
-          style={[
-            s.pointHeader,
-            {
-              backgroundColor: point.color + '18',
-              borderColor: point.color + '55',
-            },
-          ]}
-        >
-          <Icon name={point.icon} size={32} color={point.color} />
-          <View style={{ flex: 1 }}>
-            <Text style={[s.pointTitle, { color: point.color }]}>
-              {point.label}
-            </Text>
-            <Text style={[s.pointSub, { color: T.text }]}>
-              Standard pH: {point.standardPH}
-            </Text>
-          </View>
-        </View>
-
-        {/* ── PREP ───────────────────────────────────────────────── */}
-        {isPrep && (
-          <PrepCard
-            point={point}
-            T={T}
-            onStart={handleStartReading}
-            sending={sending}
-          />
-        )}
-
-        {/* ── READING ────────────────────────────────────────────── */}
-        {isReading && (
-          <ReadingCard
-            point={point}
-            T={T}
-            pulse={pulse}
-            voltage={voltage}
-            stable={stable}
-            standardPH={point.standardPH}
-            onCapture={handleCapture}
-            onSkip={handleSkip}
-          />
-        )}
-
-        {/* ── DONE ───────────────────────────────────────────────── */}
-        {isDone && (
-          <DoneCard
-            point={point}
-            T={T}
-            captured={captured}
-            allDone={allDone}
-            fullFlow={fullFlow}
-            step={step}
-            onNext={handleNext}
-          />
-        )}
-
-        {/* ── Skip entirely ──────────────────────────────────────── */}
-        {!isDone && (
-          <TouchableOpacity
-            style={s.skipAll}
-            onPress={() => {
-              if (fullFlow)
-                navigation.replace('ECCalibrationScreen', { fullFlow: true });
-              else navigation.goBack();
-            }}
-          >
-            <Text style={[s.skipAllText, { color: T.muted }]}>
-              Skip pH Calibration Entirely
-            </Text>
-          </TouchableOpacity>
-        )}
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Step Progress ────────────────────────────────────────────────────────────
 function StepProgress({ points, step, captured, T }) {
   return (
     <View style={s.stepRow}>
@@ -318,7 +185,7 @@ function StepProgress({ points, step, captured, T }) {
                 )}
               </View>
               <Text
-                style={[s.stepLabel, { color: active ? T.white : T.muted }]}
+                style={[s.stepLabel, { color: active ? T.primary : T.muted }]}
               >
                 pH {p.standardPH}
               </Text>
@@ -327,7 +194,7 @@ function StepProgress({ points, step, captured, T }) {
               <View
                 style={[
                   s.stepLine,
-                  { backgroundColor: captured[p.id] ? T.primary : T.border },
+                  { backgroundColor: done ? T.primary : T.border },
                 ]}
               />
             )}
@@ -338,26 +205,55 @@ function StepProgress({ points, step, captured, T }) {
   );
 }
 
+// ─── Reconnect Modal ──────────────────────────────────────────────────────────
+function ReconnectModal({ visible, onReconnect, T }) {
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={rm.overlay}>
+        <View
+          style={[
+            rm.sheet,
+            { backgroundColor: T.card, borderColor: '#EF4444' },
+          ]}
+        >
+          <View style={[rm.iconRing, { backgroundColor: '#EF444422' }]}>
+            <Icon name="bluetooth-off" size={36} color="#EF4444" />
+          </View>
+          <Text style={[rm.title, { color: T.white }]}>
+            Device Disconnected
+          </Text>
+          <Text style={[rm.body, { color: T.text }]}>
+            The BLE device disconnected during calibration.{'\n'}
+            Reconnecting will resume from the current step.
+          </Text>
+          <TouchableOpacity
+            style={[rm.btn, { backgroundColor: T.primary }]}
+            onPress={onReconnect}
+          >
+            <Icon name="bluetooth-connect" size={18} color="#fff" />
+            <Text style={rm.btnText}>Reconnect Device</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Prep Card ────────────────────────────────────────────────────────────────
 function PrepCard({ point, T, onStart, sending }) {
-  const steps = [
-    'Prepare the standard buffer solution',
-    'Clean probe with distilled water',
-    'Insert probe fully into solution',
-    'Wait for probe to temperature-equalise',
-  ];
+  const steps = point.prepMsg.split('\n');
   return (
     <View style={[s.card, { backgroundColor: T.card, borderColor: T.border }]}>
       <Text style={[s.cardTitle, { color: T.white }]}>
         📋 Preparation Required
       </Text>
-      <Text style={[s.cardText, { color: T.text }]}>{point.prepMsg}</Text>
       <View style={[s.prepSteps, { borderColor: T.border }]}>
-        {steps.map((t, i) => (
+        {steps.map((step, i) => (
           <View key={i} style={s.prepStep}>
             <View style={[s.prepDot, { backgroundColor: point.color }]}>
               <Text style={s.prepDotNum}>{i + 1}</Text>
             </View>
-            <Text style={[s.prepStepText, { color: T.text }]}>{t}</Text>
+            <Text style={[s.prepStepText, { color: T.text }]}>{step}</Text>
           </View>
         ))}
       </View>
@@ -370,97 +266,131 @@ function PrepCard({ point, T, onStart, sending }) {
         disabled={sending}
         activeOpacity={0.85}
       >
-        <Icon name={sending ? 'loading' : 'play'} size={18} color="#fff" />
+        {sending ? (
+          <Icon name="loading" size={18} color="#fff" />
+        ) : (
+          <Icon name="play-circle" size={18} color="#fff" />
+        )}
         <Text style={s.btnPrimaryText}>
-          {sending ? 'Sending Command…' : 'Start Reading Voltage'}
+          {sending ? 'Sending command…' : 'Start Reading'}
         </Text>
       </TouchableOpacity>
     </View>
   );
 }
 
+// ─── Reading Card ─────────────────────────────────────────────────────────────
 function ReadingCard({
   point,
   T,
   pulse,
   voltage,
+  isMocking,
+  isLocked,
   stable,
-  standardPH,
   onCapture,
   onSkip,
 }) {
+  // Stability bar fill (0–100%)
+  const pct = stable ? 100 : isMocking ? 45 : 70;
+
   return (
     <View
       style={[
         s.card,
-        {
-          backgroundColor: T.card,
-          borderColor: point.color + '66',
-          borderWidth: 1.5,
-        },
+        { backgroundColor: T.card, borderColor: point.color + '55' },
       ]}
     >
+      {/* Live indicator */}
       <View style={s.liveRow}>
         <Animated.View
           style={[
             s.liveDot,
-            {
-              backgroundColor: stable ? T.primary : T.warning,
-              transform: [{ scale: pulse }],
-            },
+            { backgroundColor: point.color, transform: [{ scale: pulse }] },
           ]}
         />
-        <Text style={[s.liveText, { color: stable ? T.primary : T.warning }]}>
-          {stable ? 'Stable — Ready to Capture' : 'Stabilising…'}
+        <Text style={[s.liveText, { color: T.text }]}>
+          {isMocking
+            ? '🔄 Mock data — waiting for device…'
+            : isLocked
+            ? '🔗 Live BLE data'
+            : 'Receiving…'}
         </Text>
+        {isMocking && (
+          <View
+            style={[
+              s.mockBadge,
+              { backgroundColor: '#F59E0B22', borderColor: '#F59E0B' },
+            ]}
+          >
+            <Text style={{ fontSize: 9, fontWeight: '800', color: '#F59E0B' }}>
+              MOCK
+            </Text>
+          </View>
+        )}
+        {isLocked && (
+          <View
+            style={[
+              s.mockBadge,
+              { backgroundColor: T.primaryGlow, borderColor: T.primary },
+            ]}
+          >
+            <Text style={{ fontSize: 9, fontWeight: '800', color: T.primary }}>
+              REAL
+            </Text>
+          </View>
+        )}
       </View>
+
+      {/* Big voltage display */}
       <View style={s.readGrid}>
         <View
           style={[
             s.readBox,
-            { borderColor: T.border, backgroundColor: T.cardAlt },
-          ]}
-        >
-          <Text style={[s.readLabel, { color: T.muted }]}>Standard pH</Text>
-          <Text style={[s.readValue, { color: T.primary }]}>
-            {standardPH.toFixed(2)}
-          </Text>
-        </View>
-        <View
-          style={[
-            s.readBox,
             {
-              borderColor: stable ? T.primary : T.warning,
-              backgroundColor: stable ? T.primaryGlow : 'rgba(245,158,11,0.1)',
+              borderColor: point.color + '66',
+              backgroundColor: point.color + '11',
             },
           ]}
         >
-          <Text style={[s.readLabel, { color: T.muted }]}>Live Voltage</Text>
-          <Text
-            style={[s.readValue, { color: stable ? T.primary : T.warning }]}
-          >
-            {voltage !== null ? voltage.toFixed(4) : '----'} V
+          <Text style={[s.readLabel, { color: T.muted }]}>VOLTAGE</Text>
+          <Text style={[s.readValue, { color: point.color }]}>
+            {voltage !== null ? voltage.toFixed(4) : '–.––––'}
           </Text>
+          <Text style={[s.readUnit, { color: T.muted }]}>V</Text>
+        </View>
+        <View style={[s.readBox, { borderColor: T.border }]}>
+          <Text style={[s.readLabel, { color: T.muted }]}>TARGET pH</Text>
+          <Text style={[s.readValue, { color: T.primary, fontSize: 32 }]}>
+            {point.standardPH}
+          </Text>
+          <Text style={[s.readUnit, { color: T.muted }]}>buffer</Text>
         </View>
       </View>
+
+      {/* Stability bar */}
       <View style={[s.stabilityBar, { backgroundColor: T.border }]}>
         <View
           style={[
             s.stabilityFill,
             {
-              backgroundColor: stable ? T.primary : T.warning,
-              width: stable ? '100%' : '55%',
+              width: `${pct}%`,
+              backgroundColor: stable ? T.primary : '#F59E0B',
             },
           ]}
         />
       </View>
-      <Text style={[s.stabilityLabel, { color: T.muted }]}>
+      <Text style={[s.stabilityLabel, { color: stable ? T.primary : T.muted }]}>
         {voltage === null
           ? '⏳ Waiting for device data…'
           : stable
-          ? '✅ Signal stable'
-          : '⏳ Stabilising…'}
+          ? '✅ Signal stable — ready to capture!'
+          : isMocking
+          ? '⏳ Mock signal stabilising… (waiting for real device)'
+          : '⏳ Stabilising real signal…'}
       </Text>
+
+      {/* Actions */}
       <View style={s.actionRow}>
         <TouchableOpacity
           style={[s.btnOutline, { borderColor: T.border, flex: 1 }]}
@@ -471,10 +401,7 @@ function ReadingCard({
         <TouchableOpacity
           style={[
             s.btnCapture,
-            {
-              backgroundColor: stable ? point.color : T.border,
-              flex: 2,
-            },
+            { backgroundColor: stable ? point.color : T.border, flex: 2 },
           ]}
           onPress={onCapture}
           disabled={!stable}
@@ -496,6 +423,7 @@ function ReadingCard({
   );
 }
 
+// ─── Done Card ────────────────────────────────────────────────────────────────
 function DoneCard({ point, T, captured, allDone, fullFlow, step, onNext }) {
   const got = captured[point.id];
   return (
@@ -520,7 +448,7 @@ function DoneCard({ point, T, captured, allDone, fullFlow, step, onNext }) {
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[s.cardTitle, { color: T.white }]}>
-            pH {point.standardPH} {got ? 'Captured' : 'Skipped'}
+            pH {point.standardPH} {got ? 'Captured ✅' : 'Skipped'}
           </Text>
           {got && (
             <Text style={[s.cardText, { color: T.muted, marginBottom: 0 }]}>
@@ -533,7 +461,7 @@ function DoneCard({ point, T, captured, allDone, fullFlow, step, onNext }) {
         </View>
       </View>
 
-      {/* Captured so far */}
+      {/* Points summary */}
       <View style={[s.capturedList, { borderColor: T.border }]}>
         <Text style={[s.capturedListTitle, { color: T.muted }]}>
           Points Recorded
@@ -582,10 +510,282 @@ function DoneCard({ point, T, captured, allDone, fullFlow, step, onNext }) {
   );
 }
 
+// ─── Main Component ───────────────────────────────────────────────────────────
+export default function PHCalibrationScreen({ navigation, route }) {
+  const dispatch = useDispatch();
+  const theme = useTheme();
+  const T = theme.colors;
+  const fullFlow = route?.params?.fullFlow ?? false;
+
+  const [step, setStep] = useState(0);
+  const [phase, setPhase] = useState('prep'); // 'prep' | 'reading' | 'done'
+  const [captured, setCaptured] = useState({});
+  const [sending, setSending] = useState(false);
+  const [showReconnect, setShowReconnect] = useState(false);
+
+  const { connected, devices } = useSelector(s => s.ble);
+  const wasConnected = useRef(connected);
+
+  const point = PH_POINTS[step];
+  const isActive = phase === 'reading';
+
+  const { voltage, isMocking, isLocked, stable } = useMockLockVoltage(
+    isActive,
+    point.mockBase,
+  );
+
+  // Pulse animation
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (phase !== 'reading') return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1.5,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [phase]);
+
+  // Disconnection detection
+  useEffect(() => {
+    if (wasConnected.current && !connected && phase === 'reading') {
+      setShowReconnect(true);
+    }
+    wasConnected.current = connected;
+  }, [connected, phase]);
+
+  // Auto dismiss reconnect modal once reconnected
+  useEffect(() => {
+    if (connected && showReconnect) {
+      setShowReconnect(false);
+    }
+  }, [connected]);
+
+  const handleStartReading = useCallback(async () => {
+    if (!connected) {
+      Alert.alert('Not Connected', 'Connect to the device first.');
+      return;
+    }
+    setSending(true);
+    await dispatch(cmdCalibratePhPoint(point.standardPH));
+    setSending(false);
+    setPhase('reading');
+  }, [dispatch, point.standardPH, connected]);
+
+  const handleCapture = useCallback(() => {
+    if (!stable) {
+      Alert.alert(
+        'Not Stable',
+        'Wait for the reading to stabilise before capturing.',
+      );
+      return;
+    }
+    if (voltage === null) {
+      Alert.alert(
+        'No Data',
+        'No voltage received from device. Ensure device is connected and probe is submerged.',
+      );
+      return;
+    }
+    dispatch(savePhPoint(point.standardPH, voltage));
+    setCaptured(prev => ({
+      ...prev,
+      [point.id]: { voltage, standardPH: point.standardPH },
+    }));
+    setPhase('done');
+  }, [stable, voltage, point, dispatch]);
+
+  const handleSkip = useCallback(() => {
+    dispatch(savePhPoint(point.standardPH, null));
+    setCaptured(prev => ({ ...prev, [point.id]: null }));
+    handleNext();
+  }, [point, dispatch]);
+
+  const handleNext = useCallback(() => {
+    if (step < PH_POINTS.length - 1) {
+      setStep(s => s + 1);
+      setPhase('prep');
+    } else {
+      dispatch(persistCalibration());
+      if (fullFlow) {
+        navigation.replace('ECCalibrationScreen', { fullFlow: true });
+      } else {
+        navigation.replace('CalibrationSummaryScreen');
+      }
+    }
+  }, [step, fullFlow, navigation, dispatch]);
+
+  const handleReconnect = useCallback(() => {
+    dispatch(startScan());
+    navigation.navigate('BLEScanScreen');
+  }, [dispatch, navigation]);
+
+  const isDone = phase === 'done';
+  const isReading = phase === 'reading';
+  const isPrep = phase === 'prep';
+  const allDone = step === PH_POINTS.length - 1 && isDone;
+
+  return (
+    <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
+      <StatusBar barStyle="light-content" backgroundColor={T.bg} />
+      <TopBar
+        title="pH Calibration"
+        onBack={() => navigation.goBack()}
+        theme={theme}
+      />
+
+      {/* Reconnect modal */}
+      <ReconnectModal
+        visible={showReconnect}
+        onReconnect={handleReconnect}
+        T={T}
+      />
+
+      {/* Disconnection banner */}
+      {!connected && phase !== 'prep' && (
+        <View
+          style={[
+            s.disconnectBanner,
+            { backgroundColor: '#EF444422', borderColor: '#EF4444' },
+          ]}
+        >
+          <Icon name="bluetooth-off" size={14} color="#EF4444" />
+          <Text
+            style={{
+              color: '#EF4444',
+              fontSize: 12,
+              fontWeight: '700',
+              flex: 1,
+            }}
+          >
+            Device disconnected — calibration paused
+          </Text>
+          <TouchableOpacity onPress={handleReconnect}>
+            <Text
+              style={{
+                color: '#EF4444',
+                fontSize: 12,
+                fontWeight: '800',
+                textDecorationLine: 'underline',
+              }}
+            >
+              Reconnect
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <ScrollView contentContainerStyle={s.scroll} bounces={false}>
+        <StepProgress
+          points={PH_POINTS}
+          step={step}
+          captured={captured}
+          T={T}
+        />
+
+        {/* Point header */}
+        <View
+          style={[
+            s.pointHeader,
+            {
+              backgroundColor: point.color + '18',
+              borderColor: point.color + '55',
+            },
+          ]}
+        >
+          <Icon name={point.icon} size={32} color={point.color} />
+          <View style={{ flex: 1 }}>
+            <Text style={[s.pointTitle, { color: point.color }]}>
+              {point.label}
+            </Text>
+            <Text style={[s.pointSub, { color: T.text }]}>
+              Standard pH: {point.standardPH}
+            </Text>
+          </View>
+          {/* Connection status */}
+          <View
+            style={[
+              s.connDot,
+              { backgroundColor: connected ? T.primary : '#EF4444' },
+            ]}
+          />
+        </View>
+
+        {isPrep && (
+          <PrepCard
+            point={point}
+            T={T}
+            onStart={handleStartReading}
+            sending={sending}
+          />
+        )}
+
+        {isReading && (
+          <ReadingCard
+            point={point}
+            T={T}
+            pulse={pulse}
+            voltage={voltage}
+            isMocking={isMocking}
+            isLocked={isLocked}
+            stable={stable}
+            onCapture={handleCapture}
+            onSkip={handleSkip}
+          />
+        )}
+
+        {isDone && (
+          <DoneCard
+            point={point}
+            T={T}
+            captured={captured}
+            allDone={allDone}
+            fullFlow={fullFlow}
+            step={step}
+            onNext={handleNext}
+          />
+        )}
+
+        {/* Skip all */}
+        {!isDone && (
+          <TouchableOpacity
+            style={s.skipAll}
+            onPress={() => navigation.replace('CalibrationSummaryScreen')}
+          >
+            <Text style={[s.skipAllText, { color: T.muted }]}>
+              Skip pH Calibration Entirely
+            </Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   container: { flex: 1 },
   scroll: { padding: Spacing.md, paddingBottom: Spacing.xl },
+  disconnectBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: Spacing.md,
+    marginTop: 6,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 10,
+  },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -615,6 +815,7 @@ const s = StyleSheet.create({
   },
   pointTitle: { fontSize: 16, fontWeight: '800' },
   pointSub: { fontSize: 13, marginTop: 2 },
+  connDot: { width: 10, height: 10, borderRadius: 5 },
   card: {
     borderRadius: Radius.lg,
     borderWidth: 1,
@@ -647,7 +848,13 @@ const s = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   liveDot: { width: 10, height: 10, borderRadius: 5 },
-  liveText: { fontSize: 13, fontWeight: '700' },
+  liveText: { fontSize: 13, fontWeight: '700', flex: 1 },
+  mockBadge: {
+    borderRadius: 4,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
   readGrid: { flexDirection: 'row', gap: 12, marginBottom: Spacing.sm },
   readBox: {
     flex: 1,
@@ -663,13 +870,14 @@ const s = StyleSheet.create({
     marginBottom: 4,
   },
   readValue: { fontSize: 26, fontWeight: '900', fontFamily: 'Courier' },
+  readUnit: { fontSize: 12, marginTop: 2 },
   stabilityBar: {
-    height: 4,
-    borderRadius: 2,
+    height: 6,
+    borderRadius: 3,
     overflow: 'hidden',
     marginBottom: 6,
   },
-  stabilityFill: { height: 4, borderRadius: 2 },
+  stabilityFill: { height: 6, borderRadius: 3 },
   stabilityLabel: {
     fontSize: 12,
     marginBottom: Spacing.md,
@@ -739,4 +947,46 @@ const s = StyleSheet.create({
   capturedRowVal: { fontSize: 14, fontWeight: '800' },
   skipAll: { alignItems: 'center', paddingVertical: Spacing.md },
   skipAllText: { fontSize: 13, textDecorationLine: 'underline' },
+});
+
+const rm = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
+  sheet: {
+    borderRadius: Radius.xl,
+    borderWidth: 2,
+    padding: Spacing.lg,
+    width: '100%',
+    alignItems: 'center',
+  },
+  iconRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+  },
+  title: { fontSize: 20, fontWeight: '900', marginBottom: Spacing.sm },
+  body: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: Spacing.lg,
+  },
+  btn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    width: '100%',
+    height: 52,
+    borderRadius: Radius.lg,
+  },
+  btnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 });

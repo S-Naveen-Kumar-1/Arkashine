@@ -1,5 +1,8 @@
-// src/screens/test/SensorScreen.js
-import React, { useEffect, useRef } from 'react';
+// src/soiltest/SensorScreen.jsx
+// Soil-test sensor phase: starts BLE streaming, counts down 30 s, dispatches
+// real ph/ec/voltage data from Redux ble.sensorData, navigates to ResultsScreen.
+
+import React, { useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,12 +12,24 @@ import {
   Easing,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { startSensorCountdown, testResultsReceived } from '../redux/actions';
-import { AppButton, ProgressRing } from '../components/common';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { AppButton, ProgressRing, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Typography } from '../theme';
 import { nutrients } from '../utils/constants';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  TEST_SENSOR_START,
+  TEST_SENSOR_TICK,
+  TEST_SENSOR_DONE,
+  TEST_RESULTS_RECEIVED,
+} from '../config/actionTypes';
+import {
+  cmdStartStream,
+  cmdStopStream,
+  cmdReadSensors,
+} from '../redux/actions/bleActions';
+import { SENSOR_DURATION } from '../redux/reducers/testReducer';
 
 export function SensorScreen({ navigation }) {
   const dispatch = useDispatch();
@@ -24,8 +39,17 @@ export function SensorScreen({ navigation }) {
   const { sensorRunning, sensorDone, sensorLeft, sensorTotal } = useSelector(
     s => s.test,
   );
+  const { connected, device, sensorData } = useSelector(s => s.ble);
 
-  // 🔥 animation refs
+  const sensorDataRef = useRef(sensorData);
+  const intervalRef = useRef(null);
+  const navigatedRef = useRef(false);
+
+  // Keep a live ref to sensorData so the timeout closure can read the latest value
+  useEffect(() => {
+    sensorDataRef.current = sensorData;
+  }, [sensorData]);
+
   const pulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -46,66 +70,114 @@ export function SensorScreen({ navigation }) {
     outputRange: [1, 1.06, 1],
   });
 
-  // ✅ Navigate when done
+  // Navigate to ResultsScreen once done (deduplicated)
   useEffect(() => {
-    if (sensorDone) {
-      dispatch(
-        testResultsReceived({
-          ph: 6.8,
-          ec: 0.42,
-          P: 14,
-          K: 180,
-          Ca: 3.2,
-          Mg: 1.4,
-          S: 12,
-          Zn: 0.6,
-          Mn: 2.1,
-          Fe: 4.5,
-          Cu: 0.3,
-          B: 0.5,
-          oc: 0.75,
-          timestamp: Date.now(),
-        }),
-      );
-
+    if (sensorDone && !navigatedRef.current) {
+      navigatedRef.current = true;
       navigation.replace('ResultsScreen');
     }
-  }, [sensorDone]);
+  }, [sensorDone, navigation]);
 
-  const handleStart = () => {
-    dispatch(startSensorCountdown());
-  };
+  // Stop stream on unmount
+  useEffect(
+    () => () => {
+      clearInterval(intervalRef.current);
+      dispatch(cmdStopStream());
+    },
+    [dispatch],
+  );
+
+  const handleStart = useCallback(async () => {
+    // Start BLE stream so notifications flow in during countdown
+    dispatch(cmdStartStream());
+
+    dispatch({ type: TEST_SENSOR_START });
+
+    intervalRef.current = setInterval(() => {
+      dispatch({ type: TEST_SENSOR_TICK });
+    }, 1000);
+
+    setTimeout(() => {
+      clearInterval(intervalRef.current);
+
+      // Also send a discrete READ_SENSORS to capture a final snapshot
+      dispatch(cmdReadSensors());
+
+      // Small delay to allow the READ_SENSORS response to arrive
+      setTimeout(() => {
+        dispatch(cmdStopStream());
+
+        // Commit whatever we have — real BLE data takes priority, fallback to null
+        const live = sensorDataRef.current;
+        dispatch({
+          type: TEST_RESULTS_RECEIVED,
+          payload: {
+            ph: live?.ph ?? null,
+            ec: live?.ec ?? null,
+            voltage: live?.voltage ?? null,
+            raw: live?.raw ?? '',
+          },
+        });
+        dispatch({ type: TEST_SENSOR_DONE });
+      }, 1500); // wait 1.5 s for final read
+    }, SENSOR_DURATION * 1000);
+  }, [dispatch]);
 
   const elapsed = sensorTotal - sensorLeft;
-
-  // 🔥 current scanning index
-  const activeIndex = Math.floor(
-    (elapsed / (sensorTotal || 1)) * nutrients.length,
-  );
+  const activeIndex = sensorRunning
+    ? Math.floor((elapsed / (sensorTotal || 1)) * nutrients.length)
+    : -1;
 
   return (
     <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
-      <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={T.bg} />
+      <TopBar
+        title="Sensor Reading"
+        onBack={() => navigation.goBack()}
+        theme={theme}
+      />
 
       <View style={s.center}>
-        {/* Header */}
-        <Text style={[Typography.h3, { color: T.text }]}>Sensor Operation</Text>
+        {/* ── BLE status chip ─────────────────────────────────── */}
+        <View
+          style={[
+            s.bleChip,
+            {
+              backgroundColor: connected ? T.primaryGlow : T.cardAlt,
+              borderColor: connected ? T.primary : T.border,
+            },
+          ]}
+        >
+          <Icon
+            name={connected ? 'bluetooth-connect' : 'bluetooth-off'}
+            size={13}
+            color={connected ? T.primary : T.muted}
+          />
+          <Text
+            style={[s.bleChipText, { color: connected ? T.primary : T.muted }]}
+          >
+            {connected
+              ? `${device?.name || 'Device'} connected`
+              : 'No device — connect first'}
+          </Text>
+        </View>
 
+        <Text style={[Typography.h3, { color: T.text }]}>Sensor Operation</Text>
         <Text style={[s.sub, { color: T.textSub }]}>
           {sensorRunning
-            ? 'Scanning nutrients...'
-            : 'Start sensor to begin analysis'}
+            ? 'Scanning — please hold still…'
+            : 'Start to begin 30-second BLE scan'}
         </Text>
 
-        {/* 🔥 Progress Ring */}
+        {/* ── Progress Ring ────────────────────────────────────── */}
         <View style={s.ringWrap}>
           <Animated.View style={{ transform: [{ scale }] }}>
             <ProgressRing
               size={210}
               progress={elapsed}
               total={sensorTotal}
-              color={sensorRunning ? T.primary : T.divider}
-              bg={T.divider}
+              color={sensorRunning ? T.primary : T.border}
+              bg={T.border}
             >
               <View style={{ alignItems: 'center' }}>
                 <Text
@@ -114,54 +186,58 @@ export function SensorScreen({ navigation }) {
                     { color: sensorRunning ? T.primary : T.muted },
                   ]}
                 >
-                  {sensorRunning ? sensorLeft : '30'}
+                  {sensorRunning ? sensorLeft : SENSOR_DURATION}
                 </Text>
                 <Text style={[s.timerUnit, { color: T.textSub }]}>sec</Text>
+                {/* Show live ph/ec if already receiving */}
+                {sensorRunning && sensorData.ph !== null && (
+                  <Text style={[s.liveVal, { color: T.primary }]}>
+                    pH {sensorData.ph?.toFixed(2)}
+                  </Text>
+                )}
               </View>
             </ProgressRing>
           </Animated.View>
         </View>
 
-        {/* 🔥 Nutrient Grid */}
+        {/* ── Nutrient Grid (animated during scan) ─────────────── */}
         {sensorRunning && (
           <View style={s.grid}>
             {nutrients.map((item, index) => {
               const isActive = index === activeIndex;
               const isDone = index < activeIndex;
-
               return (
                 <Animated.View
                   key={item.key}
                   style={[
-                    s.card,
+                    s.nutriCard,
                     {
                       backgroundColor: T.card,
                       borderColor: isActive
                         ? T.primary
                         : isDone
-                        ? T.primaryDim
-                        : T.cardBorder,
+                        ? T.primaryGlow
+                        : T.border,
                       transform: [{ scale: isActive ? scale : 1 }],
                     },
                   ]}
                 >
-                  <Text style={[s.label, { color: T.textSub }]}>
+                  <Text style={[s.nutriLabel, { color: T.textSub }]}>
                     {item.label}
                   </Text>
-
                   <Text
                     style={[
-                      s.value,
+                      s.nutriValue,
                       {
                         color: isActive
                           ? T.primary
                           : isDone
-                          ? T.primaryDim
+                          ? T.primary
                           : T.muted,
                       },
                     ]}
                   >
-                    {isActive ? 'Scanning...' : isDone ? '✔' : '—'}
+                    {isActive ? '…' : isDone ? '✔' : '—'}
                   </Text>
                 </Animated.View>
               );
@@ -169,24 +245,60 @@ export function SensorScreen({ navigation }) {
           </View>
         )}
 
-        {/* Start Button */}
+        {/* ── Live data preview ────────────────────────────────── */}
+        {sensorRunning &&
+          (sensorData.ph !== null || sensorData.ec !== null) && (
+            <View
+              style={[
+                s.liveRow,
+                { backgroundColor: T.card, borderColor: T.primary },
+              ]}
+            >
+              <Icon name="wifi" size={14} color={T.primary} />
+              <Text style={[s.liveText, { color: T.muted }]}>Live </Text>
+              {sensorData.ph !== null && (
+                <Text style={[s.liveText, { color: T.primary }]}>
+                  pH {sensorData.ph.toFixed(2)}{' '}
+                </Text>
+              )}
+              {sensorData.ec !== null && (
+                <Text style={[s.liveText, { color: T.primary }]}>
+                  EC {sensorData.ec.toFixed(3)}{' '}
+                </Text>
+              )}
+              {sensorData.voltage !== null && (
+                <Text style={[s.liveText, { color: T.muted }]}>
+                  {sensorData.voltage.toFixed(3)} V
+                </Text>
+              )}
+            </View>
+          )}
+
+        {/* ── Start button ─────────────────────────────────────── */}
         {!sensorRunning && (
           <AppButton
-            label="Start Sensor"
-            onPress={handleStart}
-            color={T.primary}
-            textColor={T.onPrimary}
+            label={
+              connected ? 'Start Sensor (30s)' : 'Connect BLE Device First'
+            }
+            onPress={
+              connected
+                ? handleStart
+                : () => navigation.navigate('BLEScanScreen')
+            }
+            color={connected ? T.primary : T.border}
+            textColor="#fff"
             size="lg"
-            icon="▶️"
-            style={{ marginTop: 24, width: '80%' }}
+            icon={connected ? '▶️' : '📡'}
+            style={{ marginTop: 24, width: '90%' }}
           />
         )}
 
-        {/* Footer */}
         <Text style={[s.hint, { color: T.muted }]}>
           {sensorRunning
-            ? 'Device is scanning soil nutrients. Please wait...'
-            : 'Ensure probe is properly inserted into solution'}
+            ? 'Keep device steady. Streaming BLE data…'
+            : connected
+            ? 'Ensure probe is properly inserted into solution'
+            : 'Go to Connect screen and pair your ArkaShine device'}
         </Text>
       </View>
     </SafeAreaView>
@@ -195,68 +307,61 @@ export function SensorScreen({ navigation }) {
 
 const s = StyleSheet.create({
   bg: { flex: 1 },
-
   center: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'flex-start', // ✅ FIX
+    justifyContent: 'flex-start',
     padding: Spacing.lg,
-    paddingTop: 20, // optional spacing
+    paddingTop: 12,
   },
-
-  sub: {
-    fontSize: 14,
-    marginBottom: 20,
-    textAlign: 'center',
+  bleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    marginBottom: 10,
   },
-
-  ringWrap: { marginBottom: 24 },
-
-  timerNum: {
-    fontSize: 52,
-    fontWeight: '900',
-    fontFamily: 'monospace',
-  },
-
-  timerUnit: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-
+  bleChipText: { fontSize: 12, fontWeight: '700' },
+  sub: { fontSize: 14, marginBottom: 16, textAlign: 'center' },
+  ringWrap: { marginBottom: 16 },
+  timerNum: { fontSize: 48, fontWeight: '900', fontFamily: 'monospace' },
+  timerUnit: { fontSize: 13, fontWeight: '600', marginTop: 2 },
+  liveVal: { fontSize: 12, fontWeight: '800', marginTop: 4 },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginTop: 10,
+    width: '100%',
+    marginTop: 6,
   },
-
-  card: {
+  nutriCard: {
     width: '30%',
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1.5,
-    paddingVertical: 18,
-    marginBottom: 14,
+    paddingVertical: 14,
+    marginBottom: 10,
     alignItems: 'center',
-    elevation: 2,
   },
-
-  label: {
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 6,
+  nutriLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
+  nutriValue: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+  liveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 8,
   },
-
-  value: {
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-
+  liveText: { fontSize: 12, fontWeight: '700' },
   hint: {
-    fontSize: 13,
+    fontSize: 12,
     textAlign: 'center',
-    marginTop: 18,
+    marginTop: 14,
     paddingHorizontal: 20,
   },
 });

@@ -48,6 +48,42 @@ export default function authReducer(state = initialState, action) {
           action.payload?.error?.message ||
           'Login failed',
       };
+    case 'REGISTER_USER':
+      return {
+        ...state,
+        loading: true,
+        error: null,
+      };
+
+    case 'REGISTER_USER_SUCCESS':
+      return {
+        ...state,
+        loading: false,
+        user: action.payload?.data?.user ?? null,
+        token: action.payload?.data?.access ?? null,
+        refreshToken: action.payload?.data?.refresh ?? null,
+        isLoggedIn: !!action.payload?.data?.access,
+        error: null,
+        status: 'registered',
+      };
+
+    case 'REGISTER_USER_FAIL':
+      console.log('Registration error payload:', action);
+
+      return {
+        ...state,
+        loading: false,
+        error:
+          action.payload?.error?.response?.data?.detail ||
+          action.error?.response?.data?.detail ||
+          action.payload?.error?.message ||
+          'Registration failed',
+      };
+    case 'CLEAR_AUTH_ERROR':
+      return {
+        ...state,
+        error: null,
+      };
     default:
       return state;
   }

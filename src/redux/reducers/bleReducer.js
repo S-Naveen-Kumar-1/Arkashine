@@ -14,6 +14,9 @@ import {
   BLE_DEBUG_CLEAR,
   BLE_CMD_SENT,
   BLE_CMD_FAILED,
+  BLE_HANDSHAKE_START,
+  BLE_HANDSHAKE_SUCCESS,
+  BLE_HANDSHAKE_FAILED,
 } from '../../config/actionTypes';
 
 const MAX_LOGS = 300;
@@ -28,11 +31,16 @@ const init = {
   // Connection
   connected: false,
   connecting: false,
+  connectingDeviceId: null, // tracks which specific device is mid-connect
   device: null, // { id, name } — serialisable only
   error: null,
 
-  // Dynamic UUID config (auto-detected from device)
+  // Dynamic UUID config (auto-detected from device, with hardcoded fallback)
   bleConfig: null, // { serviceUUID, notifyUUID, writeUUID }
+
+  // Handshake state (ARKASHINE_DEVICE → ARKASHINE_TRUE)
+  handshakeStatus: null, // null | 'pending' | 'success' | 'failed'
+  handshakeRaw: null,    // raw string received for ARKASHINE_TRUE
 
   // Latest sensor data from device
   sensorData: {
@@ -80,12 +88,21 @@ export default function bleReducer(state = init, action) {
 
     // ── Connection ────────────────────────────────────────────
     case BLE_CONNECT_REQUEST:
-      return { ...state, connecting: true, error: null, bleConfig: null };
+      return {
+        ...state,
+        connecting: true,
+        connectingDeviceId: action.payload, // device id being connected
+        error: null,
+        bleConfig: null,
+        handshakeStatus: null,
+        handshakeRaw: null,
+      };
 
     case BLE_CONNECT_SUCCESS:
       return {
         ...state,
         connecting: false,
+        connectingDeviceId: null,
         connected: true,
         device: action.payload,
         error: null,
@@ -95,6 +112,7 @@ export default function bleReducer(state = init, action) {
       return {
         ...state,
         connecting: false,
+        connectingDeviceId: null,
         connected: false,
         device: null,
         error: action.payload,
@@ -106,6 +124,9 @@ export default function bleReducer(state = init, action) {
         connected: false,
         device: null,
         bleConfig: null,
+        connectingDeviceId: null,
+        handshakeStatus: null,
+        handshakeRaw: null,
         sensorData: { ...init.sensorData },
         lastCmd: null,
         lastCmdError: null,
@@ -113,6 +134,16 @@ export default function bleReducer(state = init, action) {
 
     case BLE_CONFIG_RESOLVED:
       return { ...state, bleConfig: action.payload };
+
+    // ── Handshake ─────────────────────────────────────────────
+    case BLE_HANDSHAKE_START:
+      return { ...state, handshakeStatus: 'pending', handshakeRaw: null };
+
+    case BLE_HANDSHAKE_SUCCESS:
+      return { ...state, handshakeStatus: 'success', handshakeRaw: action.payload };
+
+    case BLE_HANDSHAKE_FAILED:
+      return { ...state, handshakeStatus: 'failed' };
 
     // ── Data ──────────────────────────────────────────────────
     case BLE_DATA_RECEIVED:

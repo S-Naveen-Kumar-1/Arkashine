@@ -1,0 +1,34 @@
+const initialState = {
+  devices: [],
+  loadingDevices: false,
+  devicesError: null,
+  userDeviceDetails: null,
+};
+
+const deviceReducer = (state = initialState, action) => {
+    console.log('Device Reducer Action:', action); // Debugging log
+  switch (action.type) {
+    case 'GET_USER_DEVICES':
+      return { ...state, loadingDevices: true };
+
+    case 'GET_USER_DEVICES_SUCCESS':
+      return {
+        ...state,
+        loadingDevices: false,
+        devices: action.payload.data.results,
+        userDeviceDetails: action.payload.data,
+      };
+
+    case 'GET_USER_DEVICES_FAIL':
+      return {
+        ...state,
+        loadingDevices: false,
+        devicesError: action.error,
+      };
+
+    default:
+      return state;
+  }
+};
+
+export default deviceReducer;

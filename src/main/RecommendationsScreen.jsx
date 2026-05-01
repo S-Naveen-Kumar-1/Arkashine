@@ -4,14 +4,14 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   SectionList,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSelector } from 'react-redux';
 import { DayCard, TopBar, AppButton } from '../components/common';
-import { Spacing, Typography, Radius } from '../theme';
-import useTheme, { getRecommendations,getNutrientStatus } from '../hooks/useTheme';
+import { Spacing } from '../theme';
+import useTheme, { getRecommendations, getNutrientStatus } from '../hooks/useTheme';
 
 export function RecommendationsScreen({ navigation }) {
   const theme = useTheme();
@@ -47,7 +47,7 @@ export function RecommendationsScreen({ navigation }) {
         title="Recommendations"
         onBack={() => navigation.goBack()}
         rightIcon="🖨️"
-        onRight={() => navigation.navigate('Report')}
+        onRight={() => navigation.navigate('ReportScreen')}
         theme={theme}
       />
 
@@ -129,7 +129,7 @@ export function RecommendationsScreen({ navigation }) {
         ListFooterComponent={
           <AppButton
             label="Download Full Report"
-            onPress={() => navigation.navigate('Report')}
+            onPress={() => navigation.navigate('ReportScreen')}
             color={T.blue}
             textColor="#fff"
             icon="🖨️"

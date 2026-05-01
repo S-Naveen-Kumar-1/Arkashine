@@ -17,9 +17,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import useTheme from '../../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../../theme';
-import { PRODUCTS, CATEGORIES } from '../../config/products';
 import LinearGradient from 'react-native-linear-gradient';
-
+import { useSelector } from 'react-redux';
+import {
+  PRODUCTS,
+  CATEGORIES,
+  mapProductsWithDevices,
+} from '../../config/products';
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - Spacing.lg * 2 - Spacing.md) / 2;
 
@@ -56,7 +60,7 @@ function logSubscription(product) {
 export function ProductsListingScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
-
+  const devices = useSelector(s => s.userDevices?.devices || []);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingProductId, setLoadingProductId] = useState(null);
@@ -67,7 +71,7 @@ export function ProductsListingScreen({ navigation }) {
   // Derived data
   // -------------------------------------------------------------------------
   const filteredProducts = useMemo(() => {
-    let filtered = PRODUCTS;
+    let filtered = mapProductsWithDevices(PRODUCTS, devices);
     if (selectedCategory !== 'All') {
       filtered = filtered.filter(p => p.category === selectedCategory);
     }
@@ -84,7 +88,7 @@ export function ProductsListingScreen({ navigation }) {
   }, [selectedCategory, searchQuery]);
 
   const activeProducts = useMemo(
-    () => filteredProducts.filter(p => p.active).length,
+    () => filteredProducts.filter(p => !p.locked).length,
     [filteredProducts],
   );
 
@@ -104,7 +108,7 @@ export function ProductsListingScreen({ navigation }) {
       setTimeout(() => {
         setLoadingProductId(null);
         if (product.route) {
-          navigation.navigate(product.route);
+          navigation.navigate(product.route, { item: product });
         }
       }, 800);
     },
@@ -164,7 +168,7 @@ export function ProductsListingScreen({ navigation }) {
   );
 
   const renderProductCard = ({ item }) => {
-    const isLocked = !item.active;
+   const isLocked = item.locked;
     const isLoading = loadingProductId === item.id;
     const isSubscribed = subscribedIds.has(item.id);
 

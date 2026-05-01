@@ -1,6 +1,7 @@
 // src/screens/test/TimerScreen.js
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import { testPourDetected } from '../redux/actions';
 import { AppButton, ProgressRing } from '../components/common';
@@ -130,7 +131,7 @@ export function TimerScreen({ navigation }) {
             onPress={handleNext}
             disabled={!timerDone}
             color={T.primary}
-            textColor={T.onPrimary} // 👈 use theme contrast color
+             textColor={T.primary} 
             style={{ flex: 1 }}
           />
         </View>

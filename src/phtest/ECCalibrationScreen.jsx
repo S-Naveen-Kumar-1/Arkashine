@@ -1,18 +1,23 @@
 // src/screens/phtest/ECCalibrationScreen.jsx
-// 3-point EC calibration using live voltage from Redux BLE sensorData.
+// 3-point EC calibration.
+// • Mocks voltage oscillation until real BLE data arrives
+// • Once real value arrives → locks it, stops mock, runs stability check
+// • Handles device disconnection mid-flow
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
   Animated,
   ScrollView,
   Alert,
+  Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../theme';
@@ -22,8 +27,9 @@ import {
   saveEcPoint,
   persistCalibration,
 } from '../redux/actions/calibrationActions';
-import { cmdCalibrateEcPoint } from '../redux/actions/bleActions';
+import { cmdCalibrateEcPoint, startScan } from '../redux/actions/bleActions';
 
+// ─── EC points ────────────────────────────────────────────────────────────────
 const EC_POINTS = [
   {
     id: 'ec0',
@@ -31,6 +37,7 @@ const EC_POINTS = [
     standardEC: 0.0,
     color: '#3B82F6',
     icon: 'water-outline',
+    mockBase: 0.12, // low voltage for near-zero conductivity
     prepMsg:
       'Fill a clean beaker with pure distilled (deionised) water.\nInsert the EC probe fully and wait for reading to stabilise.',
   },
@@ -40,6 +47,7 @@ const EC_POINTS = [
     standardEC: 1.413,
     color: '#8B5CF6',
     icon: 'flask-outline',
+    mockBase: 0.54, // mid voltage
     prepMsg:
       'Rinse probe with distilled water and dry gently.\nPour 1.413 dS/m EC standard and insert probe fully.',
   },
@@ -49,42 +57,118 @@ const EC_POINTS = [
     standardEC: 12.88,
     color: '#F97316',
     icon: 'flask',
+    mockBase: 0.91, // high voltage for high conductivity
     prepMsg:
       'Rinse probe with distilled water and dry gently.\nPour 12.88 dS/m EC standard and insert probe fully.',
   },
 ];
 
+// ─── Mock + lock voltage hook ─────────────────────────────────────────────────
 const STABLE_WINDOW = 8;
 const STABLE_THRESHOLD = 0.003;
 
-function useVoltageStability(active) {
-  const voltage = useSelector(s => s.ble.sensorData.voltage);
-  const [stable, setStable] = useState(false);
+function useMockLockVoltage(active, mockBase) {
+  const realVoltage = useSelector(s => s.ble.sensorData.voltage);
+  const realCount = useSelector(s => s.ble.sensorData.receivedCount);
+
   const [displayV, setDisplayV] = useState(null);
+  const [isMocking, setIsMocking] = useState(true);
+  const [isLocked, setIsLocked] = useState(false);
+  const [stable, setStable] = useState(false);
   const windowRef = useRef([]);
+  const mockTimer = useRef(null);
+  const prevCount = useRef(realCount);
 
   useEffect(() => {
     if (!active) {
+      clearInterval(mockTimer.current);
       windowRef.current = [];
-      setStable(false);
       setDisplayV(null);
+      setIsMocking(true);
+      setIsLocked(false);
+      setStable(false);
+      prevCount.current = realCount;
       return;
     }
-    if (voltage === null || voltage === undefined) return;
-    setDisplayV(voltage);
-    const w = windowRef.current;
-    w.push(voltage);
-    if (w.length > STABLE_WINDOW) w.shift();
-    if (w.length === STABLE_WINDOW) {
-      const max = Math.max(...w),
-        min = Math.min(...w);
-      setStable(max - min < STABLE_THRESHOLD);
-    }
-  }, [active, voltage]);
 
-  return { voltage: displayV, stable };
+    // Start mock oscillation
+    setIsMocking(true);
+    setIsLocked(false);
+    setStable(false);
+    let tick = 0;
+    mockTimer.current = setInterval(() => {
+      tick++;
+      const noise =
+        Math.max(0.003, 0.025 - tick * 0.001) * (Math.random() - 0.5) * 2;
+      setDisplayV(mockBase + noise);
+    }, 300);
+
+    return () => clearInterval(mockTimer.current);
+  }, [active]);
+
+  // Lock on real BLE data
+  useEffect(() => {
+    if (!active || realVoltage === null || realVoltage === undefined) return;
+    if (realCount === prevCount.current) return;
+    prevCount.current = realCount;
+
+    if (!isLocked) {
+      clearInterval(mockTimer.current);
+      setIsMocking(false);
+      setIsLocked(true);
+    }
+    setDisplayV(realVoltage);
+  }, [realVoltage, realCount, active, isLocked]);
+
+  // Stability check
+  useEffect(() => {
+    if (!active || displayV === null) return;
+    const w = windowRef.current;
+    w.push(displayV);
+    if (w.length > STABLE_WINDOW) w.shift();
+    if (w.length >= STABLE_WINDOW) {
+      setStable(Math.max(...w) - Math.min(...w) < STABLE_THRESHOLD);
+    }
+  }, [active, displayV]);
+
+  return { voltage: displayV, isMocking, isLocked, stable };
 }
 
+// ─── Reconnect Modal ──────────────────────────────────────────────────────────
+function ReconnectModal({ visible, onReconnect, T }) {
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={rm.overlay}>
+        <View
+          style={[
+            rm.sheet,
+            { backgroundColor: T.card, borderColor: '#EF4444' },
+          ]}
+        >
+          <View style={[rm.iconRing, { backgroundColor: '#EF444422' }]}>
+            <Icon name="bluetooth-off" size={36} color="#EF4444" />
+          </View>
+          <Text style={[rm.title, { color: T.white }]}>
+            Device Disconnected
+          </Text>
+          <Text style={[rm.body, { color: T.text }]}>
+            The BLE device disconnected during EC calibration.{'\n'}
+            Reconnect to resume from the current step.
+          </Text>
+          <TouchableOpacity
+            style={[rm.btn, { backgroundColor: T.primary }]}
+            onPress={onReconnect}
+          >
+            <Icon name="bluetooth-connect" size={18} color="#fff" />
+            <Text style={rm.btnText}>Reconnect Device</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export default function ECCalibrationScreen({ navigation, route }) {
   const dispatch = useDispatch();
   const theme = useTheme();
@@ -95,10 +179,18 @@ export default function ECCalibrationScreen({ navigation, route }) {
   const [phase, setPhase] = useState('prep');
   const [captured, setCaptured] = useState({});
   const [sending, setSending] = useState(false);
+  const [showReconnect, setShowReconnect] = useState(false);
+
+  const { connected } = useSelector(s => s.ble);
+  const wasConnected = useRef(connected);
 
   const point = EC_POINTS[step];
   const isActive = phase === 'reading';
-  const { voltage, stable } = useVoltageStability(isActive);
+
+  const { voltage, isMocking, isLocked, stable } = useMockLockVoltage(
+    isActive,
+    point.mockBase,
+  );
 
   const pulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -121,12 +213,28 @@ export default function ECCalibrationScreen({ navigation, route }) {
     return () => loop.stop();
   }, [phase]);
 
+  // Disconnection detection
+  useEffect(() => {
+    if (wasConnected.current && !connected && phase === 'reading') {
+      setShowReconnect(true);
+    }
+    wasConnected.current = connected;
+  }, [connected, phase]);
+
+  useEffect(() => {
+    if (connected && showReconnect) setShowReconnect(false);
+  }, [connected]);
+
   const handleStartReading = useCallback(async () => {
+    if (!connected) {
+      Alert.alert('Not Connected', 'Connect to the device first.');
+      return;
+    }
     setSending(true);
     await dispatch(cmdCalibrateEcPoint(String(point.standardEC)));
     setSending(false);
     setPhase('reading');
-  }, [dispatch, point.standardEC]);
+  }, [dispatch, point.standardEC, connected]);
 
   const handleCapture = useCallback(() => {
     if (!stable) {
@@ -167,6 +275,11 @@ export default function ECCalibrationScreen({ navigation, route }) {
     }
   }, [step, navigation, dispatch]);
 
+  const handleReconnect = useCallback(() => {
+    dispatch(startScan());
+    navigation.navigate('BLEScanScreen');
+  }, [dispatch, navigation]);
+
   const isDone = phase === 'done';
   const isReading = phase === 'reading';
   const isPrep = phase === 'prep';
@@ -181,8 +294,48 @@ export default function ECCalibrationScreen({ navigation, route }) {
         theme={theme}
       />
 
+      <ReconnectModal
+        visible={showReconnect}
+        onReconnect={handleReconnect}
+        T={T}
+      />
+
+      {/* Disconnection banner */}
+      {!connected && phase !== 'prep' && (
+        <View
+          style={[
+            s.disconnectBanner,
+            { backgroundColor: '#EF444422', borderColor: '#EF4444' },
+          ]}
+        >
+          <Icon name="bluetooth-off" size={14} color="#EF4444" />
+          <Text
+            style={{
+              color: '#EF4444',
+              fontSize: 12,
+              fontWeight: '700',
+              flex: 1,
+            }}
+          >
+            Device disconnected — calibration paused
+          </Text>
+          <TouchableOpacity onPress={handleReconnect}>
+            <Text
+              style={{
+                color: '#EF4444',
+                fontSize: 12,
+                fontWeight: '800',
+                textDecorationLine: 'underline',
+              }}
+            >
+              Reconnect
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <ScrollView contentContainerStyle={s.scroll} bounces={false}>
-        {/* ── Step Progress ──────────────────────────────────────── */}
+        {/* Step Progress */}
         <View style={s.stepRow}>
           {EC_POINTS.map((p, i) => {
             const done = captured[p.id] !== undefined;
@@ -238,7 +391,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
           })}
         </View>
 
-        {/* ── Point header ───────────────────────────────────────── */}
+        {/* Point header */}
         <View
           style={[
             s.pointHeader,
@@ -257,9 +410,15 @@ export default function ECCalibrationScreen({ navigation, route }) {
               Standard EC: {point.standardEC} dS/m
             </Text>
           </View>
+          <View
+            style={[
+              s.connDot,
+              { backgroundColor: connected ? T.primary : '#EF4444' },
+            ]}
+          />
         </View>
 
-        {/* ── PREP ───────────────────────────────────────────────── */}
+        {/* PREP */}
         {isPrep && (
           <View
             style={[s.card, { backgroundColor: T.card, borderColor: T.border }]}
@@ -267,19 +426,15 @@ export default function ECCalibrationScreen({ navigation, route }) {
             <Text style={[s.cardTitle, { color: T.white }]}>
               📋 Preparation Required
             </Text>
-            <Text style={[s.cardText, { color: T.text }]}>{point.prepMsg}</Text>
             <View style={[s.prepSteps, { borderColor: T.border }]}>
-              {[
-                'Clean probe with distilled water',
-                'Pour EC standard into beaker',
-                'Submerge probe tip completely',
-                'Wait 20–30 s to stabilise',
-              ].map((t, i) => (
+              {point.prepMsg.split('\n').map((step, i) => (
                 <View key={i} style={s.prepStep}>
                   <View style={[s.prepDot, { backgroundColor: point.color }]}>
                     <Text style={s.prepDotNum}>{i + 1}</Text>
                   </View>
-                  <Text style={[s.prepStepText, { color: T.text }]}>{t}</Text>
+                  <Text style={[s.prepStepText, { color: T.text }]}>
+                    {step}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -292,100 +447,128 @@ export default function ECCalibrationScreen({ navigation, route }) {
               disabled={sending}
               activeOpacity={0.85}
             >
-              <Icon
-                name={sending ? 'loading' : 'play'}
-                size={18}
-                color="#fff"
-              />
+              {sending ? (
+                <Icon name="loading" size={18} color="#fff" />
+              ) : (
+                <Icon name="play-circle" size={18} color="#fff" />
+              )}
               <Text style={s.btnPrimaryText}>
-                {sending ? 'Sending Command…' : 'Start Reading'}
+                {sending ? 'Sending command…' : 'Start Reading'}
               </Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* ── READING ────────────────────────────────────────────── */}
+        {/* READING */}
         {isReading && (
           <View
             style={[
               s.card,
-              {
-                backgroundColor: T.card,
-                borderColor: point.color + '66',
-                borderWidth: 1.5,
-              },
+              { backgroundColor: T.card, borderColor: point.color + '55' },
             ]}
           >
+            {/* Live indicator */}
             <View style={s.liveRow}>
               <Animated.View
                 style={[
                   s.liveDot,
                   {
-                    backgroundColor: stable ? T.primary : T.warning,
+                    backgroundColor: point.color,
                     transform: [{ scale: pulse }],
                   },
                 ]}
               />
-              <Text
-                style={[s.liveText, { color: stable ? T.primary : T.warning }]}
-              >
-                {stable ? 'Stable — Ready to Capture' : 'Stabilising…'}
+              <Text style={[s.liveText, { color: T.text }]}>
+                {isMocking
+                  ? '🔄 Mock data — waiting for device…'
+                  : isLocked
+                  ? '🔗 Live BLE data'
+                  : 'Receiving…'}
               </Text>
+              {isMocking && (
+                <View
+                  style={[
+                    s.mockBadge,
+                    { backgroundColor: '#F59E0B22', borderColor: '#F59E0B' },
+                  ]}
+                >
+                  <Text
+                    style={{ fontSize: 9, fontWeight: '800', color: '#F59E0B' }}
+                  >
+                    MOCK
+                  </Text>
+                </View>
+              )}
+              {isLocked && (
+                <View
+                  style={[
+                    s.mockBadge,
+                    { backgroundColor: T.primaryGlow, borderColor: T.primary },
+                  ]}
+                >
+                  <Text
+                    style={{ fontSize: 9, fontWeight: '800', color: T.primary }}
+                  >
+                    REAL
+                  </Text>
+                </View>
+              )}
             </View>
+
+            {/* Readings */}
             <View style={s.readGrid}>
               <View
                 style={[
                   s.readBox,
-                  { borderColor: T.border, backgroundColor: T.cardAlt },
-                ]}
-              >
-                <Text style={[s.readLabel, { color: T.muted }]}>Live EC</Text>
-                <Text style={[s.readValue, { color: T.primary }]}>
-                  {point.standardEC.toFixed(3)}
-                </Text>
-                <Text style={[s.readUnit, { color: T.primary }]}>dS/m</Text>
-              </View>
-              <View
-                style={[
-                  s.readBox,
                   {
-                    borderColor: stable ? point.color : T.warning,
-                    backgroundColor: stable
-                      ? point.color + '18'
-                      : 'rgba(245,158,11,0.1)',
+                    borderColor: point.color + '66',
+                    backgroundColor: point.color + '11',
                   },
                 ]}
               >
-                <Text style={[s.readLabel, { color: T.muted }]}>Voltage</Text>
-                <Text
-                  style={[
-                    s.readValue,
-                    { color: stable ? point.color : T.warning },
-                  ]}
-                >
-                  {voltage !== null ? voltage.toFixed(4) : '----'}
+                <Text style={[s.readLabel, { color: T.muted }]}>VOLTAGE</Text>
+                <Text style={[s.readValue, { color: point.color }]}>
+                  {voltage !== null ? voltage.toFixed(4) : '–.––––'}
                 </Text>
-                <Text style={[s.readUnit, { color: T.primary }]}>V</Text>
+                <Text style={[s.readUnit, { color: T.muted }]}>V</Text>
+              </View>
+              <View style={[s.readBox, { borderColor: T.border }]}>
+                <Text style={[s.readLabel, { color: T.muted }]}>TARGET EC</Text>
+                <Text style={[s.readValue, { color: T.white, fontSize: 20 }]}>
+                  {point.standardEC}
+                </Text>
+                <Text style={[s.readUnit, { color: T.muted }]}>dS/m</Text>
               </View>
             </View>
+
+            {/* Stability bar */}
             <View style={[s.stabilityBar, { backgroundColor: T.border }]}>
               <View
                 style={[
                   s.stabilityFill,
                   {
-                    backgroundColor: stable ? T.primary : T.warning,
-                    width: stable ? '100%' : '55%',
+                    width: `${stable ? 100 : isMocking ? 45 : 70}%`,
+                    backgroundColor: stable ? T.primary : '#F59E0B',
                   },
                 ]}
               />
             </View>
-            <Text style={[s.stabilityLabel, { color: T.muted }]}>
+            <Text
+              style={[
+                s.stabilityLabel,
+                { color: stable ? T.primary : T.muted },
+              ]}
+            >
               {voltage === null
                 ? '⏳ Waiting for device data…'
                 : stable
-                ? '✅ Signal stable'
-                : '⏳ Stabilising…'}
+                ? '✅ Signal stable — ready to capture!'
+                : isMocking
+                ? '⏳ Mock signal stabilising… (waiting for real device)'
+                : '⏳ Stabilising real signal…'}
             </Text>
+
+            {/* Actions */}
             <View style={s.actionRow}>
               <TouchableOpacity
                 style={[s.btnOutline, { borderColor: T.border, flex: 1 }]}
@@ -413,14 +596,14 @@ export default function ECCalibrationScreen({ navigation, route }) {
                     { color: stable ? '#fff' : T.muted },
                   ]}
                 >
-                  Capture
+                  Capture Reading
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
 
-        {/* ── DONE ───────────────────────────────────────────────── */}
+        {/* DONE */}
         {isDone && (
           <View
             style={[
@@ -453,7 +636,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
               <View style={{ flex: 1 }}>
                 <Text style={[s.cardTitle, { color: T.white }]}>
                   EC {point.standardEC} dS/m{' '}
-                  {captured[point.id] ? 'Captured' : 'Skipped'}
+                  {captured[point.id] ? 'Captured ✅' : 'Skipped'}
                 </Text>
                 {captured[point.id] && (
                   <Text
@@ -467,6 +650,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
                 )}
               </View>
             </View>
+
             <View style={[s.capturedList, { borderColor: T.border }]}>
               <Text style={[s.capturedListTitle, { color: T.muted }]}>
                 Points Recorded
@@ -495,6 +679,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
                 </View>
               ))}
             </View>
+
             <TouchableOpacity
               style={[
                 s.btnPrimary,
@@ -528,9 +713,20 @@ export default function ECCalibrationScreen({ navigation, route }) {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   container: { flex: 1 },
   scroll: { padding: Spacing.md, paddingBottom: Spacing.xl },
+  disconnectBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: Spacing.md,
+    marginTop: 6,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 10,
+  },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -559,6 +755,7 @@ const s = StyleSheet.create({
   },
   pointTitle: { fontSize: 15, fontWeight: '800' },
   pointSub: { fontSize: 13, marginTop: 2 },
+  connDot: { width: 10, height: 10, borderRadius: 5 },
   card: {
     borderRadius: Radius.lg,
     borderWidth: 1,
@@ -591,7 +788,13 @@ const s = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   liveDot: { width: 10, height: 10, borderRadius: 5 },
-  liveText: { fontSize: 13, fontWeight: '700' },
+  liveText: { fontSize: 13, fontWeight: '700', flex: 1 },
+  mockBadge: {
+    borderRadius: 4,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
   readGrid: { flexDirection: 'row', gap: 12, marginBottom: Spacing.sm },
   readBox: {
     flex: 1,
@@ -609,12 +812,12 @@ const s = StyleSheet.create({
   readValue: { fontSize: 26, fontWeight: '900', fontFamily: 'Courier' },
   readUnit: { fontSize: 12, marginTop: 2 },
   stabilityBar: {
-    height: 4,
-    borderRadius: 2,
+    height: 6,
+    borderRadius: 3,
     overflow: 'hidden',
     marginBottom: 6,
   },
-  stabilityFill: { height: 4, borderRadius: 2 },
+  stabilityFill: { height: 6, borderRadius: 3 },
   stabilityLabel: {
     fontSize: 12,
     marginBottom: Spacing.md,
@@ -684,4 +887,46 @@ const s = StyleSheet.create({
   capturedRowVal: { fontSize: 13, fontWeight: '800' },
   skipAll: { alignItems: 'center', paddingVertical: Spacing.md },
   skipAllText: { fontSize: 13, textDecorationLine: 'underline' },
+});
+
+const rm = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
+  sheet: {
+    borderRadius: Radius.xl,
+    borderWidth: 2,
+    padding: Spacing.lg,
+    width: '100%',
+    alignItems: 'center',
+  },
+  iconRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+  },
+  title: { fontSize: 20, fontWeight: '900', marginBottom: Spacing.sm },
+  body: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: Spacing.lg,
+  },
+  btn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    width: '100%',
+    height: 52,
+    borderRadius: Radius.lg,
+  },
+  btnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
 });

@@ -51,13 +51,13 @@ const APP_SETTINGS = [
   //   sub: 'Use GPS for field mapping',
   //   toggle: true,
   // },
-  {
-    key: 'bluetooth',
-    icon: 'bluetooth',
-    label: 'Bluetooth',
-    sub: 'Auto-connect to devices',
-    toggle: false,
-  },
+  // {
+  //   key: 'bluetooth',
+  //   icon: 'bluetooth',
+  //   label: 'Bluetooth',
+  //   sub: 'Auto-connect to devices',
+  //   toggle: false,
+  // },
 ];
 
 const ACCOUNT_ITEMS = [
@@ -193,9 +193,9 @@ export default function ProfileScreen({ navigation }) {
           <Text style={[s.profileName, { color: T.text }]}>
             {user?.name || user?.username || 'User'}
           </Text>
-          <Text style={[s.profileRole, { color: T.muted }]}>
+          {/* <Text style={[s.profileRole, { color: T.muted }]}>
             Agricultural Technician
-          </Text>
+          </Text> */}
           <View
             style={[
               s.emailChip,

@@ -1,5 +1,5 @@
 // src/screens/ble/BLEScanScreen.jsx
-// Scan → list → connect → handshake → navigate to CalibrationGateScreen
+// Scan → list → connect → handshake (ARKASHINE_DEVICE / ARKASHINE_TRUE) → navigate
 // All state via Redux. No Context.
 
 import React, { useEffect, useCallback, useRef } from 'react';
@@ -27,7 +27,9 @@ import {
 } from '../../redux/actions/bleActions';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-export default function BLEScanScreen({ navigation }) {
+export default function BLEScanScreen({ route, navigation }) {
+  const item = route?.params?.item;
+
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
@@ -37,10 +39,12 @@ export default function BLEScanScreen({ navigation }) {
     scanning,
     devices,
     connected,
-    connecting,
+    connectingDeviceId,
     device: connectedDevice,
     error,
     bleConfig,
+    handshakeStatus,
+    handshakeRaw,
   } = useSelector(s => s.ble);
 
   // Start adapter monitor once
@@ -108,9 +112,17 @@ export default function BLEScanScreen({ navigation }) {
           <ConnectedBanner
             device={connectedDevice}
             bleConfig={bleConfig}
+            handshakeStatus={handshakeStatus}
+            handshakeRaw={handshakeRaw}
             T={T}
             onDisconnect={() => dispatch(disconnectDevice())}
-            onProceed={() => navigation.navigate('CalibrationGateScreen')}
+            onProceed={() => {
+              if (item?.name === 'Ph Bottle') {
+                navigation.navigate('CalibrationGateScreen');
+              } else if (item?.name === 'SOILENZ') {
+                navigation.navigate('IntroScreen');
+              }
+            }}
           />
         )}
 
@@ -183,7 +195,8 @@ export default function BLEScanScreen({ navigation }) {
               <DeviceRow
                 device={item}
                 isConnected={connected && connectedDevice?.id === item.id}
-                isConnecting={connecting}
+                // Only show loader for the specific device being connected
+                isConnecting={connectingDeviceId === item.id}
                 T={T}
                 onPress={() => handleConnect(item)}
               />
@@ -205,8 +218,34 @@ export default function BLEScanScreen({ navigation }) {
   );
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-function ConnectedBanner({ device, bleConfig, T, onDisconnect, onProceed }) {
+// ─── ConnectedBanner ─────────────────────────────────────────────────────────
+function ConnectedBanner({
+  device,
+  bleConfig,
+  handshakeStatus,
+  handshakeRaw,
+  T,
+  onDisconnect,
+  onProceed,
+}) {
+  const handshakePending = handshakeStatus === 'pending';
+  const handshakeDone = handshakeStatus === 'success';
+  const handshakeFailed = handshakeStatus === 'failed';
+
+  const hsColor = handshakeDone
+    ? T.primary
+    : handshakeFailed
+    ? '#ef4444'
+    : T.warning ?? '#f59e0b';
+
+  const hsLabel = handshakePending
+    ? 'Handshake…'
+    : handshakeDone
+    ? 'ArkaShine Verified ✅'
+    : handshakeFailed
+    ? 'Handshake Failed ❌'
+    : 'Awaiting handshake';
+
   return (
     <View
       style={[
@@ -214,38 +253,83 @@ function ConnectedBanner({ device, bleConfig, T, onDisconnect, onProceed }) {
         { backgroundColor: T.primaryGlow, borderColor: T.primary },
       ]}
     >
-      <Icon name="bluetooth-connect" size={20} color={T.primary} />
-      <View style={{ flex: 1 }}>
-        <Text style={[cb.name, { color: T.primary }]}>
+      {/* ── Top row: icon + name + buttons ─────────────────── */}
+      <View style={cb.topRow}>
+        <Icon name="bluetooth-connect" size={20} color={T.primary} />
+        <Text style={[cb.name, { color: T.primary, flex: 1 }]}>
           {device.name || 'Device'}
         </Text>
-       {bleConfig && (
-          <View style={{ marginTop: 4 }}>
-            <Text style={[cb.uuid, { color: T.muted }]}>
-              S: {bleConfig.serviceUUID}
-            </Text>
-            <Text style={[cb.uuid, { color: T.muted }]}>
-              N: {bleConfig.notifyUUID}
-            </Text>
-            <Text style={[cb.uuid, { color: T.primary }]}>
-              W: {bleConfig.writeUUID}
-            </Text>
-          </View>
-        )}
+        {
+          <TouchableOpacity
+            style={[cb.proceedBtn, { backgroundColor: T.primary }]}
+            onPress={onProceed}
+          >
+            <Text style={cb.proceedText}>Begin Test →</Text>
+          </TouchableOpacity>
+        }
+        <TouchableOpacity onPress={onDisconnect} style={{ padding: 4 }}>
+          <Icon name="close" size={18} color={T.muted} />
+        </TouchableOpacity>
       </View>
-      <TouchableOpacity
-        style={[cb.proceedBtn, { backgroundColor: T.primary }]}
-        onPress={onProceed}
-      >
-        <Text style={cb.proceedText}>Begin Test →</Text>
-      </TouchableOpacity>
-      <TouchableOpacity onPress={onDisconnect} style={{ padding: 4 }}>
-        <Icon name="close" size={18} color={T.muted} />
-      </TouchableOpacity>
+
+      {/* ── Handshake status ─────────────────────────────── */}
+      <View style={[cb.hsRow, { borderColor: hsColor + '44' }]}>
+        {handshakePending ? (
+          <ActivityIndicator size="small" color={hsColor} />
+        ) : (
+          <Icon
+            name={
+              handshakeDone
+                ? 'shield-check'
+                : handshakeFailed
+                ? 'shield-off'
+                : 'shield-outline'
+            }
+            size={14}
+            color={hsColor}
+          />
+        )}
+        <Text style={[cb.hsLabel, { color: hsColor }]}>{hsLabel}</Text>
+      </View>
+
+      {/* ── Handshake raw data received ──────────────────── */}
+      {handshakeRaw != null && (
+        <View style={[cb.rawBox, { borderColor: T.border }]}>
+          <Text style={[cb.rawLabel, { color: T.muted }]}>
+            Handshake raw recv:
+          </Text>
+          <Text style={[cb.rawVal, { color: T.primary }]}>{handshakeRaw}</Text>
+        </View>
+      )}
+
+      {/* ── UUID info ────────────────────────────────────── */}
+      {bleConfig && (
+        <View style={[cb.uuidBox, { borderColor: T.border }]}>
+          <UUIDRow label="SVC" value={bleConfig.serviceUUID} T={T} />
+          <UUIDRow label="NTF" value={bleConfig.notifyUUID} T={T} />
+          <UUIDRow label="WRT" value={bleConfig.writeUUID} T={T} />
+        </View>
+      )}
     </View>
   );
 }
 
+function UUIDRow({ label, value, T }) {
+  return (
+    <View style={cb.uuidRow}>
+      <Text style={[cb.uuidLabel, { color: T.muted }]}>{label}</Text>
+      <Text
+        style={[cb.uuidVal, { color: T.textSub ?? T.text }]}
+        numberOfLines={1}
+        ellipsizeMode="middle"
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+// ─── DeviceRow ────────────────────────────────────────────────────────────────
 function DeviceRow({ device, isConnected, isConnecting, T, onPress }) {
   const strength = rssiStrength(device.rssi);
   return (
@@ -282,7 +366,7 @@ function DeviceRow({ device, isConnected, isConnecting, T, onPress }) {
         <Text style={[dr.id, { color: T.muted }]} numberOfLines={1}>
           {device.id}
         </Text>
-        {device.rssi && (
+        {device.rssi != null && (
           <Text style={[dr.rssi, { color: T.muted }]}>{device.rssi} dBm</Text>
         )}
       </View>
@@ -300,7 +384,8 @@ function DeviceRow({ device, isConnected, isConnecting, T, onPress }) {
         onPress={onPress}
         activeOpacity={0.8}
       >
-        {isConnecting && !isConnected ? (
+        {/* Show spinner ONLY for this specific device while connecting */}
+        {isConnecting ? (
           <ActivityIndicator size="small" color={T.primary} />
         ) : (
           <Text
@@ -464,22 +549,50 @@ const s = StyleSheet.create({
 
 const cb = StyleSheet.create({
   wrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
     borderRadius: Radius.lg,
     borderWidth: 1.5,
     padding: Spacing.md,
     marginBottom: Spacing.md,
+    gap: 8,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   name: { fontSize: 14, fontWeight: '800' },
-  uuid: { fontSize: 10, marginTop: 1 },
   proceedBtn: {
     borderRadius: Radius.md,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   proceedText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  hsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  hsLabel: { fontSize: 12, fontWeight: '700' },
+  rawBox: {
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    padding: 8,
+  },
+  rawLabel: { fontSize: 10, fontWeight: '700', marginBottom: 2 },
+  rawVal: { fontSize: 11, fontFamily: 'Courier', fontWeight: '700' },
+  uuidBox: {
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    padding: 8,
+    gap: 4,
+  },
+  uuidRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  uuidLabel: { fontSize: 10, fontWeight: '800', width: 28 },
+  uuidVal: { fontSize: 10, flex: 1, fontFamily: 'Courier' },
 });
 
 const dr = StyleSheet.create({
@@ -510,6 +623,8 @@ const dr = StyleSheet.create({
     paddingVertical: 8,
     minWidth: 90,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 36,
   },
   btnText: { fontSize: 12, fontWeight: '800' },
 });

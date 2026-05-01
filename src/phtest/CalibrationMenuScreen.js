@@ -6,11 +6,12 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
 } from 'react-native';
 import { Radius, Spacing, Typography } from '../theme';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';

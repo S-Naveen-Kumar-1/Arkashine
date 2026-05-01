@@ -41,7 +41,7 @@ export const PRODUCTS = [
     tag: 'Smart Device',
     active: true,
     isMain: true,
-    route: 'IntroScreen',
+    route: 'BLEScanScreen',
     stats: { tests: 213, lastUsed: 'Today' },
   },
   {
@@ -164,3 +164,40 @@ export const QUICK_STATS = [
   { label: 'Alerts', value: '3', icon: '🔔', color: '#F59E0B' },
   { label: 'Reports', value: '18', icon: '📋', color: '#A78BFA' },
 ];
+
+export const mapProductsWithDevices = (products, deviceResponse) => {
+  // handle full API response OR direct array
+  const devices = deviceResponse?.results || deviceResponse || [];
+
+  if (!devices || devices.length === 0) {
+    return products.map(p => ({
+      ...p,
+      active: false,
+      locked: true,
+    }));
+  }
+
+  // normalize device types
+  const deviceTypes = devices
+    .map(d => d.type_name?.toLowerCase()?.trim())
+    .filter(Boolean);
+
+  return products.map(product => {
+    const isUnlocked = deviceTypes.includes(
+      product.shortName.toLowerCase().trim(),
+    );
+
+    return {
+      ...product,
+      active: isUnlocked,
+      locked: !isUnlocked,
+
+      // 🔥 optional: attach device info
+      device: isUnlocked
+        ? devices.find(
+            d => d.type_name?.toLowerCase() === product.shortName.toLowerCase(),
+          )
+        : null,
+    };
+  });
+};

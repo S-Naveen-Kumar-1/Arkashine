@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,8 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { useDispatch, useSelector } from 'react-redux';
 import useTheme from '../../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../../theme';
-import { PRODUCTS } from '../../config/products';
+import { PRODUCTS, mapProductsWithDevices } from '../../config/products';
+import { getUserDevices } from '../../redux/actions';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - Spacing.lg * 2;
@@ -26,11 +27,23 @@ export function DashboardScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
-
+  const user = useSelector(s => s.auth.user);
+  const token = useSelector(s => s.auth?.token);
   const [activeSlide, setActiveSlide] = useState(0);
   const scrollViewRef = useRef(null);
   const sliderRef = useRef(null);
+  const devices = useSelector(s => s.userDevices?.devices);
+  console.log('Devices from Redux:/', devices);
+  useEffect(() => {
+    const fetchDevices = async () => {
+      if (token) {
+        const res = await dispatch(getUserDevices(token));
+        console.log(res.payload.data, 'device res');
+      }
+    };
 
+    fetchDevices();
+  }, [token]);
   const bannerSlides = [
     {
       id: 1,
@@ -49,37 +62,13 @@ export function DashboardScreen({ navigation }) {
   ];
 
   // Get first 4 active products for Quick Access
+  const updatedProducts = useMemo(() => {
+    return mapProductsWithDevices(PRODUCTS, devices);
+  }, [devices]);
+
   const quickAccessProducts = useMemo(() => {
-    return PRODUCTS.filter(p => p.active).slice(0, 4);
-  }, []);
-
-  const liveMetrics = [
-    {
-      id: 1,
-      icon: 'leaf',
-      title: 'Soil Health',
-      value: 'Good',
-      status: 'Optimal',
-      color: '#10B981',
-    },
-    {
-      id: 2,
-      icon: 'water',
-      title: 'Moisture',
-      value: '40%',
-      status: 'Moderate',
-      color: '#3B82F6',
-    },
-    {
-      id: 3,
-      icon: 'thermometer',
-      title: 'Temperature',
-      value: '28°C',
-      status: 'Normal',
-      color: '#F97316',
-    },
-  ];
-
+    return updatedProducts.slice(0, 4);
+  }, [updatedProducts]);
   const handleScroll = event => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const currentSlide = Math.round(
@@ -129,13 +118,13 @@ export function DashboardScreen({ navigation }) {
           backgroundColor: T.card,
           borderColor: T.cardBorder,
           ...Shadow.md,
-          opacity: item.active ? 1 : 0.6,
+          opacity: item.locked ? 0.4 : 1,
         },
       ]}
       activeOpacity={0.8}
       onPress={() => {
         if (item.route && item.active) {
-          navigation.navigate(item.route);
+          navigation.navigate(item.route, { item });
         }
       }}
       disabled={!item.active}
@@ -155,11 +144,15 @@ export function DashboardScreen({ navigation }) {
           />
         </View>
 
-        <MaterialCommunityIcons
-          name="chevron-right"
-          size={20}
-          color={item.active ? T.primary : T.textSub}
-        />
+        {item.locked ? (
+          <MaterialCommunityIcons name="lock" size={18} color={T.textSub} />
+        ) : (
+          <MaterialCommunityIcons
+            name="chevron-right"
+            size={20}
+            color={T.primary}
+          />
+        )}
       </View>
 
       {/* Text */}
@@ -203,7 +196,8 @@ export function DashboardScreen({ navigation }) {
             </View>
             <View style={s.headerInfo}>
               <Text style={[s.greeting, { color: T.text }]}>
-                Hello, Naveen <Text style={{ fontSize: 18 }}>🌿</Text>
+                Hello, {user?.full_name || user?.username || 'User'}{' '}
+                <Text style={{ fontSize: 18 }}>🌿</Text>
               </Text>
               <Text style={[s.subtitle, { color: T.textSub }]}>
                 Smart Farming Dashboard

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -15,9 +15,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import { registerUser, toggleTheme } from '../redux/actions';
+import { registerUser, toggleTheme, clearAuthError } from '../redux/actions';
 import useTheme from '../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../theme';
+import { showMessage } from 'react-native-flash-message';
 
 export default function RegisterScreen({ navigation }) {
   const dispatch = useDispatch();
@@ -25,222 +26,177 @@ export default function RegisterScreen({ navigation }) {
   const T = theme.colors;
   const { loading, error } = useSelector(s => s.auth);
 
-  const [name, setName] = useState('');
+  // ── Fields ──────────────────────────────────────────────
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [username, setUsername] = useState('');
+
   const [showPass, setShowPass] = useState(false);
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [focusedInput, setFocusedInput] = useState(null);
   const [step, setStep] = useState(1);
 
-  // Refs for keyboard navigation
-  const nameRef = useRef(null);
+  // ── Refs ─────────────────────────────────────────────────
+  const firstNameRef = useRef(null);
+  const lastNameRef = useRef(null);
   const phoneRef = useRef(null);
   const emailRef = useRef(null);
   const passRef = useRef(null);
   const confirmRef = useRef(null);
+  const usernameRef = useRef(null);
   const scrollViewRef = useRef(null);
 
-  const validateField = (fieldName, value) => {
-    switch (fieldName) {
-      case 'name':
-        return value.trim() ? null : 'Full name is required';
-      case 'phone':
-        const phoneRegex =
+  // ── Validation ───────────────────────────────────────────
+  const validateField = (field, value) => {
+    switch (field) {
+      case 'firstName':
+        return value.trim() ? null : 'First name is required';
+      case 'lastName':
+        return value.trim() ? null : 'Last name is required';
+      case 'phone': {
+        const r =
           /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/;
-        return phoneRegex.test(value.replace(/\s/g, ''))
+        return r.test(value.replace(/\s/g, ''))
           ? null
-          : 'Valid phone number is required';
+          : 'Valid phone number required';
+      }
       case 'email':
-        return /\S+@\S+\.\S+/.test(value) ? null : 'Valid email is required';
+        return /\S+@\S+\.\S+/.test(value) ? null : 'Valid email required';
       case 'pass':
-        return value.length >= 6
-          ? null
-          : 'Password must be at least 6 characters';
+        return value.length >= 6 ? null : 'At least 6 characters';
       case 'confirm':
         return value === pass ? null : 'Passwords do not match';
+      case 'username':
+        if (!value.trim()) return 'Username is required';
+        if (value.length < 3) return 'At least 3 characters';
+        return null;
       default:
         return null;
     }
   };
 
-  const handleNameChange = value => {
-    setName(value);
-    if (touched.name) {
-      const error = validateField('name', value);
-      setErrors(prev => ({ ...prev, name: error }));
+  const makeHandler = (field, setter) => value => {
+    setter(value);
+    if (touched[field]) {
+      setErrors(prev => ({ ...prev, [field]: validateField(field, value) }));
     }
   };
 
-  const handlePhoneChange = value => {
-    setPhone(value);
-    if (touched.phone) {
-      const error = validateField('phone', value);
-      setErrors(prev => ({ ...prev, phone: error }));
-    }
+  const handleInputBlur = (field, currentValue) => {
+    setTouched(prev => ({ ...prev, [field]: true }));
+    setErrors(prev => ({
+      ...prev,
+      [field]: validateField(field, currentValue),
+    }));
+    setFocusedInput(null);
   };
 
-  const handleEmailChange = value => {
-    setEmail(value);
-    if (touched.email) {
-      const error = validateField('email', value);
-      setErrors(prev => ({ ...prev, email: error }));
-    }
-  };
-
-  const handlePassChange = value => {
-    setPass(value);
-    if (touched.pass) {
-      const error = validateField('pass', value);
-      setErrors(prev => ({ ...prev, pass: error }));
-    }
-    if (touched.confirm && confirm) {
-      const confirmError = value === confirm ? null : 'Passwords do not match';
-      setErrors(prev => ({ ...prev, confirm: confirmError }));
-    }
-  };
-
-  const handleConfirmChange = value => {
-    setConfirm(value);
-    if (touched.confirm) {
-      const error = validateField('confirm', value);
-      setErrors(prev => ({ ...prev, confirm: error }));
-    }
-  };
-
-  const handleInputBlur = fieldName => {
-    setTouched(prev => ({ ...prev, [fieldName]: true }));
-    const value =
-      fieldName === 'name'
-        ? name
-        : fieldName === 'phone'
-        ? phone
-        : fieldName === 'email'
-        ? email
-        : fieldName === 'pass'
-        ? pass
-        : confirm;
-    const error = validateField(fieldName, value);
-    setErrors(prev => ({ ...prev, [fieldName]: error }));
-  };
-
-  const validateStep = stepNum => {
+  const validateStep = n => {
     const e = {};
-    if (stepNum === 1) {
-      if (!name.trim()) e.name = 'Full name is required';
-      if (!phone.trim()) e.phone = 'Phone number is required';
-      const phoneRegex =
+    if (n === 1) {
+      if (!firstName.trim()) e.firstName = 'First name is required';
+      if (!lastName.trim()) e.lastName = 'Last name is required';
+      const r =
         /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/;
-      if (!phoneRegex.test(phone.replace(/\s/g, ''))) {
-        e.phone = 'Valid phone number is required';
-      }
-    } else if (stepNum === 2) {
-      if (!/\S+@\S+\.\S+/.test(email)) e.email = 'Valid email is required';
-      if (pass.length < 6) e.pass = 'Password must be at least 6 characters';
-    } else if (stepNum === 3) {
+      if (!r.test(phone.replace(/\s/g, '')))
+        e.phone = 'Valid phone number required';
+    }
+    if (n === 2) {
+      if (!/\S+@\S+\.\S+/.test(email)) e.email = 'Valid email required';
+      if (pass.length < 6) e.pass = 'At least 6 characters';
+    }
+    if (n === 3) {
       if (pass !== confirm) e.confirm = 'Passwords do not match';
+      if (!username.trim()) e.username = 'Username is required';
+      else if (username.length < 3) e.username = 'At least 3 characters';
     }
     return e;
   };
 
-  const handleStep1Continue = () => {
-    const e = validateStep(1);
-    if (Object.keys(e).length > 0) {
+  const goStep = (n, prevStep) => {
+    const e = validateStep(prevStep);
+    if (Object.keys(e).length) {
       setErrors(e);
-      setTouched({ name: true, phone: true });
       return;
     }
     setErrors({});
     setTouched({});
-    setStep(2);
-    setTimeout(() => {
-      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-    }, 300);
+    setStep(n);
+    setTimeout(
+      () => scrollViewRef.current?.scrollTo({ y: 0, animated: true }),
+      300,
+    );
   };
 
-  const handleStep2Continue = () => {
-    const e = validateStep(2);
-    if (Object.keys(e).length > 0) {
-      setErrors(e);
-      setTouched({ email: true, pass: true });
-      return;
-    }
-    setErrors({});
-    setTouched({});
-    setStep(3);
-    setTimeout(() => {
-      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-    }, 300);
-  };
-
-  const handleRegister = () => {
+  const handleRegister = async () => {
     const e = validateStep(3);
-    if (Object.keys(e).length > 0) {
+    if (Object.keys(e).length) {
       setErrors(e);
-      setTouched({ confirm: true });
+      setTouched({ confirm: true, username: true });
       return;
     }
-    console.log('Registering user:', { name, phone, email, pass });
-    dispatch(registerUser(name, email, pass, phone));
-  };
-
-  // Keyboard navigation handlers
-  const handleNameSubmit = () => {
-    phoneRef.current?.focus();
-  };
-
-  const handlePhoneSubmit = () => {
-    if (step === 1) {
-      handleStep1Continue();
+    const regiRes = await dispatch(
+      registerUser({
+        username,
+        password: pass,
+        email,
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+      }),
+    );
+    if (regiRes.payload?.data?.access) {
+      showMessage({
+        message: 'Account Created Successfully',
+        type: 'success',
+      });
+      navigation.navigate('AppTabs');
+    } else {
+      showMessage({
+        message: regiRes.payload?.error || 'Registration Failed',
+        type: 'danger',
+      });
+      console.log(
+        'Registration failed, error:',
+        regiRes.payload?.error || regiRes.error,
+      );
     }
-  };
 
-  const handleEmailSubmit = () => {
-    passRef.current?.focus();
-  };
-
-  const handlePassSubmit = () => {
-    confirmRef.current?.focus();
-  };
-
-  const handleConfirmSubmit = () => {
-    if (step === 3) {
-      handleRegister();
-    }
+    console.log('Registration response:', regiRes);
   };
 
   const handleInputFocus = (inputName, scrollY) => {
     setFocusedInput(inputName);
-    setTimeout(() => {
-      scrollViewRef.current?.scrollTo({
-        y: scrollY,
-        animated: true,
-      });
-    }, 200);
+    setTimeout(
+      () => scrollViewRef.current?.scrollTo({ y: scrollY, animated: true }),
+      200,
+    );
   };
 
   const progressPercentage = (step / 3) * 100;
 
-  const renderStepInput = (
+  // ── Shared input renderer ────────────────────────────────
+  const renderInput = ({
     label,
     icon,
     value,
     onChange,
-    onBlur,
+    field,
     placeholder,
-    error,
     keyboardType = 'default',
     isPassword = false,
     returnKeyType = 'next',
     onSubmitEditing,
     scrollY,
     inputRef,
-  ) => {
-    const isValid = value.length > 0 && !error;
-
+  }) => {
+    const err = errors[field];
+    const isValid = value.length > 0 && !err;
     return (
       <View style={s.inputGroup}>
         <View style={s.inputHeader}>
@@ -249,32 +205,27 @@ export default function RegisterScreen({ navigation }) {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[s.inputLabel, { color: T.text }]}>{label}</Text>
-            {error && (
-              <Text
-                style={[
-                  s.inputHint,
-                  { color: error ? T.error || '#EF4444' : T.textSub },
-                ]}
-              >
-                {` ${error}`}
+            {err ? (
+              <Text style={[s.inputHint, { color: T.error || '#EF4444' }]}>
+                {err}
               </Text>
-            )}
+            ) : null}
           </View>
         </View>
         <View
           style={[
             s.modernInput,
             {
-              borderColor: error
+              borderColor: err
                 ? T.error || '#EF4444'
                 : isValid
                 ? T.success || '#10B981'
-                : focusedInput === label
+                : focusedInput === field
                 ? T.primary
                 : T.cardBorder,
               backgroundColor:
-                focusedInput === label ? `${T.primary}08` : T.inputBg || T.card,
-              borderWidth: error || focusedInput === label ? 2 : 1,
+                focusedInput === field ? `${T.primary}08` : T.inputBg || T.card,
+              borderWidth: err || focusedInput === field ? 2 : 1,
             },
           ]}
         >
@@ -285,17 +236,16 @@ export default function RegisterScreen({ navigation }) {
             placeholderTextColor={`${T.textSub}80`}
             value={value}
             onChangeText={onChange}
-            onFocus={() => handleInputFocus(label, scrollY)}
-            onBlur={() => {
-              setFocusedInput(null);
-              onBlur(label);
-            }}
+            onFocus={() => handleInputFocus(field, scrollY)}
+            onBlur={() => handleInputBlur(field, value)}
             keyboardType={keyboardType}
             secureTextEntry={isPassword && !showPass}
             returnKeyType={returnKeyType}
             onSubmitEditing={onSubmitEditing}
             blurOnSubmit={false}
             importantForAutofill="no"
+            autoCapitalize="none"
+            autoCorrect={false}
           />
           {isValid && (
             <MaterialCommunityIcons
@@ -308,7 +258,30 @@ export default function RegisterScreen({ navigation }) {
       </View>
     );
   };
+  const resetForm = async () => {
+    setFirstName('');
+    setLastName('');
+    setPhone('');
+    setEmail('');
+    setPass('');
+    setConfirm('');
+    setUsername('');
 
+    setErrors({});
+    setTouched({});
+    setFocusedInput(null);
+    setShowPass(false);
+    setStep(1);
+    dispatch(clearAuthError());
+  };
+  useEffect(() => {
+    dispatch(clearAuthError());
+  }, []);
+  const handleGoBackToLogin = async () => {
+    await resetForm();
+    navigation.goBack();
+  };
+  // ── Render ───────────────────────────────────────────────
   return (
     <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
       <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
@@ -317,7 +290,7 @@ export default function RegisterScreen({ navigation }) {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
-        {/* Minimal Header */}
+        {/* Header */}
         <View style={[s.header, { borderBottomColor: T.cardBorder }]}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
@@ -350,10 +323,9 @@ export default function RegisterScreen({ navigation }) {
           contentContainerStyle={s.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          scrollEnabled={true}
           bounces={false}
         >
-          {/* Progress Section */}
+          {/* Progress */}
           <View style={s.progressSection}>
             <View style={s.progressInfo}>
               <Text style={[s.progressLabel, { color: T.textSub }]}>
@@ -383,7 +355,7 @@ export default function RegisterScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Main Content Card */}
+          {/* Card */}
           <View
             style={[
               s.contentCard,
@@ -391,7 +363,7 @@ export default function RegisterScreen({ navigation }) {
               Shadow.lg,
             ]}
           >
-            {/* Error Banner */}
+            {/* Error banner */}
             {error ? (
               <View
                 style={[
@@ -418,7 +390,7 @@ export default function RegisterScreen({ navigation }) {
               </View>
             ) : null}
 
-            {/* Step 1: Personal Info */}
+            {/* ── STEP 1: Personal Info ── */}
             {step === 1 && (
               <View style={s.stepContent}>
                 <View style={s.stepHeader}>
@@ -435,45 +407,57 @@ export default function RegisterScreen({ navigation }) {
                     Tell us about yourself
                   </Text>
                   <Text style={[s.stepSubtitle, { color: T.textSub }]}>
-                    We'll use this information to personalize your experience
+                    We'll use this to personalise your experience
                   </Text>
                 </View>
 
-                {renderStepInput(
-                  'Full Name',
-                  'account',
-                  name,
-                  handleNameChange,
-                  handleInputBlur,
-                  'Your Full Name',
-                  errors.name,
-                  'default',
-                  false,
-                  'next',
-                  handleNameSubmit,
-                  50,
-                  nameRef,
-                )}
+                {/* First + Last name side by side */}
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    {renderInput({
+                      label: 'First Name',
+                      icon: 'account',
+                      field: 'firstName',
+                      value: firstName,
+                      onChange: makeHandler('firstName', setFirstName),
+                      placeholder: 'Jane',
+                      inputRef: firstNameRef,
+                      scrollY: 50,
+                      onSubmitEditing: () => lastNameRef.current?.focus(),
+                    })}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    {renderInput({
+                      label: 'Last Name',
+                      icon: 'account-outline',
+                      field: 'lastName',
+                      value: lastName,
+                      onChange: makeHandler('lastName', setLastName),
+                      placeholder: 'Doe',
+                      inputRef: lastNameRef,
+                      scrollY: 50,
+                      onSubmitEditing: () => phoneRef.current?.focus(),
+                    })}
+                  </View>
+                </View>
 
-                {renderStepInput(
-                  'Phone Number',
-                  'phone',
-                  phone,
-                  handlePhoneChange,
-                  handleInputBlur,
-                  'Your Phone Number',
-                  errors.phone,
-                  'phone-pad',
-                  false,
-                  'done',
-                  handlePhoneSubmit,
-                  100,
-                  phoneRef,
-                )}
+                {renderInput({
+                  label: 'Phone Number',
+                  icon: 'phone',
+                  field: 'phone',
+                  value: phone,
+                  onChange: makeHandler('phone', setPhone),
+                  placeholder: '+91 98765 43210',
+                  keyboardType: 'phone-pad',
+                  returnKeyType: 'done',
+                  inputRef: phoneRef,
+                  scrollY: 100,
+                  onSubmitEditing: () => goStep(2, 1),
+                })}
 
                 <TouchableOpacity
                   style={[s.nextBtn, { backgroundColor: T.primary }]}
-                  onPress={handleStep1Continue}
+                  onPress={() => goStep(2, 1)}
                   activeOpacity={0.8}
                 >
                   <Text style={s.nextBtnText}>Continue</Text>
@@ -487,7 +471,7 @@ export default function RegisterScreen({ navigation }) {
               </View>
             )}
 
-            {/* Step 2: Email & Password */}
+            {/* ── STEP 2: Email & Password ── */}
             {step === 2 && (
               <View style={s.stepContent}>
                 <View style={s.stepHeader}>
@@ -508,45 +492,38 @@ export default function RegisterScreen({ navigation }) {
                   </Text>
                 </View>
 
-                {renderStepInput(
-                  'Email Address',
-                  'email-outline',
-                  email,
-                  handleEmailChange,
-                  handleInputBlur,
-                  'you@example.com',
-                  errors.email,
-                  'email-address',
-                  false,
-                  'next',
-                  handleEmailSubmit,
-                  50,
-                  emailRef,
-                )}
+                {renderInput({
+                  label: 'Email Address',
+                  icon: 'email-outline',
+                  field: 'email',
+                  value: email,
+                  onChange: makeHandler('email', setEmail),
+                  placeholder: 'jane@example.com',
+                  keyboardType: 'email-address',
+                  inputRef: emailRef,
+                  scrollY: 50,
+                  onSubmitEditing: () => passRef.current?.focus(),
+                })}
 
-                {renderStepInput(
-                  'Password',
-                  'lock-outline',
-                  pass,
-                  handlePassChange,
-                  handleInputBlur,
-                  'Min 6 characters',
-                  errors.pass,
-                  'default',
-                  true,
-                  'next',
-                  handlePassSubmit,
-                  100,
-                  passRef,
-                )}
+                {renderInput({
+                  label: 'Password',
+                  icon: 'lock-outline',
+                  field: 'pass',
+                  value: pass,
+                  onChange: makeHandler('pass', setPass),
+                  placeholder: 'Min 6 characters',
+                  isPassword: true,
+                  inputRef: passRef,
+                  scrollY: 110,
+                  returnKeyType: 'done',
+                  onSubmitEditing: () => goStep(3, 2),
+                })}
 
                 <View style={s.passwordRequirements}>
                   <View
                     style={[
                       s.requirement,
-                      {
-                        opacity: pass.length >= 6 ? 1 : 0.5,
-                      },
+                      { opacity: pass.length >= 6 ? 1 : 0.5 },
                     ]}
                   >
                     <MaterialCommunityIcons
@@ -579,7 +556,6 @@ export default function RegisterScreen({ navigation }) {
                       setStep(1);
                       setErrors({});
                       setTouched({});
-                      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
                     }}
                   >
                     <MaterialCommunityIcons
@@ -593,7 +569,7 @@ export default function RegisterScreen({ navigation }) {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[s.nextBtn, { backgroundColor: T.primary }]}
-                    onPress={handleStep2Continue}
+                    onPress={() => goStep(3, 2)}
                     activeOpacity={0.8}
                   >
                     <Text style={s.nextBtnText}>Continue</Text>
@@ -608,7 +584,7 @@ export default function RegisterScreen({ navigation }) {
               </View>
             )}
 
-            {/* Step 3: Confirmation */}
+            {/* ── STEP 3: Confirm + Username ── */}
             {step === 3 && (
               <View style={s.stepContent}>
                 <View style={s.stepHeader}>
@@ -622,34 +598,30 @@ export default function RegisterScreen({ navigation }) {
                     />
                   </View>
                   <Text style={[s.stepTitle, { color: T.text }]}>
-                    Verify your password
+                    Almost there!
                   </Text>
                   <Text style={[s.stepSubtitle, { color: T.textSub }]}>
-                    Make sure your passwords match
+                    Confirm your password and pick a username
                   </Text>
                 </View>
 
-                {renderStepInput(
-                  'Confirm Password',
-                  'lock-check-outline',
-                  confirm,
-                  handleConfirmChange,
-                  handleInputBlur,
-                  'Re-enter your password',
-                  errors.confirm,
-                  'default',
-                  true,
-                  'done',
-                  handleConfirmSubmit,
-                  50,
-                  confirmRef,
-                )}
+                {renderInput({
+                  label: 'Confirm Password',
+                  icon: 'lock-check-outline',
+                  field: 'confirm',
+                  value: confirm,
+                  onChange: makeHandler('confirm', setConfirm),
+                  placeholder: 'Re-enter your password',
+                  isPassword: true,
+                  inputRef: confirmRef,
+                  scrollY: 50,
+                  onSubmitEditing: () => usernameRef.current?.focus(),
+                })}
 
                 <TouchableOpacity
                   style={s.showPassRow}
                   onPress={() => setShowPass(!showPass)}
                   activeOpacity={0.6}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialCommunityIcons
                     name={showPass ? 'eye-off-outline' : 'eye-outline'}
@@ -666,6 +638,44 @@ export default function RegisterScreen({ navigation }) {
                   </Text>
                 </TouchableOpacity>
 
+                {/* Username — very last input of all */}
+                {renderInput({
+                  label: 'Username',
+                  icon: 'at',
+                  field: 'username',
+                  value: username,
+                  onChange: makeHandler('username', setUsername),
+                  placeholder: 'janedoe',
+                  inputRef: usernameRef,
+                  scrollY: 160,
+                  returnKeyType: 'done',
+                  onSubmitEditing: handleRegister,
+                })}
+
+                {/* Availability hint */}
+                {username.length >= 3 && !errors.username && (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      marginTop: -6,
+                      marginBottom: 10,
+                      paddingHorizontal: 4,
+                    }}
+                  >
+                    <MaterialCommunityIcons
+                      name="clock-check-outline"
+                      size={13}
+                      color={T.textSub}
+                    />
+                    <Text
+                      style={{ fontSize: 11, color: T.textSub, marginLeft: 5 }}
+                    >
+                      Availability checked on submit
+                    </Text>
+                  </View>
+                )}
+
                 {/* Summary */}
                 <View
                   style={[
@@ -676,36 +686,22 @@ export default function RegisterScreen({ navigation }) {
                     },
                   ]}
                 >
-                  <View style={s.summaryItem}>
-                    <MaterialCommunityIcons
-                      name="account"
-                      size={18}
-                      color={T.primary}
-                    />
-                    <Text style={[s.summaryLabel, { color: T.text }]}>
-                      {name || 'Your name'}
-                    </Text>
-                  </View>
-                  <View style={s.summaryItem}>
-                    <MaterialCommunityIcons
-                      name="phone"
-                      size={18}
-                      color={T.primary}
-                    />
-                    <Text style={[s.summaryLabel, { color: T.text }]}>
-                      {phone || 'Your phone'}
-                    </Text>
-                  </View>
-                  <View style={s.summaryItem}>
-                    <MaterialCommunityIcons
-                      name="email"
-                      size={18}
-                      color={T.primary}
-                    />
-                    <Text style={[s.summaryLabel, { color: T.text }]}>
-                      {email || 'Your email'}
-                    </Text>
-                  </View>
+                  {[
+                    { icon: 'account', text: `${firstName} ${lastName}` },
+                    { icon: 'phone', text: phone },
+                    { icon: 'email-outline', text: email },
+                  ].map(({ icon, text }) => (
+                    <View key={icon} style={s.summaryItem}>
+                      <MaterialCommunityIcons
+                        name={icon}
+                        size={18}
+                        color={T.primary}
+                      />
+                      <Text style={[s.summaryLabel, { color: T.text }]}>
+                        {text}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
 
                 <View style={s.stepNavigation}>
@@ -715,7 +711,6 @@ export default function RegisterScreen({ navigation }) {
                       setStep(2);
                       setErrors({});
                       setTouched({});
-                      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
                     }}
                   >
                     <MaterialCommunityIcons
@@ -758,10 +753,10 @@ export default function RegisterScreen({ navigation }) {
             )}
           </View>
 
-          {/* Sign In Link */}
+          {/* Sign in footer */}
           <TouchableOpacity
             style={s.signInFooter}
-            onPress={() => navigation.goBack()}
+            onPress={handleGoBackToLogin}
             activeOpacity={0.7}
           >
             <Text style={[s.signInFooterText, { color: T.textSub }]}>
@@ -776,9 +771,9 @@ export default function RegisterScreen({ navigation }) {
     </SafeAreaView>
   );
 }
+
 const s = StyleSheet.create({
   bg: { flex: 1 },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -787,7 +782,6 @@ const s = StyleSheet.create({
     paddingVertical: 6,
     borderBottomWidth: 0.5,
   },
-
   headerBtn: {
     width: 36,
     height: 36,
@@ -796,59 +790,26 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 0.5,
   },
-
-  headerTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-
-  scroll: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    paddingBottom: 40,
-  },
-
-  progressSection: {
-    marginBottom: 12,
-  },
-
-  progressInfo: {
-    marginBottom: 6,
-  },
-
+  headerTitle: { fontSize: 15, fontWeight: '700' },
+  scroll: { paddingHorizontal: 16, paddingVertical: 12, paddingBottom: 40 },
+  progressSection: { marginBottom: 12 },
+  progressInfo: { marginBottom: 6 },
   progressLabel: {
     fontSize: 11,
     fontWeight: '600',
     textTransform: 'uppercase',
   },
-
-  progressTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-
-  progressBar: {
-    height: 3,
-    borderRadius: 2,
-  },
-
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-
+  progressTitle: { fontSize: 15, fontWeight: '700' },
+  progressBar: { height: 3, borderRadius: 2 },
+  progressFill: { height: '100%', borderRadius: 2 },
   contentCard: {
     borderRadius: Radius.xl,
     borderWidth: 1,
     padding: 14,
     marginBottom: 12,
   },
-
-  stepHeader: {
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-
+  stepContent: {},
+  stepHeader: { alignItems: 'center', marginBottom: 10 },
   stepIcon: {
     width: 52,
     height: 52,
@@ -857,17 +818,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 6,
   },
-
-  stepTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-
-  stepSubtitle: {
-    fontSize: 12,
-  },
-
+  stepTitle: { fontSize: 18, fontWeight: '700', marginBottom: 2 },
+  stepSubtitle: { fontSize: 12 },
   errorBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -876,23 +828,9 @@ const s = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
   },
-
-  errorBannerText: {
-    fontSize: 12,
-    flex: 1,
-  },
-
-  /* ✅ MATCHED INPUTS */
-  inputGroup: {
-    marginBottom: 10,
-  },
-
-  inputHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-
+  errorBannerText: { fontSize: 12, flex: 1 },
+  inputGroup: { marginBottom: 10 },
+  inputHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   iconBox: {
     width: 28,
     height: 28,
@@ -901,82 +839,43 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 8,
   },
-
-  inputLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-
-  inputHint: {
-    fontSize: 11,
-  },
-
+  inputLabel: { fontSize: 12, fontWeight: '600' },
+  inputHint: { fontSize: 11 },
   modernInput: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: Radius.md, // 🔥 MATCH LOGIN
+    borderRadius: Radius.md,
     paddingHorizontal: 12,
-    height: 46, // 🔥 MATCH LOGIN
+    height: 46,
   },
-
-  modernTextInput: {
-    flex: 1,
-    fontSize: 14,
-  },
-
-  /* OTHER */
+  modernTextInput: { flex: 1, fontSize: 14 },
   passwordRequirements: {
     marginTop: -4,
     marginBottom: 10,
     paddingHorizontal: 12,
   },
-
   requirement: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 4,
   },
-
-  requirementText: {
-    fontSize: 11,
-    marginLeft: 6,
-  },
-
+  requirementText: { fontSize: 11, marginLeft: 6 },
   showPassRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
     marginBottom: 10,
   },
-
-  showPassText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-
+  showPassText: { fontSize: 12, fontWeight: '600' },
   summaryBox: {
     borderRadius: Radius.lg,
     padding: 12,
     marginBottom: 10,
     borderWidth: 1,
   },
-
-  summaryItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-
-  summaryLabel: {
-    fontSize: 12,
-    marginLeft: 8,
-  },
-
-  stepNavigation: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-
+  summaryItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  summaryLabel: { fontSize: 12, marginLeft: 8 },
+  stepNavigation: { flexDirection: 'row', gap: 10 },
   backBtn: {
     flex: 1,
     flexDirection: 'row',
@@ -986,12 +885,7 @@ const s = StyleSheet.create({
     paddingVertical: 10,
     borderWidth: 1,
   },
-
-  backBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-
+  backBtnText: { fontSize: 13, fontWeight: '700' },
   nextBtn: {
     flex: 1,
     flexDirection: 'row',
@@ -1000,19 +894,7 @@ const s = StyleSheet.create({
     borderRadius: Radius.md,
     paddingVertical: 12,
   },
-
-  nextBtnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  signInFooter: {
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-
-  signInFooterText: {
-    fontSize: 12,
-  },
+  nextBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  signInFooter: { paddingVertical: 10, alignItems: 'center' },
+  signInFooterText: { fontSize: 12 },
 });
