@@ -1,5 +1,5 @@
-// src/screens/phtest/CalibrationSummaryScreen.js
-// Shows saved pH + EC calibration points and allows user to begin actual test
+// src/screens/phtest/CalibrationSummaryScreen.jsx
+// Reads calibration data from Redux — no more route params needed.
 
 import React from 'react';
 import {
@@ -11,29 +11,30 @@ import {
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
-import { Radius, Spacing, Typography } from '../theme';
+import { useSelector } from 'react-redux';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Radius, Spacing } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
-export default function CalibrationSummaryScreen({ navigation, route }) {
+export default function CalibrationSummaryScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
-  const phCalData = route?.params?.phCalData ?? null;
-  const ecCalData = route?.params?.ecCalData ?? null;
 
-  const phPoints = phCalData?.points ?? [];
-  const ecPoints = ecCalData?.points ?? [];
+  const { phPoints, ecPoints, lastCalibrated } = useSelector(
+    s => s.calibration,
+  );
 
-  const phComplete = phPoints.filter(p => p.voltage != null).length;
-  const ecComplete = ecPoints.filter(p => p.voltage != null).length;
-
-  const handleBeginTest = () => navigation.navigate('MixerScreen');
+  const phComplete = phPoints.filter(
+    p => p.voltage !== null && p.capturedAt,
+  ).length;
+  const ecComplete = ecPoints.filter(
+    p => p.voltage !== null && p.capturedAt,
+  ).length;
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
-
       <TopBar
         title="Calibration Saved"
         onBack={() => navigation.goBack()}
@@ -41,7 +42,7 @@ export default function CalibrationSummaryScreen({ navigation, route }) {
       />
 
       <ScrollView contentContainerStyle={s.scroll}>
-        {/* Success banner */}
+        {/* ── Success banner ──────────────────────────────────────── */}
         <View
           style={[
             s.banner,
@@ -54,13 +55,15 @@ export default function CalibrationSummaryScreen({ navigation, route }) {
               Calibration Complete
             </Text>
             <Text style={[s.bannerSub, { color: T.text }]}>
-              Reference voltages saved to device. All future tests will use
-              these values.
+              Reference voltages saved to device.
+              {lastCalibrated
+                ? ` Saved at ${new Date(lastCalibrated).toLocaleTimeString()}`
+                : ''}
             </Text>
           </View>
         </View>
 
-        {/* pH Summary */}
+        {/* ── pH Summary ──────────────────────────────────────────── */}
         <SectionCard
           title="pH Calibration"
           icon="ph"
@@ -69,63 +72,39 @@ export default function CalibrationSummaryScreen({ navigation, route }) {
           total={3}
           T={T}
         >
-          {phPoints.length > 0 ? (
-            phPoints.map((p, i) => (
-              <CalRow
-                key={i}
-                label={`pH ${p.standardPH}`}
-                voltage={p.voltage}
-                unit=""
-                T={T}
-              />
-            ))
-          ) : (
-            <SkippedBadge T={T} />
-          )}
+          {phPoints.map((p, i) => (
+            <CalRow
+              key={i}
+              label={`pH ${p.standardPH}`}
+              voltage={p.voltage}
+              T={T}
+            />
+          ))}
         </SectionCard>
 
-        {/* EC Summary */}
+        {/* ── EC Summary ──────────────────────────────────────────── */}
         <SectionCard
           title="EC Calibration"
           icon="lightning-bolt"
-          color={T.info}
+          color={T.info ?? '#3B82F6'}
           count={ecComplete}
           total={3}
           T={T}
         >
-          {ecPoints.length > 0 ? (
-            ecPoints.map((p, i) => (
-              <CalRow
-                key={i}
-                label={`${p.standardEC} dS/m`}
-                voltage={p.voltage}
-                unit="dS/m"
-                T={T}
-              />
-            ))
-          ) : (
-            <SkippedBadge T={T} />
-          )}
+          {ecPoints.map((p, i) => (
+            <CalRow
+              key={i}
+              label={`${p.standardEC} dS/m`}
+              voltage={p.voltage}
+              T={T}
+            />
+          ))}
         </SectionCard>
 
-        {/* Saved JSON note */}
-        {/* <View
-          style={[
-            s.jsonNote,
-            { backgroundColor: T.cardAlt, borderColor: T.border },
-          ]}
-        >
-          <Icon name="code-json" size={18} color={T.muted} />
-          <Text style={[s.jsonText, { color: T.muted }]}>
-            Calibration data stored as JSON on device memory. Used as linear
-            reference map: Voltage → pH/EC value.
-          </Text>
-        </View> */}
-
-        {/* CTA */}
+        {/* ── CTA ────────────────────────────────────────────────── */}
         <TouchableOpacity
           style={[s.cta, { backgroundColor: T.primary }]}
-          onPress={handleBeginTest}
+          onPress={() => navigation.navigate('MixerScreen')}
           activeOpacity={0.85}
         >
           <Icon name="flask-outline" size={22} color="#fff" />
@@ -146,41 +125,40 @@ export default function CalibrationSummaryScreen({ navigation, route }) {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-
 function SectionCard({ title, icon, color, count, total, children, T }) {
   return (
-    <View style={[T.card, { backgroundColor: T.card, borderColor: T.border }]}>
-      <View style={T.header}>
+    <View style={[sc.card, { backgroundColor: T.card, borderColor: T.border }]}>
+      <View style={sc.header}>
         <Icon name={icon} size={20} color={color} />
-        <Text style={[T.title, { color: T.white }]}>{title}</Text>
+        <Text style={[sc.title, { color: T.white }]}>{title}</Text>
         <View
           style={[
-            T.badge,
+            sc.badge,
             {
               backgroundColor:
-                count === total ? T.primary + '22' : T.warning + '22',
-              borderColor: count === total ? T.primary : T.warning,
+                count === total ? color + '22' : T.warning + '22',
+              borderColor: count === total ? color : T.warning,
             },
           ]}
         >
           <Text
             style={[
-              T.badgeText,
-              { color: count === total ? T.primary : T.warning },
+              sc.badgeText,
+              { color: count === total ? color : T.warning },
             ]}
           >
             {count}/{total} points
           </Text>
         </View>
       </View>
-      <View style={[T.divider, { backgroundColor: T.border }]} />
+      <View style={[sc.divider, { backgroundColor: T.border }]} />
       {children}
     </View>
   );
 }
 
 function CalRow({ label, voltage, T }) {
-  const captured = voltage != null;
+  const captured = voltage !== null && voltage !== undefined;
   return (
     <View style={cr.row}>
       <Icon
@@ -195,24 +173,8 @@ function CalRow({ label, voltage, T }) {
           { color: captured ? T.primary : T.muted, fontFamily: 'Courier' },
         ]}
       >
-        {captured ? `${voltage.toFixed(4)} V` : 'Skipped'}
+        {captured ? `${Number(voltage).toFixed(4)} V` : 'Skipped'}
       </Text>
-    </View>
-  );
-}
-
-function SkippedBadge({ T }) {
-  return (
-    <View
-      style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingVertical: 6,
-      }}
-    >
-      <Icon name="minus-circle-outline" size={16} color={T.muted} />
-      <Text style={{ color: T.muted, fontSize: 13 }}>Calibration skipped</Text>
     </View>
   );
 }
@@ -232,15 +194,6 @@ const s = StyleSheet.create({
   },
   bannerTitle: { fontSize: 17, fontWeight: '900', marginBottom: 4 },
   bannerSub: { fontSize: 13, lineHeight: 18 },
-  jsonNote: {
-    flexDirection: 'row',
-    gap: 10,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    padding: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  jsonText: { fontSize: 12, lineHeight: 18, flex: 1 },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -5,6 +5,7 @@ import testReducer from './reducers/testReducer';
 import farmerReducer from './reducers/farmerReducer';
 import reportReducer from './reducers/reportReducer';
 import themeReducer from './reducers/themeReducer';
+import calibrationReducer from './reducers/calibrationReducer';
 
 import { thunk } from 'redux-thunk';
 import axiosMiddleware from 'redux-axios-middleware';
@@ -17,6 +18,7 @@ const combinerReducers = combineReducers({
   farmer: farmerReducer,
   report: reportReducer,
   theme: themeReducer,
+  calibration: calibrationReducer,
 });
 
 const client = axios.create({

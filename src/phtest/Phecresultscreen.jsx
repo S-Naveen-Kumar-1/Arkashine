@@ -1,7 +1,8 @@
-// src/screens/phtest/PHECResultScreen.js
-// Reads pH & EC from hardware device and displays results with status
+// src/screens/phtest/PHECResultScreen.jsx
+// Reads live pH + EC from Redux sensorData (pushed by BLE notifications).
+// Saves result to Redux test history. Shows full interpretation + debug log.
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,14 +14,20 @@ import {
   Modal,
   Animated,
   Easing,
+  FlatList,
 } from 'react-native';
-import { Radius, Spacing, Typography } from '../theme';
+import { useDispatch, useSelector } from 'react-redux';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Radius, Spacing } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import {
+  saveTestResult,
+  requestReading,
+} from '../redux/actions/testActions';
+import { clearDebugLog } from '../redux/actions/bleActions';
 
 // ─── Interpretation helpers ───────────────────────────────────────────────────
-
 function getPHStatus(ph, T) {
   if (ph === null || ph === undefined) return null;
   if (ph < 5.5)
@@ -118,41 +125,37 @@ function getECStatus(ec, T) {
     label: 'Very High — Salt Alert',
     emoji: '🔴',
     color: '#EF4444',
-    desc: 'Excessive salts detected. Leaching/drainage required.',
+    desc: 'Excessive salts. Leaching/drainage required.',
     alert: true,
   };
 }
 
-// Simulate reading from hardware — replace with real BLE/serial read
-function useHardwareReading() {
-  const [ph, setPH] = useState(null);
-  const [ec, setEC] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Simulate 2s acquisition delay from hardware
-    const t = setTimeout(() => {
-      // In real app: const { ph, ec } = await readFromDevice();
-      setPH(parseFloat((6.3 + (Math.random() - 0.5) * 0.4).toFixed(2)));
-      setEC(parseFloat((1.82 + (Math.random() - 0.5) * 1.2).toFixed(3)));
-      setLoading(false);
-    }, 2200);
-    return () => clearTimeout(t);
-  }, []);
-
-  return { ph, ec, loading };
-}
-
-// ─── Component ──────────────────���─────────────────────────────────────────────
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function PHECResultScreen({ navigation }) {
+  const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
-  const { ph, ec, loading } = useHardwareReading();
+
+  const sensorData = useSelector(s => s.ble.sensorData);
+  const lastReceived = useSelector(s => s.ble.lastReceived);
+  const debugLogs = useSelector(s => s.ble.debugLogs);
+  const { readingState, results } = useSelector(s => s.test);
+
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [showDebugLog, setShowDebugLog] = useState(false);
+  const [resultSaved, setResultSaved] = useState(false);
+
+  // Resolve ph/ec: prefer already-saved results, else use live sensorData
+  const ph = results?.ph ?? sensorData.ph;
+  const ec = results?.ec ?? sensorData.ec;
+  const voltage = results?.voltage ?? sensorData.voltage;
+
+  const loading = readingState === 'reading' && ph === null && ec === null;
 
   const phStatus = getPHStatus(ph, T);
   const ecStatus = getECStatus(ec, T);
 
-  // Loading animation
+  // Loading spin
   const spinAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!loading) return;
@@ -170,21 +173,22 @@ export default function PHECResultScreen({ navigation }) {
     outputRange: ['0deg', '360deg'],
   });
 
-  // Alert modal state - FIX: Added hasShownAlert to prevent re-triggering
-  const [alertVisible, setAlertVisible] = useState(false);
-  const [hasShownAlert, setHasShownAlert] = useState(false);
-
+  // Save result once we have data
   useEffect(() => {
-    // if (!loading && ecStatus?.alert && !hasShownAlert) {
-    //   const t = setTimeout(() => {
-    //     setAlertVisible(true);
-    //     setHasShownAlert(true);
-    //   }, 600);
-    //   return () => clearTimeout(t);
-    // }
-    setAlertVisible(true);
-  }, [loading, ecStatus?.alert, hasShownAlert]);
+    if (!resultSaved && ph !== null && ec !== null) {
+      dispatch(saveTestResult({ ph, ec, voltage, raw: sensorData.raw }));
+      setResultSaved(true);
+      if (ecStatus?.alert) setTimeout(() => setAlertVisible(true), 600);
+    }
+  }, [ph, ec, resultSaved, dispatch]);
 
+  // Retry reading
+  const handleRetry = () => {
+    setResultSaved(false);
+    dispatch(requestReading());
+  };
+
+  // ── Loading state ───────────────────────────────────────────────────────────
   if (loading) {
     return (
       <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
@@ -202,8 +206,38 @@ export default function PHECResultScreen({ navigation }) {
             Reading from device…
           </Text>
           <Text style={[s.loadingSub, { color: T.muted }]}>
-            Acquiring pH and EC values via probe
+            Acquiring pH and EC via probe
           </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ── No data state ───────────────────────────────────────────────────────────
+  if (ph === null && ec === null) {
+    return (
+      <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
+        <StatusBar barStyle="light-content" backgroundColor={T.bg} />
+        <TopBar
+          title="pH & EC Results"
+          onBack={() => navigation.goBack()}
+          theme={theme}
+        />
+        <View style={s.loadingBody}>
+          <Icon name="alert-circle-outline" size={56} color={T.warning} />
+          <Text style={[s.loadingText, { color: T.warning }]}>
+            No data received
+          </Text>
+          <Text style={[s.loadingSub, { color: T.muted }]}>
+            Ensure device is connected and probe is submerged
+          </Text>
+          <TouchableOpacity
+            style={[s.retryBtn, { backgroundColor: T.primary, marginTop: 20 }]}
+            onPress={handleRetry}
+          >
+            <Icon name="refresh" size={18} color="#fff" />
+            <Text style={s.retryBtnText}>Retry Reading</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -212,7 +246,6 @@ export default function PHECResultScreen({ navigation }) {
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
-
       <TopBar
         title="pH & EC Results"
         onBack={() => navigation.goBack()}
@@ -220,61 +253,67 @@ export default function PHECResultScreen({ navigation }) {
       />
 
       <ScrollView contentContainerStyle={s.scroll}>
-        {/* ── Big readings row ──────────────────────────────────────────── */}
-        <View style={s.bigRow}>
-          {/* pH Big Card */}
-          <View
-            style={[
-              s.bigCard,
-              { backgroundColor: T.card, borderColor: phStatus?.color + '66' },
-            ]}
-          >
+        {/* ── Timestamp ──────────────────────────────────────────── */}
+        {lastReceived && (
+          <View style={[s.tsRow, { borderColor: T.border }]}>
+            <Icon name="clock-outline" size={13} color={T.muted} />
+            <Text style={[s.tsText, { color: T.muted }]}>
+              Received at {new Date(lastReceived).toLocaleTimeString()}
+            </Text>
             <View
               style={[
-                s.bigCardBadge,
-                { backgroundColor: phStatus?.color + '22' },
+                s.liveTag,
+                { backgroundColor: T.primaryGlow, borderColor: T.primary },
               ]}
             >
-              <Text style={[s.bigCardBadgeText, { color: phStatus?.color }]}>
-                pH
-              </Text>
+              <View style={[s.liveDot, { backgroundColor: T.primary }]} />
+              <Text style={[s.liveTagText, { color: T.primary }]}>LIVE</Text>
             </View>
-            <Text style={[s.bigValue, { color: phStatus?.color ?? T.white }]}>
-              {ph?.toFixed(2)}
-            </Text>
-            <Text style={[s.bigStatus, { color: phStatus?.color }]}>
-              {phStatus?.emoji} {phStatus?.label}
-            </Text>
           </View>
+        )}
 
-          {/* EC Big Card */}
-          <View
-            style={[
-              s.bigCard,
-              { backgroundColor: T.card, borderColor: ecStatus?.color + '66' },
-            ]}
-          >
-            <View
-              style={[
-                s.bigCardBadge,
-                { backgroundColor: ecStatus?.color + '22' },
-              ]}
-            >
-              <Text style={[s.bigCardBadgeText, { color: ecStatus?.color }]}>
-                EC
-              </Text>
-            </View>
-            <Text style={[s.bigValue, { color: ecStatus?.color ?? T.white }]}>
-              {ec?.toFixed(3)}
-            </Text>
-            <Text style={[s.bigUnit, { color: T.muted }]}>dS/m</Text>
-            <Text style={[s.bigStatus, { color: ecStatus?.color }]}>
-              {ecStatus?.emoji} {ecStatus?.label}
-            </Text>
-          </View>
+        {/* ── Big readings row ────────────────────────────────────── */}
+        <View style={s.bigRow}>
+          <BigCard
+            badge="pH"
+            value={ph?.toFixed(2)}
+            unit={null}
+            status={phStatus}
+            T={T}
+          />
+          <BigCard
+            badge="EC"
+            value={ec?.toFixed(3)}
+            unit="dS/m"
+            status={ecStatus}
+            T={T}
+          />
         </View>
 
-        {/* ── pH Detail ─────────────────────────────────────────────────── */}
+        {/* ── Voltage reading ─────────────────────────────────────── */}
+        {voltage !== null && (
+          <View
+            style={[
+              s.voltageRow,
+              { backgroundColor: T.cardAlt, borderColor: T.border },
+            ]}
+          >
+            <Icon name="flash" size={14} color={T.muted} />
+            <Text style={[s.voltageText, { color: T.muted }]}>
+              Raw voltage:{' '}
+            </Text>
+            <Text
+              style={[
+                s.voltageVal,
+                { color: T.textSub, fontFamily: 'Courier' },
+              ]}
+            >
+              {Number(voltage).toFixed(4)} V
+            </Text>
+          </View>
+        )}
+
+        {/* ── pH Detail ───────────────────────────────────────────── */}
         <DetailCard
           icon="ph"
           title="pH Analysis"
@@ -292,7 +331,7 @@ export default function PHECResultScreen({ navigation }) {
           ]}
         />
 
-        {/* ── EC Detail ─────────────────────────────────────────────────── */}
+        {/* ── EC Detail ───────────────────────────────────────────── */}
         <DetailCard
           icon="lightning-bolt"
           title="EC Analysis"
@@ -310,17 +349,80 @@ export default function PHECResultScreen({ navigation }) {
           ]}
         />
 
-        {/* pH scale visual */}
+        {/* ── pH Scale visual ─────────────────────────────────────── */}
         <PHScale value={ph} T={T} />
 
-        {/* ── Actions ───────────────────────────────────────────────────── */}
+        {/* ── Raw data card ───────────────────────────────────────── */}
+        <View
+          style={[
+            s.rawCard,
+            { backgroundColor: T.cardAlt, borderColor: T.border },
+          ]}
+        >
+          <View style={s.rawHeader}>
+            <Icon name="code-json" size={14} color={T.muted} />
+            <Text style={[s.rawLabel, { color: T.muted }]}>
+              Raw BLE payload
+            </Text>
+          </View>
+          <Text
+            style={[s.rawValue, { color: T.textSub, fontFamily: 'Courier' }]}
+          >
+            {sensorData.raw || '(none)'}
+          </Text>
+        </View>
+
+        {/* ── Debug Log toggle ────────────────────────────────────── */}
+        <TouchableOpacity
+          style={[s.debugToggle, { borderColor: T.border }]}
+          onPress={() => setShowDebugLog(v => !v)}
+        >
+          <Icon
+            name={showDebugLog ? 'chevron-up' : 'bug-outline'}
+            size={16}
+            color={T.muted}
+          />
+          <Text style={[s.debugToggleText, { color: T.muted }]}>
+            {showDebugLog ? 'Hide' : 'Show'} BLE Debug Log ({debugLogs.length})
+          </Text>
+        </TouchableOpacity>
+
+        {showDebugLog && (
+          <View
+            style={[
+              s.debugBox,
+              { backgroundColor: '#0d0d0d', borderColor: T.border },
+            ]}
+          >
+            <View style={s.debugActions}>
+              <TouchableOpacity onPress={() => dispatch(clearDebugLog())}>
+                <Text style={[s.debugClear, { color: '#ef4444' }]}>
+                  Clear log
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {debugLogs.map(log => (
+              <View key={log.id} style={s.debugRow}>
+                <Text style={s.debugTime}>{log.time}</Text>
+                <Text style={[s.debugTag, { color: tagColor(log.tag) }]}>
+                  [{log.tag}]
+                </Text>
+                <Text style={s.debugMsg} numberOfLines={2}>
+                  {log.message}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* ── Actions ─────────────────────────────────────────────── */}
         <TouchableOpacity
           style={[s.ctaBtn, { backgroundColor: T.primary }]}
-          onPress={() => navigation.navigate('RecommendationsScreen')}
+          onPress={handleRetry}
           activeOpacity={0.85}
         >
-          <Icon name="clipboard-list-outline" size={20} color="#fff" />
-          <Text style={s.ctaBtnText}>View Recommendations</Text>
+          <Icon name="refresh" size={20} color="#fff" />
+          <Text style={s.ctaBtnText}>Read Again</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -334,34 +436,34 @@ export default function PHECResultScreen({ navigation }) {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ── EC Alert Modal ────────────────────────────────────────────── */}
+      {/* ── EC Alert Modal ──────────────────────────────────────── */}
       <Modal visible={alertVisible} transparent animationType="fade">
         <View style={m.overlay}>
           <View
             style={[
               m.sheet,
-              { backgroundColor: T.card, borderColor: T.offline },
+              { backgroundColor: T.card, borderColor: '#F97316' },
             ]}
           >
-            <View style={[m.iconRing, { backgroundColor: T.offline + '22' }]}>
-              <Icon name="alert-circle" size={40} color={T.offline} />
+            <View style={[m.iconRing, { backgroundColor: '#F9731622' }]}>
+              <Icon name="alert-circle" size={40} color="#F97316" />
             </View>
             <Text style={[m.title, { color: T.white }]}>
               ⚠️ High Salt Alert
             </Text>
             <Text style={[m.body, { color: T.text }]}>
               EC value of{' '}
-              <Text style={{ color: T.offline, fontWeight: '900' }}>
+              <Text style={{ color: '#F97316', fontWeight: '900' }}>
                 {ec?.toFixed(3)} dS/m
               </Text>{' '}
               indicates excessive mineral salts in the soil.
             </Text>
             <Text style={[m.sub, { color: T.muted }]}>
-              Consider leaching with irrigation or improving drainage to reduce
-              salinity. Avoid high-salt fertilisers.
+              Consider leaching with irrigation or improving drainage. Avoid
+              high-salt fertilisers.
             </Text>
             <TouchableOpacity
-              style={[m.btn, { backgroundColor: T.offline }]}
+              style={[m.btn, { backgroundColor: '#F97316' }]}
               onPress={() => setAlertVisible(false)}
             >
               <Text style={m.btnText}>Understood</Text>
@@ -374,6 +476,27 @@ export default function PHECResultScreen({ navigation }) {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+function BigCard({ badge, value, unit, status, T }) {
+  return (
+    <View
+      style={[
+        bc.card,
+        { backgroundColor: T.card, borderColor: status?.color + '66' },
+      ]}
+    >
+      <View style={[bc.badge, { backgroundColor: status?.color + '22' }]}>
+        <Text style={[bc.badgeText, { color: status?.color }]}>{badge}</Text>
+      </View>
+      <Text style={[bc.value, { color: status?.color ?? T.white }]}>
+        {value ?? '—'}
+      </Text>
+      {unit && <Text style={[bc.unit, { color: T.muted }]}>{unit}</Text>}
+      <Text style={[bc.status, { color: status?.color }]}>
+        {status?.emoji} {status?.label}
+      </Text>
+    </View>
+  );
+}
 
 function DetailCard({ icon, title, color, T, rows }) {
   return (
@@ -421,26 +544,27 @@ function DetailCard({ icon, title, color, T, rows }) {
 function PHScale({ value, T }) {
   const pct = value != null ? ((value - 0) / 14) * 100 : null;
   const SEGMENTS = [
-    { label: '0–4', color: '#EF4444' },
-    { label: '4–6', color: '#F97316' },
-    { label: '6–7', color: T.primary },
-    { label: '7–8', color: '#3B82F6' },
-    { label: '8–14', color: '#8B5CF6' },
+    { color: '#EF4444' },
+    { color: '#F97316' },
+    { color: T.primary },
+    { color: '#3B82F6' },
+    { color: '#8B5CF6' },
   ];
   return (
     <View style={[ph.card, { backgroundColor: T.card, borderColor: T.border }]}>
       <Text style={[ph.title, { color: T.white }]}>pH Scale</Text>
       <View style={ph.barRow}>
-        {SEGMENTS.map(seg => (
-          <View
-            key={seg.label}
-            style={[ph.seg, { backgroundColor: seg.color }]}
-          />
+        {SEGMENTS.map((seg, i) => (
+          <View key={i} style={[ph.seg, { backgroundColor: seg.color }]} />
         ))}
         {pct !== null && (
-          <View style={[ph.needle, { left: `${pct}%` }]}>
+          <View
+            style={[ph.needle, { left: `${Math.min(Math.max(pct, 0), 99)}%` }]}
+          >
             <View style={[ph.needleLine, { backgroundColor: T.white }]} />
-            <Text style={ph.needleVal}>{value?.toFixed(1)}</Text>
+            <Text style={[ph.needleVal, { color: T.white }]}>
+              {value?.toFixed(1)}
+            </Text>
           </View>
         )}
       </View>
@@ -460,6 +584,21 @@ function PHScale({ value, T }) {
   );
 }
 
+function tagColor(tag) {
+  const map = {
+    CMD: '#34d399',
+    DATA: '#60a5fa',
+    NOTIFY: '#a78bfa',
+    UUID: '#fbbf24',
+    CONNECT: '#4ade80',
+    DISCONNECT: '#f87171',
+    RECONNECT: '#fb923c',
+    SCAN: '#38bdf8',
+    BLE: '#94a3b8',
+  };
+  return map[tag] ?? '#6b7280';
+}
+
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   container: { flex: 1 },
@@ -471,30 +610,96 @@ const s = StyleSheet.create({
     gap: 16,
   },
   loadingText: { fontSize: 18, fontWeight: '800' },
-  loadingSub: { fontSize: 13 },
-  bigRow: { flexDirection: 'row', gap: 12, marginBottom: Spacing.md },
-  bigCard: {
-    flex: 1,
-    borderRadius: Radius.lg,
-    borderWidth: 1.5,
-    padding: Spacing.md,
+  loadingSub: { fontSize: 13, textAlign: 'center' },
+  retryBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.lg,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
-  bigCardBadge: {
+  retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  tsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 8,
+    marginBottom: Spacing.sm,
+  },
+  tsText: { flex: 1, fontSize: 11, color: '#6b7280' },
+  liveTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     borderRadius: Radius.full,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    marginBottom: 8,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  bigCardBadgeText: { fontSize: 12, fontWeight: '900', letterSpacing: 1 },
-  bigValue: {
-    fontSize: 40,
-    fontWeight: '900',
-    fontFamily: 'Courier',
-    letterSpacing: -1,
+  liveDot: { width: 6, height: 6, borderRadius: 3 },
+  liveTagText: { fontSize: 10, fontWeight: '900' },
+  bigRow: { flexDirection: 'row', gap: 12, marginBottom: Spacing.md },
+  voltageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 8,
+    marginBottom: Spacing.md,
   },
-  bigUnit: { fontSize: 12, marginTop: 2, marginBottom: 4 },
-  bigStatus: { fontSize: 12, fontWeight: '800', textAlign: 'center' },
+  voltageText: { fontSize: 12 },
+  voltageVal: { fontSize: 12 },
+  rawCard: {
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  rawHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  rawLabel: { fontSize: 11, fontWeight: '700' },
+  rawValue: { fontSize: 11, lineHeight: 16 },
+  debugToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  debugToggleText: { fontSize: 12 },
+  debugBox: {
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 8,
+    marginBottom: Spacing.md,
+    maxHeight: 300,
+  },
+  debugActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 4,
+  },
+  debugClear: { fontSize: 11, fontWeight: '700' },
+  debugRow: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 3,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+  },
+  debugTime: { fontSize: 9, color: '#4b5563', width: 56 },
+  debugTag: { fontSize: 9, fontWeight: '800', width: 52 },
+  debugMsg: { fontSize: 9, color: '#9ca3af', flex: 1 },
   ctaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -513,6 +718,31 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   secondBtnText: { fontSize: 14, fontWeight: '600' },
+});
+
+const bc = StyleSheet.create({
+  card: {
+    flex: 1,
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    padding: Spacing.md,
+    alignItems: 'center',
+  },
+  badge: {
+    borderRadius: Radius.full,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  badgeText: { fontSize: 12, fontWeight: '900', letterSpacing: 1 },
+  value: {
+    fontSize: 40,
+    fontWeight: '900',
+    fontFamily: 'Courier',
+    letterSpacing: -1,
+  },
+  unit: { fontSize: 12, marginTop: 2, marginBottom: 4 },
+  status: { fontSize: 11, fontWeight: '800', textAlign: 'center' },
 });
 
 const dc = StyleSheet.create({

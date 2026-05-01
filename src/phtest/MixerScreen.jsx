@@ -1,7 +1,8 @@
-// src/screens/phtest/MixerScreen.js
-// Triggers mixing motor on hardware device (60 sec), then reads pH & EC
+// src/screens/phtest/MixerScreen.jsx
+// Controls mixing motor via BLE. Motor timer lives in Redux.
+// After mixing: sends READ_SENSORS and navigates to PHECResultScreen.
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,19 +13,26 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import { Radius, Spacing, Typography } from '../theme';
+import { useDispatch, useSelector } from 'react-redux';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Radius, Spacing } from '../theme';
 import { TopBar, ProgressRing } from '../components/common';
 import useTheme from '../hooks/useTheme';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-
-const MOTOR_DURATION = 60; // seconds
+import {
+  startMotor,
+  stopMotorEarly,
+  testReset,
+} from '../redux/actions/testActions';
+import { requestReading } from '../redux/actions/testActions';
+import { MOTOR_DURATION } from '../redux/reducers/testReducer';
 
 export default function MixerScreen({ navigation }) {
+  const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
-  const [motorState, setMotorState] = useState('idle'); // 'idle' | 'running' | 'done'
-  const [timeLeft, setTimeLeft] = useState(MOTOR_DURATION);
-  const timerRef = useRef(null);
+
+  const { motorState, motorTimeLeft } = useSelector(s => s.test);
+  const { connected, device } = useSelector(s => s.ble);
 
   // Spin animation for motor icon
   const spinAnim = useRef(new Animated.Value(0)).current;
@@ -47,49 +55,36 @@ export default function MixerScreen({ navigation }) {
     spinAnim.setValue(0);
   };
 
+  useEffect(() => {
+    if (motorState === 'running') startSpin();
+    else stopSpin();
+  }, [motorState]);
+
+  // Reset test state on mount
+  useEffect(() => {
+    dispatch(testReset());
+  }, [dispatch]);
+
+  useEffect(() => () => stopSpin(), []);
+
   const spin = spinAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
   });
 
-  // Start motor
-  const handleStart = () => {
-    setMotorState('running');
-    setTimeLeft(MOTOR_DURATION);
-    startSpin();
-    // sendMotorCommand('on');   ← real HW call
-
-    timerRef.current = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current);
-          stopSpin();
-          setMotorState('done');
-          // sendMotorCommand('off');   ← real HW call
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  useEffect(
-    () => () => {
-      clearInterval(timerRef.current);
-      stopSpin();
-    },
-    [],
-  );
-
-  const progress = MOTOR_DURATION - timeLeft;
+  const progress = MOTOR_DURATION - motorTimeLeft;
   const pct = Math.round((progress / MOTOR_DURATION) * 100);
-  const minutes = Math.floor(timeLeft / 60);
-  const seconds = timeLeft % 60;
+  const minutes = Math.floor(motorTimeLeft / 60);
+  const seconds = motorTimeLeft % 60;
+
+  const handleReadResults = async () => {
+    await dispatch(requestReading());
+    navigation.replace('PHECResultScreen');
+  };
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
-
       <TopBar
         title="Mixing Motor"
         onBack={() => navigation.goBack()}
@@ -97,7 +92,31 @@ export default function MixerScreen({ navigation }) {
       />
 
       <View style={s.body}>
-        {/* Motor visual */}
+        {/* ── BLE status ─────────────────────────────────────────── */}
+        <View
+          style={[
+            s.bleChip,
+            {
+              backgroundColor: connected ? T.primaryGlow : T.cardAlt,
+              borderColor: connected ? T.primary : T.border,
+            },
+          ]}
+        >
+          <Icon
+            name={connected ? 'bluetooth-connect' : 'bluetooth-off'}
+            size={14}
+            color={connected ? T.primary : T.muted}
+          />
+          <Text
+            style={[s.bleChipText, { color: connected ? T.primary : T.muted }]}
+          >
+            {connected
+              ? `${device?.name || 'Device'} connected`
+              : 'No device connected'}
+          </Text>
+        </View>
+
+        {/* ── Motor ring ─────────────────────────────────────────── */}
         <View
           style={[
             s.motorRing,
@@ -117,17 +136,11 @@ export default function MixerScreen({ navigation }) {
             <Icon
               name="rotate-3d-variant"
               size={64}
-              color={
-                motorState === 'running'
-                  ? T.primary
-                  : motorState === 'done'
-                  ? T.primary
-                  : T.muted
-              }
+              color={motorState !== 'idle' ? T.primary : T.muted}
             />
           </Animated.View>
           {motorState === 'done' && (
-            <View style={s.doneBadge}>
+            <View style={[s.doneBadge, { backgroundColor: T.primary }]}>
               <Icon name="check" size={16} color="#fff" />
             </View>
           )}
@@ -137,12 +150,7 @@ export default function MixerScreen({ navigation }) {
           style={[
             s.motorLabel,
             {
-              color:
-                motorState === 'running'
-                  ? T.primary
-                  : motorState === 'done'
-                  ? T.primary
-                  : T.white,
+              color: motorState !== 'idle' ? T.primary : T.white,
             },
           ]}
         >
@@ -153,39 +161,41 @@ export default function MixerScreen({ navigation }) {
             : 'Mixing Complete ✅'}
         </Text>
 
-        {/* Instruction card */}
-        <View
-          style={[
-            s.instrCard,
-            { backgroundColor: T.card, borderColor: T.border },
-          ]}
-        >
-          <Text style={[s.instrTitle, { color: T.white }]}>
-            📋 Before Starting
-          </Text>
-          {[
-            'Add 5g soil sample to the beaker',
-            'Add 40ml extractant solution',
-            'Place the beaker under the mixer',
-            'Ensure probe is connected and ready',
-          ].map((t, i) => (
-            <View key={i} style={s.instrRow}>
-              <View style={[s.instrDot, { backgroundColor: T.primary }]}>
-                <Text style={s.instrDotNum}>{i + 1}</Text>
+        {/* ── Instruction card ───────────────────────────────────── */}
+        {motorState === 'idle' && (
+          <View
+            style={[
+              s.instrCard,
+              { backgroundColor: T.card, borderColor: T.border },
+            ]}
+          >
+            <Text style={[s.instrTitle, { color: T.white }]}>
+              📋 Before Starting
+            </Text>
+            {[
+              'Add 5g soil sample to the beaker',
+              'Add 40ml extractant solution',
+              'Place the beaker under the mixer',
+              'Ensure probe is connected and ready',
+            ].map((t, i) => (
+              <View key={i} style={s.instrRow}>
+                <View style={[s.instrDot, { backgroundColor: T.primary }]}>
+                  <Text style={s.instrDotNum}>{i + 1}</Text>
+                </View>
+                <Text style={[s.instrText, { color: T.text }]}>{t}</Text>
               </View>
-              <Text style={[s.instrText, { color: T.text }]}>{t}</Text>
-            </View>
-          ))}
-        </View>
+            ))}
+          </View>
+        )}
 
-        {/* Timer ring (visible while running / done) */}
+        {/* ── Timer ring ─────────────────────────────────────────── */}
         {motorState !== 'idle' && (
           <View style={s.ringWrap}>
             <ProgressRing
               size={160}
               progress={progress}
               total={MOTOR_DURATION}
-              color={motorState === 'done' ? T.primary : T.primary}
+              color={T.primary}
               bg={T.border}
               strokeWidth={10}
             >
@@ -206,36 +216,53 @@ export default function MixerScreen({ navigation }) {
           </View>
         )}
 
-        {/* CTA */}
+        {/* ── CTA ────────────────────────────────────────────────── */}
         {motorState === 'idle' && (
           <TouchableOpacity
-            style={[s.ctaBtn, { backgroundColor: T.primary }]}
-            onPress={handleStart}
+            style={[
+              s.ctaBtn,
+              {
+                backgroundColor: connected ? T.primary : T.border,
+              },
+            ]}
+            onPress={() => dispatch(startMotor())}
+            disabled={!connected}
             activeOpacity={0.85}
           >
             <Icon name="play-circle" size={22} color="#fff" />
-            <Text style={s.ctaBtnText}>Start Mixing Motor (60s)</Text>
+            <Text style={s.ctaBtnText}>
+              {connected ? 'Start Mixing Motor (60s)' : 'Connect device first'}
+            </Text>
           </TouchableOpacity>
         )}
 
         {motorState === 'running' && (
-          <View
-            style={[
-              s.runningBar,
-              { backgroundColor: T.cardAlt, borderColor: T.border },
-            ]}
-          >
-            <View style={[s.runningDot, { backgroundColor: T.primary }]} />
-            <Text style={[s.runningText, { color: T.text }]}>
-              Motor running — do not remove beaker
-            </Text>
+          <View style={s.runningRow}>
+            <View
+              style={[
+                s.runningBar,
+                { backgroundColor: T.cardAlt, borderColor: T.border },
+              ]}
+            >
+              <View style={[s.runningDot, { backgroundColor: T.primary }]} />
+              <Text style={[s.runningText, { color: T.text }]}>
+                Motor running — do not remove beaker
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[s.stopBtn, { borderColor: '#ef4444' }]}
+              onPress={() => dispatch(stopMotorEarly())}
+            >
+              <Icon name="stop" size={16} color="#ef4444" />
+              <Text style={[s.stopBtnText, { color: '#ef4444' }]}>Stop</Text>
+            </TouchableOpacity>
           </View>
         )}
 
         {motorState === 'done' && (
           <TouchableOpacity
             style={[s.ctaBtn, { backgroundColor: T.primary }]}
-            onPress={() => navigation.replace('PHECResultScreen')}
+            onPress={handleReadResults}
             activeOpacity={0.85}
           >
             <Icon name="flask-outline" size={22} color="#fff" />
@@ -245,10 +272,10 @@ export default function MixerScreen({ navigation }) {
 
         <Text style={[s.hint, { color: T.muted }]}>
           {motorState === 'idle'
-            ? 'Motor mixes the soil-extractant solution for accurate readings'
+            ? 'Motor mixes soil-extractant solution for accurate readings'
             : motorState === 'running'
-            ? 'Hardware motor is running. Timer will auto-stop at 60 seconds.'
-            : 'Solution is ready. Proceed to read pH and EC values from the probe.'}
+            ? 'Motor running. Timer auto-stops at 60 seconds.'
+            : 'Solution ready. Proceed to read pH and EC from the probe.'}
         </Text>
       </View>
     </SafeAreaView>
@@ -263,6 +290,17 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     padding: Spacing.lg,
   },
+  bleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: Spacing.md,
+  },
+  bleChipText: { fontSize: 12, fontWeight: '700' },
   motorRing: {
     width: 120,
     height: 120,
@@ -322,6 +360,7 @@ const s = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   ctaBtnText: { color: '#fff', fontSize: 16, fontWeight: '900' },
+  runningRow: { width: '100%', gap: 8, marginBottom: Spacing.sm },
   runningBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -330,10 +369,19 @@ const s = StyleSheet.create({
     borderWidth: 1,
     padding: Spacing.sm,
     width: '100%',
-    marginBottom: Spacing.sm,
   },
   runningDot: { width: 10, height: 10, borderRadius: 5 },
   runningText: { fontSize: 13, fontWeight: '600' },
+  stopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    height: 40,
+  },
+  stopBtnText: { fontSize: 13, fontWeight: '700' },
   hint: {
     fontSize: 12,
     textAlign: 'center',

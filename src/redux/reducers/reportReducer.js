@@ -1,4 +1,4 @@
-// src/store/reducers/reportReducer.js
+// src/redux/reducers/reportReducer.js
 import { REPORT_SAVE, REPORT_LANGUAGE_SET } from '../../config/actionTypes';
 
 const initReport = {

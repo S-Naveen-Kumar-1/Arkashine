@@ -1,4 +1,4 @@
-// src/store/reducers/farmerReducer.js
+// src/redux/reducers/farmerReducer.js
 import { FARMER_SAVE, FARMER_LOCATION_SET } from '../../config/actionTypes';
 
 const initFarmer = {

@@ -1,4 +1,4 @@
-// src/store/reducers/themeReducer.js
+// src/redux/reducers/themeReducer.js
 import { THEME_TOGGLE } from '../../config/actionTypes';
 
 const initTheme = { isDark: false };

@@ -1,5 +1,5 @@
-// src/screens/phtest/CalibrationGateScreen.js
-// First screen — checks if 100-test threshold hit, prompts user to calibrate or skip
+// src/screens/phtest/CalibrationGateScreen.jsx
+// Checks test count, prompts calibrate or skip. Reads testCount from Redux.
 
 import React from 'react';
 import {
@@ -10,32 +10,24 @@ import {
   StatusBar,
   TouchableOpacity,
 } from 'react-native';
-import { Radius, Spacing, Typography } from '../theme';
+import { useSelector } from 'react-redux';
+import { Radius, Spacing } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
-/**
- * Props (from Redux or route params):
- *   testCount  — total tests done on this device
- *   onCalibrate — () => navigate to CalibrationMenuScreen
- *   onSkip      — () => navigate to MixerScreen (begin soil test)
- */
-export default function CalibrationGateScreen({ navigation, route }) {
+export default function CalibrationGateScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
 
-  // In real app, get from Redux: const testCount = useSelector(s => s.device.testCount)
-  const testCount = route?.params?.testCount ?? 103;
-  const needsCalibration = testCount > 0 && testCount % 100 === 0;
+  const testCount = useSelector(s => s.test.testCount);
+  const { connected, device } = useSelector(s => s.ble);
 
-  const handleCalibrate = () => navigation.navigate('CalibrationMenuScreen');
-  const handleSkip = () => navigation.navigate('MixerScreen');
+  const needsCalibration = testCount > 0 && testCount % 100 === 0;
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
-
       <TopBar
         title="pH / EC Test"
         onBack={() => navigation.goBack()}
@@ -43,11 +35,28 @@ export default function CalibrationGateScreen({ navigation, route }) {
       />
 
       <View style={s.body}>
-        {/* Icon */}
+        {/* ── Device chip ─────────────────────────────────────────── */}
+        {connected && device && (
+          <View
+            style={[
+              s.deviceChip,
+              { backgroundColor: T.primaryGlow, borderColor: T.primary },
+            ]}
+          >
+            <Icon name="bluetooth-connect" size={14} color={T.primary} />
+            <Text style={[s.deviceChipText, { color: T.primary }]}>
+              {device.name || 'Device'} connected
+            </Text>
+          </View>
+        )}
+
+        {/* ── Icon ────────────────────────────────────────────────── */}
         <View
           style={[
             s.iconRing,
-            { borderColor: needsCalibration ? T.warning : T.primary },
+            {
+              borderColor: needsCalibration ? T.warning : T.primary,
+            },
           ]}
         >
           <Icon
@@ -57,7 +66,6 @@ export default function CalibrationGateScreen({ navigation, route }) {
           />
         </View>
 
-        {/* Title */}
         <Text style={[s.title, { color: T.primary }]}>
           {needsCalibration
             ? '100-Test Recalibration Required'
@@ -66,11 +74,11 @@ export default function CalibrationGateScreen({ navigation, route }) {
 
         <Text style={[s.sub, { color: T.text }]}>
           {needsCalibration
-            ? `You have completed ${testCount} tests. Mandatory recalibration ensures accurate pH & EC readings.`
+            ? `You have completed ${testCount} tests. Recalibration ensures accurate pH & EC readings.`
             : 'Calibration is recommended every 100 tests for accurate results.'}
         </Text>
 
-        {/* Test count chip */}
+        {/* ── Test count chip ─────────────────────────────────────── */}
         <View
           style={[
             s.countChip,
@@ -79,14 +87,12 @@ export default function CalibrationGateScreen({ navigation, route }) {
         >
           <Icon name="counter" size={16} color={T.muted} />
           <Text style={[s.countText, { color: T.textSub }]}>
-            Tests performed:
-            <Text style={{ color: T.textSub, fontWeight: '800' }}>
-              {testCount}
-            </Text>
+            Tests performed:{' '}
+            <Text style={{ fontWeight: '800' }}>{testCount}</Text>
           </Text>
         </View>
 
-        {/* Info box */}
+        {/* ── Info box ────────────────────────────────────────────── */}
         <View
           style={[
             s.infoBox,
@@ -111,10 +117,10 @@ export default function CalibrationGateScreen({ navigation, route }) {
           </Text>
         </View>
 
-        {/* Buttons */}
+        {/* ── Calibrate ───────────────────────────────────────────── */}
         <TouchableOpacity
           style={[s.btnPrimary, { backgroundColor: T.primary }]}
-          onPress={handleCalibrate}
+          onPress={() => navigation.navigate('CalibrationMenuScreen')}
           activeOpacity={0.85}
         >
           <Icon name="tune" size={20} color="#fff" />
@@ -123,9 +129,10 @@ export default function CalibrationGateScreen({ navigation, route }) {
           </Text>
         </TouchableOpacity>
 
+        {/* ── Skip ────────────────────────────────────────────────── */}
         <TouchableOpacity
           style={[s.btnOutline, { borderColor: T.border }]}
-          onPress={handleSkip}
+          onPress={() => navigation.navigate('MixerScreen')}
           activeOpacity={0.75}
         >
           <Text style={[s.btnOutlineText, { color: T.muted }]}>
@@ -152,6 +159,17 @@ const s = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.xl,
   },
+  deviceChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: Spacing.md,
+  },
+  deviceChipText: { fontSize: 12, fontWeight: '700' },
   iconRing: {
     width: 110,
     height: 110,

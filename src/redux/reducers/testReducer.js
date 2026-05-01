@@ -1,70 +1,93 @@
-// src/store/reducers/testReducer.js
+// src/redux/reducers/testReducer.js
 import {
   TEST_RESET,
-  TEST_POUR_DETECTED,
-  TEST_TIMER_START,
-  TEST_TIMER_TICK,
-  TEST_TIMER_DONE,
-  TEST_SENSOR_START,
-  TEST_SENSOR_TICK,
-  TEST_SENSOR_DONE,
+  TEST_MOTOR_START,
+  TEST_MOTOR_TICK,
+  TEST_MOTOR_DONE,
+  TEST_READING_START,
   TEST_RESULTS_RECEIVED,
+  TEST_SAVED,
 } from '../../config/actionTypes';
 
-const TIMER_TOTAL = 180;
-const SENSOR_TOTAL = 30;
+export const MOTOR_DURATION = 60; // seconds
 
-const initTest = {
-  step: 'intro', // intro | pour | timer | sensor | results
-  pourDetected: false,
-  timerTotal: TIMER_TOTAL,
-  timerLeft: TIMER_TOTAL,
-  timerRunning: false,
-  timerDone: false,
-  sensorTotal: SENSOR_TOTAL,
-  sensorLeft: SENSOR_TOTAL,
-  sensorRunning: false,
-  sensorDone: false,
-  livePH: null,
-  liveEC: null,
-  results: null,
+const init = {
+  // Motor phase
+  motorState: 'idle', // 'idle' | 'running' | 'done'
+  motorTimeLeft: MOTOR_DURATION,
+  motorStartedAt: null,
+
+  // Reading phase
+  readingState: 'idle', // 'idle' | 'reading' | 'done'
+  readingStartedAt: null,
+
+  // Final results
+  results: null, // { ph, ec, voltage, timestamp, raw }
+  testCount: 0, // increments every TEST_SAVED
+  savedAt: null,
+
+  // History log
+  history: [], // array of result objects
 };
 
-export function testReducer(state = initTest, action) {
+export default function testReducer(state = init, action) {
   switch (action.type) {
     case TEST_RESET:
-      return { ...initTest };
-    case TEST_POUR_DETECTED:
-      return { ...state, pourDetected: true, step: 'pour' };
-    case TEST_TIMER_START:
-      return { ...state, timerRunning: true, step: 'timer' };
-    case TEST_TIMER_TICK:
-      return { ...state, timerLeft: Math.max(0, state.timerLeft - 1) };
-    case TEST_TIMER_DONE:
-      return { ...state, timerRunning: false, timerDone: true, step: 'sensor' };
-    case TEST_SENSOR_START:
-      return { ...state, sensorRunning: true };
-    case TEST_SENSOR_TICK: {
-      const payload = action.payload || {};
       return {
         ...state,
-        sensorLeft: Math.max(0, state.sensorLeft - 1),
-        livePH: payload.ph ?? state.livePH,
-        liveEC: payload.ec ?? state.liveEC,
+        motorState: 'idle',
+        motorTimeLeft: MOTOR_DURATION,
+        motorStartedAt: null,
+        readingState: 'idle',
+        readingStartedAt: null,
+        results: null,
+        savedAt: null,
       };
-    }
-    case TEST_SENSOR_DONE:
+
+    case TEST_MOTOR_START:
       return {
         ...state,
-        sensorRunning: false,
-        sensorDone: true,
-        step: 'results',
+        motorState: 'running',
+        motorTimeLeft: MOTOR_DURATION,
+        motorStartedAt: Date.now(),
       };
+
+    case TEST_MOTOR_TICK:
+      return {
+        ...state,
+        motorTimeLeft: Math.max(0, state.motorTimeLeft - 1),
+      };
+
+    case TEST_MOTOR_DONE:
+      return { ...state, motorState: 'done', motorTimeLeft: 0 };
+
+    case TEST_READING_START:
+      return {
+        ...state,
+        readingState: 'reading',
+        readingStartedAt: Date.now(),
+        results: null,
+      };
+
     case TEST_RESULTS_RECEIVED:
-      return { ...state, results: action.payload, step: 'results' };
+      return {
+        ...state,
+        readingState: 'done',
+        results: { ...action.payload, timestamp: Date.now() },
+      };
+
+    case TEST_SAVED:
+      return {
+        ...state,
+        savedAt: Date.now(),
+        testCount: state.testCount + 1,
+        history: [
+          { ...state.results, savedAt: Date.now() },
+          ...state.history.slice(0, 99),
+        ],
+      };
+
     default:
       return state;
   }
 }
-
-export default testReducer;

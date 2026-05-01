@@ -1,4 +1,4 @@
-// src/store/actions/index.js
+// src/redux/actions/index.js
 import {
   LOGIN_REQUEST,
   LOGIN_SUCCESS,

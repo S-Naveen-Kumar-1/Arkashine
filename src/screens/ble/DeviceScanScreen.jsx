@@ -1,251 +1,583 @@
-import React, { useState, useRef, useEffect } from 'react';
+// src/screens/ble/BLEScanScreen.jsx
+// Scan → list → connect → handshake → navigate to CalibrationGateScreen
+// All state via Redux. No Context.
+
+import React, { useEffect, useCallback, useRef } from 'react';
 import {
-  SafeAreaView,
-  StatusBar,
   View,
   Text,
+  StyleSheet,
+  StatusBar,
   TouchableOpacity,
   FlatList,
-  Alert,
   ActivityIndicator,
   Animated,
-  StyleSheet,
 } from 'react-native';
-import { BleManager } from 'react-native-ble-plx';
-import { requestBLEPermissions } from '../../utils/permissions';
-const bleManager = new BleManager();
-import { C } from '../../utils/colors';
-import {useBLE} from '../../contexts/BLEContext';
-export function ScanScreen({ navigation, route }) {
-  const { user } = { name: 'User' }; //route.params;
-  const { bleState, connect, isConnected } = useBLE();
-  const [scanning, setScanning] = useState(false);
-  const [devices, setDevices] = useState([]);
-  const [connecting, setConnecting] = useState(null);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+import { useDispatch, useSelector } from 'react-redux';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Radius, Spacing } from '../../theme';
+import { TopBar } from '../../components/common';
+import useTheme from '../../hooks/useTheme';
+import {
+  initBLE,
+  startScan,
+  stopScan,
+  connectDevice,
+  disconnectDevice,
+} from '../../redux/actions/bleActions';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
+export default function BLEScanScreen({ navigation }) {
+  const dispatch = useDispatch();
+  const theme = useTheme();
+  const T = theme.colors;
+  const {
+    bleAdapterState,
+    scanning,
+    devices,
+    connected,
+    connecting,
+    device: connectedDevice,
+    error,
+    bleConfig,
+    connectingDeviceId,
+    handshakeRaw,
+    handshakeStatus,
+  } = useSelector(s => s.ble);
+  // Start adapter monitor once
   useEffect(() => {
-    if (scanning) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.15,
-            duration: 700,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 700,
-            useNativeDriver: true,
-          }),
-        ]),
-      ).start();
-    } else {
-      pulseAnim.stopAnimation();
-      pulseAnim.setValue(1);
-    }
-  }, [scanning]);
+    dispatch(initBLE());
+  }, [dispatch]);
 
-  const scan = async () => {
-    const ok = await requestBLEPermissions();
-    if (!ok) {
-      Alert.alert('Permission denied', 'Bluetooth permissions are required.');
-      return;
-    }
-    if (bleState !== 'PoweredOn') {
-      Alert.alert('Bluetooth off', 'Please turn on Bluetooth.');
-      return;
-    }
+  // Auto-scan when BT powers on
+  useEffect(() => {
+    if (bleAdapterState === 'PoweredOn') dispatch(startScan());
+  }, [bleAdapterState, dispatch]);
 
-    setDevices([]);
-    setScanning(true);
+  useEffect(
+    () => () => {
+      dispatch(stopScan());
+    },
+    [dispatch],
+  );
 
-    bleManager.startDeviceScan(
-      null,
-      { allowDuplicates: false },
-      (err, device) => {
-        if (err) {
-          console.error('Scan error:', err);
-          setScanning(false);
-          return;
-        }
-        if (device) {
-          setDevices(prev =>
-            prev.find(d => d.id === device.id) ? prev : [...prev, device],
-          );
-        }
-      },
-    );
+  const handleScanToggle = useCallback(() => {
+    scanning ? dispatch(stopScan()) : dispatch(startScan());
+  }, [scanning, dispatch]);
 
-    setTimeout(() => {
-      bleManager.stopDeviceScan();
-      setScanning(false);
-    }, 15000);
-  };
+  const handleConnect = useCallback(
+    device => {
+      console.log('Device selected:', device);
+      if (connected && connectedDevice?.id === device.id) {
+        dispatch(disconnectDevice());
+      } else {
+        dispatch(connectDevice(device));
+      }
+    },
+    [connected, connectedDevice, dispatch],
+  );
 
-  const stopScan = () => {
-    bleManager.stopDeviceScan();
-    setScanning(false);
-  };
-
-  const handleConnect = async device => {
-    setConnecting(device.id);
-    bleManager.stopDeviceScan();
-    setScanning(false);
-    const ok = await connect(device);
-    setConnecting(null);
-    if (ok) navigation.navigate('CalibrationGateScreen');
-  };
-
-  const getSignalStrength = rssi => {
-    if (!rssi) return { label: '?', color: C.muted };
-    if (rssi > -60) return { label: 'Strong', color: C.online };
-    if (rssi > -75) return { label: 'Good', color: C.yellow };
-    return { label: 'Weak', color: C.red };
-  };
+  const btOff =
+    bleAdapterState !== 'PoweredOn' && bleAdapterState !== 'Unknown';
 
   return (
-    <SafeAreaView style={styles.bg}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-      <View style={styles.container}>
-        <Text style={styles.heading}>Find Your Device</Text>
-        <Text style={styles.sub}>
-          Hello, {'naveen'} — scan for nearby Arkashine devices
-        </Text>
+    <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
+      <StatusBar barStyle="light-content" backgroundColor={T.bg} />
+      <TopBar
+        title="Connect Device"
+        onBack={() => navigation.goBack()}
+        theme={theme}
+      />
 
-        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-          <TouchableOpacity
-            style={[styles.scanBtn, scanning && styles.scanBtnActive]}
-            onPress={scanning ? stopScan : scan}
+      <View style={s.body}>
+        {/* ── BT Off ─────────────────────────────────────────────── */}
+        {btOff && (
+          <View
+            style={[
+              s.alertBox,
+              { borderColor: T.warning, backgroundColor: T.warning + '18' },
+            ]}
           >
-            {scanning ? (
-              <View style={styles.scanningRow}>
-                <ActivityIndicator
-                  color="#000"
-                  size="small"
-                  style={{ marginRight: 8 }}
-                />
-                <Text style={styles.scanBtnText}>Scanning… tap to stop</Text>
-              </View>
-            ) : (
-              <Text style={styles.scanBtnText}>Scan for BLE Devices</Text>
-            )}
-          </TouchableOpacity>
-        </Animated.View>
-
-        {!scanning && devices.length === 0 && (
-          <View style={styles.emptyBox}>
-            <Text style={styles.emptyIcon}>○</Text>
-            <Text style={styles.emptyText}>No devices found</Text>
-            <Text style={styles.emptyHint}>
-              Make sure your device is powered on and nearby
+            <Icon name="bluetooth-off" size={18} color={T.warning} />
+            <Text style={[s.alertText, { color: T.warning }]}>
+              Bluetooth is {bleAdapterState.toLowerCase()}. Enable it to scan.
             </Text>
           </View>
         )}
 
-        <FlatList
-          data={devices}
-          keyExtractor={d => d.id}
-          style={{ marginTop: 16 }}
-          renderItem={({ item }) => {
-            const sig = getSignalStrength(item.rssi);
-            const isConnecting = connecting === item.id;
-            return (
-              <TouchableOpacity
-                style={styles.deviceCard}
+        {/* ── Connected Banner ────────────────────────────────────── */}
+        {connected && connectedDevice && (
+          <ConnectedBanner
+            device={connectedDevice}
+            bleConfig={bleConfig}
+            T={T}
+            onDisconnect={() => dispatch(disconnectDevice())}
+            onProceed={() => navigation.navigate('CalibrationGateScreen')}
+            handshakeStatus={handshakeStatus}
+            handshakeRaw={handshakeRaw}
+          />
+        )}
+
+        {/* ── Header row ──────────────────────────────────────────── */}
+        <View style={s.headerRow}>
+          <View>
+            <Text style={[s.title, { color: T.primary }]}>Nearby Devices</Text>
+            <Text style={[s.sub, { color: T.muted }]}>
+              {scanning
+                ? 'Scanning for BLE devices…'
+                : `${devices.length} device${
+                    devices.length !== 1 ? 's' : ''
+                  } found`}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[
+              s.scanBtn,
+              {
+                backgroundColor: scanning
+                  ? 'rgba(239,68,68,0.12)'
+                  : T.primaryGlow,
+                borderColor: scanning ? '#ef4444' : T.primary,
+              },
+            ]}
+            onPress={handleScanToggle}
+            disabled={btOff}
+            activeOpacity={0.8}
+          >
+            {scanning ? (
+              <>
+                <ActivityIndicator size="small" color="#ef4444" />
+                <Text style={[s.scanBtnText, { color: '#ef4444' }]}>Stop</Text>
+              </>
+            ) : (
+              <>
+                <Icon name="bluetooth-transfer" size={16} color={T.primary} />
+                <Text style={[s.scanBtnText, { color: T.primary }]}>Scan</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Error ───────────────────────────────────────────────── */}
+        {error && (
+          <View
+            style={[
+              s.alertBox,
+              {
+                borderColor: '#ef4444',
+                backgroundColor: 'rgba(239,68,68,0.08)',
+              },
+            ]}
+          >
+            <Icon name="alert-circle-outline" size={16} color="#ef4444" />
+            <Text style={[s.alertText, { color: '#ef4444' }]}>{error}</Text>
+          </View>
+        )}
+
+        {/* ── Device list ─────────────────────────────────────────── */}
+        {devices.length === 0 && !scanning ? (
+          <EmptyState T={T} btOff={btOff} onScan={handleScanToggle} />
+        ) : (
+          <FlatList
+            data={devices}
+            keyExtractor={item => item.id}
+            contentContainerStyle={s.list}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <DeviceRow
+                device={item}
+                isConnected={connected && connectedDevice?.id === item.id}
+                isConnecting={connectingDeviceId === item.id} // ✅ FIX
+                T={T}
                 onPress={() => handleConnect(item)}
-                disabled={isConnecting}
-              >
-                <View style={styles.deviceLeft}>
-                  <View style={[styles.deviceIcon, { borderColor: sig.color }]}>
-                    <Text style={[styles.deviceIconText, { color: sig.color }]}>
-                      BT
-                    </Text>
-                  </View>
-                  <View>
-                    <Text style={styles.deviceName}>
-                      {item.name || 'Unknown Device'}
-                    </Text>
-                    <Text style={styles.deviceId} numberOfLines={1}>
-                      {item.id}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.deviceRight}>
-                  {isConnecting ? (
-                    <ActivityIndicator color={C.accent} size="small" />
-                  ) : (
-                    <>
-                      <Text style={[styles.signalLabel, { color: sig.color }]}>
-                        {sig.label}
-                      </Text>
-                      <Text style={styles.rssi}>{item.rssi} dBm</Text>
-                    </>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          }}
-        />
+              />
+            )}
+          />
+        )}
+
+        {/* ── Pulse while scanning, no devices yet ────────────────── */}
+        {scanning && devices.length === 0 && (
+          <View style={s.pulseWrap}>
+            <PulseRing T={T} />
+            <Text style={[s.pulseText, { color: T.muted }]}>
+              Looking for BLE devices…
+            </Text>
+          </View>
+        )}
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  bg: { flex: 1, backgroundColor: C.bg },
-  container: { flex: 1, padding: 20, paddingTop: 24 },
-  heading: { fontSize: 24, fontWeight: '800', color: C.white, marginBottom: 4 },
-  sub: { fontSize: 14, color: C.muted, marginBottom: 24 },
-  scanBtn: {
-    backgroundColor: C.accent,
-    borderRadius: 14,
-    padding: 16,
+// ─── Sub-components ───────────────────────────────────────────────────────────
+function ConnectedBanner({
+  device,
+  bleConfig,
+  T,
+  onDisconnect,
+  onProceed,
+  handshakeStatus,
+  handshakeRaw,
+}) {
+  console.log('Connected to device:', bleConfig);
+  return (
+    <View
+      style={[
+        cb.wrap,
+        { backgroundColor: T.primaryGlow, borderColor: T.primary },
+      ]}
+    >
+      <Icon name="bluetooth-connect" size={20} color={T.primary} />
+      <View style={{ flex: 1 }}>
+        <Text style={[cb.name, { color: T.primary }]}>
+          {device.name || 'Device'}
+        </Text>
+        {bleConfig && (
+          <View style={{ marginTop: 4 }}>
+            <Text style={[cb.uuid, { color: T.muted }]}>
+              S: {bleConfig.serviceUUID}
+            </Text>
+            <Text style={[cb.uuid, { color: T.muted }]}>
+              N: {bleConfig.notifyUUID}
+            </Text>
+            <Text style={[cb.uuid, { color: T.primary }]}>
+              W: {bleConfig.writeUUID}
+            </Text>
+            <Text style={{ fontSize: 11, color: T.muted }}>
+              Handshake:{' '}
+              {handshakeStatus === 'waiting'
+                ? '⏳ Waiting'
+                : handshakeStatus === 'success'
+                ? '✅ Success'
+                : handshakeStatus === 'failed'
+                ? '❌ Failed'
+                : 'Idle'}
+            </Text>
+            {handshakeRaw && (
+              <Text style={{ fontSize: 10, color: T.primary }}>
+                Raw: {handshakeRaw}
+              </Text>
+            )}
+          </View>
+        )}
+      </View>
+
+      <TouchableOpacity
+        style={[cb.proceedBtn, { backgroundColor: T.primary }]}
+        onPress={onProceed}
+      >
+        <Text style={cb.proceedText}>Begin Test →</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onDisconnect} style={{ padding: 4 }}>
+        <Icon name="close" size={18} color={T.muted} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function DeviceRow({ device, isConnected, isConnecting, T, onPress }) {
+  const strength = rssiStrength(device.rssi);
+  return (
+    <TouchableOpacity
+      style={[
+        dr.card,
+        {
+          backgroundColor: isConnected ? T.primaryGlow : T.card,
+          borderColor: isConnected ? T.primary : T.border,
+        },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      <View
+        style={[
+          dr.icon,
+          { backgroundColor: isConnected ? T.primary + '33' : T.cardAlt },
+        ]}
+      >
+        <Icon
+          name={isConnected ? 'bluetooth-connect' : 'bluetooth'}
+          size={22}
+          color={isConnected ? T.primary : T.muted}
+        />
+      </View>
+      <View style={dr.info}>
+        <Text
+          style={[dr.name, { color: isConnected ? T.primary : T.orange }]}
+          numberOfLines={1}
+        >
+          {device.name || 'Unknown Device'}
+        </Text>
+        <Text style={[dr.id, { color: T.muted }]} numberOfLines={1}>
+          {device.id}
+        </Text>
+        {device.rssi && (
+          <Text style={[dr.rssi, { color: T.muted }]}>{device.rssi} dBm</Text>
+        )}
+      </View>
+      <SignalBars strength={strength} active={isConnected} T={T} />
+      <TouchableOpacity
+        style={[
+          dr.btn,
+          {
+            backgroundColor: isConnected
+              ? 'rgba(239,68,68,0.12)'
+              : T.primary + '22',
+            borderColor: isConnected ? '#ef4444' : T.primary,
+          },
+        ]}
+        onPress={onPress}
+        activeOpacity={0.8}
+      >
+        {isConnecting && !isConnected ? (
+          <ActivityIndicator size="small" color={T.primary} />
+        ) : (
+          <Text
+            style={[dr.btnText, { color: isConnected ? '#ef4444' : T.primary }]}
+          >
+            {isConnected ? 'Disconnect' : 'Connect'}
+          </Text>
+        )}
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+}
+
+function SignalBars({ strength, active, T }) {
+  return (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        gap: 2,
+        marginRight: 6,
+      }}
+    >
+      {[1, 2, 3].map(b => (
+        <View
+          key={b}
+          style={{
+            width: 4,
+            height: b * 6 + 4,
+            borderRadius: 2,
+            backgroundColor:
+              b <= strength ? (active ? T.primary : T.muted) : T.border,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+function EmptyState({ T, btOff, onScan }) {
+  return (
+    <View style={es.wrap}>
+      <Icon
+        name={btOff ? 'bluetooth-off' : 'bluetooth-search'}
+        size={56}
+        color={T.border}
+      />
+      <Text style={[es.title, { color: T.textSub }]}>
+        {btOff ? 'Bluetooth is off' : 'No devices found'}
+      </Text>
+      <Text style={[es.sub, { color: T.muted }]}>
+        {btOff
+          ? 'Enable Bluetooth and scan again'
+          : 'Make sure your Arkashine device is powered on and nearby'}
+      </Text>
+      {!btOff && (
+        <TouchableOpacity
+          style={[
+            es.btn,
+            { borderColor: T.primary, backgroundColor: T.primaryGlow },
+          ]}
+          onPress={onScan}
+        >
+          <Icon name="refresh" size={16} color={T.primary} />
+          <Text style={[es.btnText, { color: T.primary }]}>Scan Again</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+function PulseRing({ T }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(anim, {
+          toValue: 0,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ]),
+    ).start();
+  }, [anim]);
+
+  return (
+    <Animated.View
+      style={[
+        pr.ring,
+        {
+          borderColor: T.primary,
+          opacity: anim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.3, 1],
+          }),
+          transform: [
+            {
+              scale: anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.9, 1.1],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <Icon name="bluetooth-transfer" size={32} color={T.primary} />
+    </Animated.View>
+  );
+}
+
+function rssiStrength(rssi) {
+  if (!rssi) return 0;
+  if (rssi >= -60) return 3;
+  if (rssi >= -75) return 2;
+  if (rssi >= -90) return 1;
+  return 0;
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  container: { flex: 1 },
+  body: { flex: 1, paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
+  alertBox: {
+    flexDirection: 'row',
+    gap: 10,
     alignItems: 'center',
-    marginBottom: 4,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: Spacing.sm,
+    marginBottom: Spacing.md,
   },
-  scanBtnActive: { backgroundColor: '#00A07A' },
-  scanBtnText: { color: '#000', fontSize: 16, fontWeight: '800' },
-  scanningRow: { flexDirection: 'row', alignItems: 'center' },
-  emptyBox: { alignItems: 'center', marginTop: 60 },
-  emptyIcon: { fontSize: 40, color: C.muted, marginBottom: 12 },
-  emptyText: { fontSize: 16, color: C.white, fontWeight: '600' },
-  emptyHint: {
-    fontSize: 13,
-    color: C.muted,
-    textAlign: 'center',
-    marginTop: 6,
-  },
-  deviceCard: {
-    backgroundColor: C.card,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 10,
+  alertText: { fontSize: 13, flex: 1, lineHeight: 18 },
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: C.border,
+    marginBottom: Spacing.md,
   },
-  deviceLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  deviceIcon: {
+  title: { fontSize: 20, fontWeight: '900', letterSpacing: -0.4 },
+  sub: { fontSize: 12, marginTop: 2 },
+  scanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  scanBtnText: { fontSize: 13, fontWeight: '800' },
+  list: { paddingBottom: Spacing.xl },
+  pulseWrap: { alignItems: 'center', paddingTop: 40, gap: 12 },
+  pulseText: { fontSize: 13 },
+});
+
+const cb = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  name: { fontSize: 14, fontWeight: '800' },
+  uuid: { fontSize: 10, marginTop: 1 },
+  proceedBtn: {
+    borderRadius: Radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  proceedText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+});
+
+const dr = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing.md,
+    marginBottom: 10,
+  },
+  icon: {
     width: 44,
     height: 44,
-    borderRadius: 12,
-    borderWidth: 1.5,
+    borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
-  deviceIconText: { fontSize: 12, fontWeight: '800' },
-  deviceName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: C.white,
-    maxWidth: 180,
+  info: { flex: 1 },
+  name: { fontSize: 14, fontWeight: '800' },
+  id: { fontSize: 10, marginTop: 1 },
+  rssi: { fontSize: 10, marginTop: 1 },
+  btn: {
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 90,
+    alignItems: 'center',
   },
-  deviceId: { fontSize: 11, color: C.muted, marginTop: 2, maxWidth: 180 },
-  deviceRight: { alignItems: 'flex-end' },
-  signalLabel: { fontSize: 12, fontWeight: '700' },
-  rssi: { fontSize: 11, color: C.muted, marginTop: 2 },
+  btnText: { fontSize: 12, fontWeight: '800' },
+});
+
+const es = StyleSheet.create({
+  wrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingTop: 60,
+  },
+  title: { fontSize: 16, fontWeight: '800' },
+  sub: {
+    fontSize: 13,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+    lineHeight: 20,
+  },
+  btn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  btnText: { fontSize: 14, fontWeight: '800' },
+});
+
+const pr = StyleSheet.create({
+  ring: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

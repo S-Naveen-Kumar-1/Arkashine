@@ -50,7 +50,7 @@ export default function CalibrationMenuScreen({ navigation }) {
       />
 
       <View style={s.body}>
-        <Text style={[s.heading, { color: T.white }]}>
+        <Text style={[s.heading, { color: T.primary }]}>
           Select Calibration Type
         </Text>
         <Text style={[s.sub, { color: T.text }]}>
