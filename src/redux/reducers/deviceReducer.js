@@ -6,7 +6,6 @@ const initialState = {
 };
 
 const deviceReducer = (state = initialState, action) => {
-    console.log('Device Reducer Action:', action); // Debugging log
   switch (action.type) {
     case 'GET_USER_DEVICES':
       return { ...state, loadingDevices: true };

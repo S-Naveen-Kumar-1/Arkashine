@@ -68,6 +68,7 @@ export default function LoginScreen({ navigation }) {
     passwordRef.current?.blur();
   };
   const handleLogin = async () => {
+     navigation.navigate('AppTabs');
     if (!validate()) return;
     const loginres = await dispatch(loginUser({ username, password }));
     console.log('Login Response:', loginres.payload.data);

@@ -116,7 +116,11 @@ export function ProductsListingScreen({ navigation }) {
   );
 
   const handleSubscribe = useCallback(product => {
+      if (product.route) {
+          navigation.navigate(product.route, { item: product });
+        }
     const { alreadySubscribed } = logSubscription(product);
+
 
     if (alreadySubscribed) {
       Alert.alert(
@@ -168,7 +172,7 @@ export function ProductsListingScreen({ navigation }) {
   );
 
   const renderProductCard = ({ item }) => {
-   const isLocked = item.locked;
+    const isLocked = item.locked;
     const isLoading = loadingProductId === item.id;
     const isSubscribed = subscribedIds.has(item.id);
 

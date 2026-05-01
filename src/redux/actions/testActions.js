@@ -64,3 +64,22 @@ export const saveTestResult = result => dispatch => {
   dispatch({ type: TEST_RESULTS_RECEIVED, payload: result });
   dispatch({ type: TEST_SAVED });
 };
+
+
+
+
+
+export function createSoilReading({
+
+}) {
+  return {
+    type: '',
+    payload: {
+      request: {
+        url: '/api/mobile/devices/',
+        method: 'POST',
+    
+      },
+    },
+  };
+}

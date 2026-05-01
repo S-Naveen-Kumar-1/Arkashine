@@ -168,29 +168,6 @@ export default function FloatingDebugPanel() {
   const [visible, setVisible] = useState(false);
   const [tab,     setTab]     = useState('log');
 
-  // Draggable button position
-  const pan = useRef(new Animated.ValueXY({ x: SW - 72, y: SH - 160 })).current;
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder:  () => true,
-      onPanResponderGrant: () => {
-        pan.setOffset({ x: pan.x._value, y: pan.y._value });
-        pan.setValue({ x: 0, y: 0 });
-      },
-      onPanResponderMove: Animated.event(
-        [null, { dx: pan.x, dy: pan.y }],
-        { useNativeDriver: false },
-      ),
-      onPanResponderRelease: () => {
-        pan.flattenOffset();
-        // Clamp to screen edges
-        const x = Math.min(Math.max(pan.x._value, 10), SW - 66);
-        const y = Math.min(Math.max(pan.y._value, 44), SH - 90);
-        Animated.spring(pan, { toValue: { x, y }, useNativeDriver: false }).start();
-      },
-    }),
-  ).current;
 
   const handleClear = useCallback(() => dispatch(clearDebugLog()), [dispatch]);
 
@@ -209,10 +186,10 @@ export default function FloatingDebugPanel() {
   return (
     <>
       {/* ── Floating button ──────────────────────────────────────── */}
-      {/* <Animated.View
-        style={[fl.fab, { transform: pan.getTranslateTransform() }]}
-        {...panResponder.panHandlers}
-      > */}
+      <Animated.View
+        style={[fl.fab, ]}
+        // {...panResponder.panHandlers}
+      >
         <TouchableOpacity
           style={fl.fabTouch}
           onPress={() => setVisible(true)}
@@ -230,7 +207,7 @@ export default function FloatingDebugPanel() {
             </View>
           )}
         </TouchableOpacity>
-      {/* </Animated.View> */}
+      </Animated.View>
 
       {/* ── Debug panel modal ────────────────────────────────────── */}
       <Modal
@@ -326,6 +303,8 @@ const fl = StyleSheet.create({
     position: 'absolute',
     zIndex: 9999,
     elevation: 20,
+    bottom: 30,
+    right: 30,
   },
   fabTouch: {
     width: 56,
