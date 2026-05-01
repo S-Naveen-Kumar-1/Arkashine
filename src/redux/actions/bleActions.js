@@ -43,7 +43,7 @@ export const ac = {
   scanStart: () => ({ type: BLE_SCAN_START }),
   scanStop: () => ({ type: BLE_SCAN_STOP }),
   deviceFound: d => ({ type: BLE_DEVICE_FOUND, payload: d }),
-  connectRequest: id => ({ type: BLE_CONNECT_REQUEST, payload: id }),
+  connectRequest: () => ({ type: BLE_CONNECT_REQUEST }),
   connectSuccess: d => ({ type: BLE_CONNECT_SUCCESS, payload: d }),
   connectFailed: e => ({ type: BLE_CONNECT_FAILED, payload: e }),
   disconnect: () => ({ type: BLE_DISCONNECT }),
@@ -225,39 +225,57 @@ async function resolveUUIDs(conn, dispatch) {
   const services = await conn.services();
 
   for (const svc of services) {
+    dispatch(ac.log('UUID', `  Service: ${svc.uuid}`));
     const chars = await svc.characteristics();
+    let notifyUUID = null;
+    let writeUUID = null;
 
     for (const c of chars) {
-      const canNotify = c.isNotifiable || c.isIndicatable;
-      const canWrite = c.isWritableWithResponse || c.isWritableWithoutResponse;
+      const flags = [
+        c.isNotifiable && 'NOTIFY',
+        c.isIndicatable && 'INDICATE',
+        c.isWritableWithResponse && 'WRITE',
+        c.isWritableWithoutResponse && 'WRITE_NR',
+        c.isReadable && 'READ',
+      ]
+        .filter(Boolean)
+        .join('|');
+      dispatch(ac.log('UUID', `    Char: ${c.uuid.slice(0, 8)}… [${flags}]`));
 
+      if ((c.isNotifiable || c.isIndicatable) && !notifyUUID)
+        notifyUUID = c.uuid;
+      if (
+        (c.isWritableWithResponse || c.isWritableWithoutResponse) &&
+        !writeUUID
+      )
+        writeUUID = c.uuid;
+    }
+
+    if (notifyUUID) {
+      const cfg = {
+        serviceUUID: svc.uuid,
+        notifyUUID,
+        writeUUID: writeUUID || notifyUUID,
+      };
       dispatch(
         ac.log(
           'UUID',
-          `Char: ${c.uuid} → notify=${canNotify} write=${canWrite}`,
+          `Resolved → S:${cfg.serviceUUID.slice(0, 8)} N:${cfg.notifyUUID.slice(
+            0,
+            8,
+          )} W:${cfg.writeUUID.slice(0, 8)}`,
         ),
       );
-
-      // 🔥 BEST CASE: SAME CHARACTERISTIC
-      if (canNotify && canWrite) {
-        const cfg = {
-          serviceUUID: svc.uuid,
-          notifyUUID: c.uuid,
-          writeUUID: c.uuid,
-        };
-
-        dispatch(ac.log('UUID', `✅ Using SAME char for read/write`));
-        return cfg;
-      }
+      return cfg;
     }
   }
-
-  dispatch(ac.log('UUID', 'ERROR: no valid characteristic found'));
+  dispatch(ac.log('UUID', 'ERROR: no notifiable characteristic found'));
   return null;
 }
+
 // ─── Connect ──────────────────────────────────────────────────────────────────
 export const connectDevice = rawDevice => async dispatch => {
-  dispatch(ac.connectRequest(rawDevice.id));
+  dispatch(ac.connectRequest());
   dispatch(ac.log('CONNECT', `→ ${rawDevice.name || rawDevice.id}`));
 
   // Stop scan first
@@ -295,19 +313,8 @@ export const connectDevice = rawDevice => async dispatch => {
     startNotifications(conn, cfg, dispatch);
 
     // ── Handshake: ping the device ─────────────────────────────
-    // await _sendCmd('PING', '', dispatch);
-    await _sendCmd('arkashineDevice', '', dispatch);
-    dispatch(ac.log('HANDSHAKE', 'Sent arkashineDevice'));
-    setTimeout(() => {
-      dispatch((_, getState) => {
-        const { handshakeStatus } = getState().ble;
+    await _sendCmd('PING', '', dispatch);
 
-        if (handshakeStatus !== 'success') {
-          dispatch(ac.log('HANDSHAKE', '❌ Failed (timeout)'));
-          dispatch({ type: 'BLE_HANDSHAKE_FAILED' });
-        }
-      });
-    }, 2000);
     // ── Disconnect handler ─────────────────────────────────────
     conn.onDisconnected(() => {
       dispatch(ac.log('DISCONNECT', 'Device disconnected'));
@@ -332,8 +339,7 @@ export const connectDevice = rawDevice => async dispatch => {
             dispatch(ac.configResolved(newCfg));
             dispatch(ac.connectSuccess({ id: r.id, name: r.name }));
             startNotifications(r, newCfg, dispatch);
-            await _sendCmd('arkashineDevice', '', dispatch);
-            dispatch(ac.log('HANDSHAKE', 'Sent arkashineDevice (reconnect)'));
+            await _sendCmd('PING', '', dispatch);
             dispatch(ac.log('RECONNECT', 'Success ✅'));
           }
         } catch (e) {

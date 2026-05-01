@@ -30,7 +30,7 @@ const init = {
   connecting: false,
   device: null, // { id, name } — serialisable only
   error: null,
-  connectingDeviceId: null,
+
   // Dynamic UUID config (auto-detected from device)
   bleConfig: null, // { serviceUUID, notifyUUID, writeUUID }
 
@@ -54,8 +54,6 @@ const init = {
 
   // Debug log ring buffer
   debugLogs: [],
-  handshakeStatus: 'idle',
-  handshakeRaw: null,
 };
 
 export default function bleReducer(state = init, action) {
@@ -82,13 +80,7 @@ export default function bleReducer(state = init, action) {
 
     // ── Connection ────────────────────────────────────────────
     case BLE_CONNECT_REQUEST:
-      return {
-        ...state,
-        connecting: true,
-        connectingDeviceId: action.payload, // 🔥 add this
-        error: null,
-        bleConfig: null,
-      };
+      return { ...state, connecting: true, error: null, bleConfig: null };
 
     case BLE_CONNECT_SUCCESS:
       return {
@@ -96,7 +88,6 @@ export default function bleReducer(state = init, action) {
         connecting: false,
         connected: true,
         device: action.payload,
-        handshakeStatus: 'waiting',
         error: null,
       };
 
@@ -118,34 +109,19 @@ export default function bleReducer(state = init, action) {
         sensorData: { ...init.sensorData },
         lastCmd: null,
         lastCmdError: null,
-        handshakeStatus: 'idle', // 🔥 ADD
-        handshakeRaw: null, // 🔥 ADD
       };
 
     case BLE_CONFIG_RESOLVED:
       return { ...state, bleConfig: action.payload };
 
     // ── Data ──────────────────────────────────────────────────
-    case BLE_DATA_RECEIVED: {
-      const raw = action.payload.raw;
-
-      let status = state.handshakeStatus;
-      let handshakeRaw = state.handshakeRaw;
-
-      if (raw?.toLowerCase().trim() === 'connectiontrue') {
-        status = 'success';
-        handshakeRaw = raw;
-      }
-
+    case BLE_DATA_RECEIVED:
       return {
         ...state,
         sensorData: action.payload,
-        rawPayload: raw,
+        rawPayload: action.payload.raw,
         lastReceived: Date.now(),
-        handshakeStatus: status,
-        handshakeRaw,
       };
-    }
 
     // ── Commands ──────────────────────────────────────────────
     case BLE_CMD_SENT:
@@ -163,11 +139,7 @@ export default function bleReducer(state = init, action) {
 
     case BLE_DEBUG_CLEAR:
       return { ...state, debugLogs: [] };
-    case 'BLE_HANDSHAKE_FAILED':
-      return {
-        ...state,
-        handshakeStatus: 'failed',
-      };
+
     default:
       return state;
   }

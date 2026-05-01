@@ -31,6 +31,7 @@ export default function BLEScanScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
+
   const {
     bleAdapterState,
     scanning,
@@ -40,10 +41,8 @@ export default function BLEScanScreen({ navigation }) {
     device: connectedDevice,
     error,
     bleConfig,
-    connectingDeviceId,
-    handshakeRaw,
-    handshakeStatus,
   } = useSelector(s => s.ble);
+
   // Start adapter monitor once
   useEffect(() => {
     dispatch(initBLE());
@@ -67,7 +66,6 @@ export default function BLEScanScreen({ navigation }) {
 
   const handleConnect = useCallback(
     device => {
-      console.log('Device selected:', device);
       if (connected && connectedDevice?.id === device.id) {
         dispatch(disconnectDevice());
       } else {
@@ -113,8 +111,6 @@ export default function BLEScanScreen({ navigation }) {
             T={T}
             onDisconnect={() => dispatch(disconnectDevice())}
             onProceed={() => navigation.navigate('CalibrationGateScreen')}
-            handshakeStatus={handshakeStatus}
-            handshakeRaw={handshakeRaw}
           />
         )}
 
@@ -187,7 +183,7 @@ export default function BLEScanScreen({ navigation }) {
               <DeviceRow
                 device={item}
                 isConnected={connected && connectedDevice?.id === item.id}
-                isConnecting={connectingDeviceId === item.id} // ✅ FIX
+                isConnecting={connecting}
                 T={T}
                 onPress={() => handleConnect(item)}
               />
@@ -210,16 +206,7 @@ export default function BLEScanScreen({ navigation }) {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-function ConnectedBanner({
-  device,
-  bleConfig,
-  T,
-  onDisconnect,
-  onProceed,
-  handshakeStatus,
-  handshakeRaw,
-}) {
-  console.log('Connected to device:', bleConfig);
+function ConnectedBanner({ device, bleConfig, T, onDisconnect, onProceed }) {
   return (
     <View
       style={[
@@ -232,7 +219,7 @@ function ConnectedBanner({
         <Text style={[cb.name, { color: T.primary }]}>
           {device.name || 'Device'}
         </Text>
-        {bleConfig && (
+       {bleConfig && (
           <View style={{ marginTop: 4 }}>
             <Text style={[cb.uuid, { color: T.muted }]}>
               S: {bleConfig.serviceUUID}
@@ -243,25 +230,9 @@ function ConnectedBanner({
             <Text style={[cb.uuid, { color: T.primary }]}>
               W: {bleConfig.writeUUID}
             </Text>
-            <Text style={{ fontSize: 11, color: T.muted }}>
-              Handshake:{' '}
-              {handshakeStatus === 'waiting'
-                ? '⏳ Waiting'
-                : handshakeStatus === 'success'
-                ? '✅ Success'
-                : handshakeStatus === 'failed'
-                ? '❌ Failed'
-                : 'Idle'}
-            </Text>
-            {handshakeRaw && (
-              <Text style={{ fontSize: 10, color: T.primary }}>
-                Raw: {handshakeRaw}
-              </Text>
-            )}
           </View>
         )}
       </View>
-
       <TouchableOpacity
         style={[cb.proceedBtn, { backgroundColor: T.primary }]}
         onPress={onProceed}
