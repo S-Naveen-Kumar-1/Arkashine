@@ -33,7 +33,7 @@ import {
   BLE_HANDSHAKE_SUCCESS,
   BLE_HANDSHAKE_FAILED,
 } from '../../config/actionTypes';
-
+import { requestBLEPermissions } from '../../utils/permissions';
 // ─── Singleton BleManager ─────────────────────────────────────────────────────
 export const bleManager = new BleManager();
 
@@ -87,7 +87,14 @@ export const initBLE = () => dispatch => {
 // ─── Scan ─────────────────────────────────────────────────────────────────────
 const SCAN_TIMEOUT_MS = 15_000;
 
-export const startScan = () => dispatch => {
+export const startScan = () => async dispatch => {
+  const granted = await requestBLEPermissions();
+
+  if (!granted) {
+    dispatch(ac.log('SCAN', 'Permissions denied'));
+    return;
+  }
+
   dispatch(ac.scanStart());
   dispatch(ac.log('SCAN', 'Starting…'));
 
@@ -100,6 +107,7 @@ export const startScan = () => dispatch => {
         dispatch(ac.scanStop());
         return;
       }
+
       if (device) {
         dispatch(
           ac.deviceFound({
@@ -112,14 +120,12 @@ export const startScan = () => dispatch => {
       }
     },
   );
-
   _scanTimer = setTimeout(() => {
     bleManager.stopDeviceScan();
     dispatch(ac.scanStop());
     dispatch(ac.log('SCAN', 'Auto-stopped after 15 s'));
   }, SCAN_TIMEOUT_MS);
 };
-
 export const stopScan = () => dispatch => {
   clearTimeout(_scanTimer);
   bleManager.stopDeviceScan();
@@ -430,7 +436,7 @@ async function _sendCmd(command, params, dispatch) {
   const cmdStr = params ? `${command}:${params}` : command;
   const b64 = Buffer.from(cmdStr, 'utf-8').toString('base64');
   dispatch(ac.log('CMD', `→ "${cmdStr}"`));
-  console.log(`_sendCmd: cmdStr="${cmdStr}",b64="${b64}"`);  
+  console.log(`_sendCmd: cmdStr="${cmdStr}",b64="${b64}"`);
 
   try {
     await _device.writeCharacteristicWithResponseForService(

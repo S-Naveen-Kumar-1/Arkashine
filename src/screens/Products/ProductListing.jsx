@@ -116,9 +116,9 @@ export function ProductsListingScreen({ navigation }) {
   );
 
   const handleSubscribe = useCallback(product => {
-      if (product.route) {
-          navigation.navigate(product.route, { item: product });
-        }
+      // if (product.route) {
+      //     navigation.navigate(product.route, { item: product });
+      //   }
     const { alreadySubscribed } = logSubscription(product);
 
 
