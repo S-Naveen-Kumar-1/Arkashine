@@ -8,7 +8,7 @@ import {
   TEST_RESULTS_RECEIVED,
   TEST_SAVED,
 } from '../../config/actionTypes';
-import { cmdMotorStart, cmdMotorStop, cmdReadSensors } from './bleActions';
+import { cmdPHMotorStart, cmdPHMotorStop, cmdReadSensors } from './bleActions';
 import { MOTOR_DURATION } from '../reducers/phTestReducer';
 
 export const testReset = () => ({ type: TEST_RESET });
@@ -19,7 +19,7 @@ export const startMotor = () => async dispatch => {
   clearInterval(_motorInterval);
 
   // Send command to hardware
-  await dispatch(cmdMotorStart(MOTOR_DURATION));
+  await dispatch(cmdPHMotorStart(MOTOR_DURATION));
 
   dispatch({ type: TEST_MOTOR_START });
 
@@ -30,19 +30,13 @@ export const startMotor = () => async dispatch => {
   setTimeout(() => {
     clearInterval(_motorInterval);
     dispatch({ type: TEST_MOTOR_DONE });
-    dispatch(cmdMotorStop());
+    dispatch(cmdPHMotorStop());
   }, MOTOR_DURATION * 1000);
 };
 
 export const stopMotorEarly = () => dispatch => {
   clearInterval(_motorInterval);
   dispatch({ type: TEST_MOTOR_DONE });
-  dispatch(cmdMotorStop());
-};
-
-export const requestReading = () => async dispatch => {
-  dispatch({ type: TEST_READING_START });
-  await dispatch(cmdReadSensors());
 };
 
 export const saveTestResult = result => dispatch => {

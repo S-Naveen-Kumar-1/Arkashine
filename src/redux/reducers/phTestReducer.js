@@ -49,7 +49,7 @@ const init = {
   history: [], // last 100 results
 };
 
-export default function testReducer(state = init, action) {
+export default function phTestReducer(state = init, action) {
   switch (action.type) {
     case TEST_RESET:
       return {

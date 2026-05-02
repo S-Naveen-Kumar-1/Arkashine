@@ -21,7 +21,7 @@ export default function CalibrationGateScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
 
-  const testCount = useSelector(s => s.test.testCount);
+  const testCount = useSelector(s => s.phtest.testCount);
   const { connected, device } = useSelector(s => s.ble);
 
   const needsCalibration = testCount > 0 && testCount % 100 === 0;

@@ -16,7 +16,7 @@ import useTheme, { getRecommendations, getNutrientStatus } from '../hooks/useThe
 export function RecommendationsScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
-  const results = useSelector(s => s.test.results);
+  const results = useSelector(s => s.phtest.results);
   const farmer = useSelector(s => s.farmer);
   const recs = getRecommendations(results, farmer.crop);
 

@@ -13,7 +13,7 @@ export function TimerScreen({ navigation }) {
   const T = theme.colors;
   const dispatch = useDispatch();
 
-  const { timerLeft, timerTotal, timerDone } = useSelector(s => s.test);
+  const { timerLeft, timerTotal, timerDone } = useSelector(s => s.phtest);
   const dispatched = useRef(false);
 
   useEffect(() => {

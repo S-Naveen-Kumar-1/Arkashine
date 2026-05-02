@@ -37,7 +37,7 @@ export function SensorScreen({ navigation }) {
   const T = theme.colors;
 
   const { sensorRunning, sensorDone, sensorLeft, sensorTotal } = useSelector(
-    s => s.test,
+    s => s.phtest,
   );
   const { connected, device, sensorData } = useSelector(s => s.ble);
 

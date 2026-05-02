@@ -21,9 +21,9 @@ import {
   startMotor,
   stopMotorEarly,
   testReset,
-} from '../redux/actions/testActions';
-import { requestReading } from '../redux/actions/testActions';
-import { cmdMotorStart, cmdMotorStop } from '../redux/actions/bleActions';
+} from '../redux/actions/phTestActions';
+import { requestReading } from '../redux/actions/phTestActions';
+import { cmdPHMotorStart, cmdPHMotorStop } from '../redux/actions/bleActions';
 import { MOTOR_DURATION } from '../redux/reducers/phTestReducer';
 
 export default function MixerScreen({ navigation }) {
@@ -31,7 +31,7 @@ export default function MixerScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
 
-  const { motorState, motorTimeLeft } = useSelector(s => s.test);
+  const { motorState, motorTimeLeft } = useSelector(s => s.phtest);
   const { connected, device } = useSelector(s => s.ble);
 
   // Spin animation for motor icon
@@ -59,14 +59,11 @@ export default function MixerScreen({ navigation }) {
     if (motorState === 'running') startSpin();
     else stopSpin();
   }, [motorState]);
-
-  // Reset test state on mount
   useEffect(() => {
     dispatch(testReset());
   }, [dispatch]);
 
   useEffect(() => () => stopSpin(), []);
-
   const spin = spinAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
@@ -78,7 +75,6 @@ export default function MixerScreen({ navigation }) {
   const seconds = motorTimeLeft % 60;
 
   const handleReadResults = async () => {
-    await dispatch(requestReading());
     navigation.replace('PHECResultScreen');
   };
 
@@ -226,10 +222,7 @@ export default function MixerScreen({ navigation }) {
               },
             ]}
             onPress={async () => {
-              // Send {"TEST":"START"} to firmware (motor + measure sequence)
-              await dispatch(cmdMotorStart());
-              // Start local UI countdown timer for visual feedback
-              dispatch(startMotor());
+              await dispatch(cmdPHMotorStart());
             }}
             disabled={!connected}
             activeOpacity={0.85}
@@ -258,7 +251,7 @@ export default function MixerScreen({ navigation }) {
               style={[s.stopBtn, { borderColor: '#ef4444' }]}
               onPress={async () => {
                 // Tell firmware to stop (best-effort) then update UI
-                await dispatch(cmdMotorStop());
+                await dispatch(cmdPHMotorStop());
                 dispatch(stopMotorEarly());
               }}
             >

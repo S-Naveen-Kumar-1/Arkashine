@@ -20,7 +20,7 @@ export default function PourScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
-  const { pourDetected } = useSelector(s => s.test);
+  const { pourDetected } = useSelector(s => s.phtest);
 
   // ✅ FIX: persist animated values
   const dropAnim = useRef(new Animated.Value(0)).current;

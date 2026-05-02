@@ -21,7 +21,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
-import { saveTestResult, requestReading } from '../redux/actions/testActions';
+import { saveTestResult, requestReading } from '../redux/actions/phTestActions';
 // ─── Interpretation helpers ───────────────────────────────────────────────────
 function getPHStatus(ph) {
   if (ph === null || ph === undefined) return null;
@@ -431,7 +431,7 @@ export default function PHECResultScreen({ navigation }) {
 
   const sensorData = useSelector(s => s.ble.sensorData);
   const lastReceived = useSelector(s => s.ble.lastReceived);
-  const { readingState, results } = useSelector(s => s.test);
+  const { readingState, results } = useSelector(s => s.phtest);
   const { connected } = useSelector(s => s.ble);
 
   const [alertVisible, setAlertVisible] = useState(false);

@@ -10,7 +10,7 @@ import { BASE_URL } from '../ApiConfig';
 // reducers
 import authReducer from './reducers/authReducer';
 import bleReducer from './reducers/bleReducer';
-import testReducer from './reducers/phTestReducer';
+import phTestReducer from './reducers/phTestReducer';
 import farmerReducer from './reducers/farmerReducer';
 import reportReducer from './reducers/reportReducer';
 import themeReducer from './reducers/themeReducer';
@@ -24,7 +24,7 @@ import soilsaathiReducer from './reducers/soilsaathiReducer';
 const rootReducer = combineReducers({
   auth: authReducer,
   ble: bleReducer,
-  test: testReducer,
+  phtest: phTestReducer,
   farmer: farmerReducer,
   report: reportReducer,
   theme: themeReducer,

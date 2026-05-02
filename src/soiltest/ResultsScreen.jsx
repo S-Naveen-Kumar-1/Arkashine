@@ -401,7 +401,7 @@ export default function ResultsScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors;
 
-  const results = useSelector(s => s.test.results);
+  const results = useSelector(s => s.phtest.results);
   const selectedProduct = useSelector(s => s.userDevices.selectedProduct);
   const deviceId = selectedProduct?.deviceId;
   console.log(deviceId, 'check', selectedProduct);
@@ -427,22 +427,22 @@ export default function ResultsScreen({ navigation, route }) {
       dispatch({ type: TEST_SAVED });
     }
   }, [results, dispatch]);
-useEffect(() => {
-  const fetchRecs = async () => {
-    if (currentId && recsStatus === 'idle') {
-      const getsoilRec = await dispatch(
-        getSoilRecommendations(deviceId, currentId),
-      );
-      const getsoilAiRec = await dispatch(
-        getSoilAIRecommendations(deviceId, currentId),
-      );
+  useEffect(() => {
+    const fetchRecs = async () => {
+      if (currentId && recsStatus === 'idle') {
+        const getsoilRec = await dispatch(
+          getSoilRecommendations(deviceId, currentId),
+        );
+        const getsoilAiRec = await dispatch(
+          getSoilAIRecommendations(deviceId, currentId),
+        );
 
-      console.log(getsoilRec, 'soil rec check', getsoilAiRec);
-    }
-  };
+        console.log(getsoilRec, 'soil rec check', getsoilAiRec);
+      }
+    };
 
-  fetchRecs();
-}, [currentId, recsStatus, deviceId, dispatch]);
+    fetchRecs();
+  }, [currentId, recsStatus, deviceId, dispatch]);
   // Submit to server then fetch recs
   const runAPIFlow = useCallback(() => {
     // if (submittedRef.current || !results) return;

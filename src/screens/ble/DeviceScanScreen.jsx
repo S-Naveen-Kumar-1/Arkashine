@@ -24,7 +24,6 @@ import {
   stopScan,
   connectDevice,
   disconnectDevice,
-  cmdReadSensors,
 } from '../../redux/actions/bleActions';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -81,7 +80,6 @@ export default function BLEScanScreen({ route, navigation }) {
   );
 
   const handleProceed = useCallback(async () => {
-    await dispatch(cmdReadSensors()); // sends {"TEST":"START"}
     if (item?.name === 'Ph Bottle') {
       navigation.navigate('CalibrationGateScreen');
     } else if (item?.name === 'SOILENZ') {
