@@ -440,7 +440,13 @@ export default function PHECResultScreen({ navigation }) {
   // Use saved results or live sensor data
   const ph = results?.ph ?? sensorData.ph;
   const ec = results?.ec ?? sensorData.ec;
+  // pHVoltage — from firmware field "pHVoltage"
   const voltage = results?.voltage ?? sensorData.voltage;
+  // ECVoltage — from firmware field "ECVoltage"
+  const ecVoltage = results?.ecVoltage ?? sensorData.ecVoltage;
+  const temperature = results?.temperature ?? sensorData.temperature;
+  const temperatureFallback =
+    results?.temperatureFallback ?? sensorData.temperatureFallback ?? false;
 
   const loading = readingState === 'reading' && ph === null && ec === null;
 
@@ -469,7 +475,17 @@ export default function PHECResultScreen({ navigation }) {
   // Auto-save result
   useEffect(() => {
     if (!resultSaved && ph !== null && ec !== null) {
-      dispatch(saveTestResult({ ph, ec, voltage, raw: sensorData.raw }));
+      dispatch(
+        saveTestResult({
+          ph,
+          ec,
+          voltage,
+          ecVoltage,
+          temperature,
+          temperatureFallback,
+          raw: sensorData.raw,
+        }),
+      );
       setResultSaved(true);
       if (ecStatus?.alert) setTimeout(() => setAlertVisible(true), 800);
     }
@@ -599,7 +615,12 @@ export default function PHECResultScreen({ navigation }) {
           )}
           {voltage !== null && (
             <Text style={[s.statusBarText, { color: T.muted }]}>
-              ⚡ {voltage?.toFixed(4)} V
+              ⚡ pH {voltage?.toFixed(4)} V
+            </Text>
+          )}
+          {temperatureFallback && (
+            <Text style={[s.statusBarText, { color: '#F59E0B' }]}>
+              🌡 25°C (fallback)
             </Text>
           )}
         </View>
@@ -739,16 +760,34 @@ export default function PHECResultScreen({ navigation }) {
               color: phStatus?.color ?? T.muted,
             },
             {
-              label: 'EC Value',
-              value: ec !== null ? `${ec?.toFixed(3)} dS/m` : 'N/A',
+              // Firmware returns "TDS" which is the EC-channel dissolved-solids value
+              label: 'TDS / EC Value',
+              value: ec !== null ? `${ec?.toFixed(3)} (TDS)` : 'N/A',
               icon: 'lightning-bolt',
               color: ecStatus?.color ?? T.muted,
             },
             {
-              label: 'Probe Voltage',
+              label: 'pH Probe Voltage',
               value: voltage !== null ? `${voltage?.toFixed(4)} V` : 'N/A',
               icon: 'flash',
               color: T.muted,
+            },
+            {
+              label: 'EC Probe Voltage',
+              value: ecVoltage !== null ? `${ecVoltage?.toFixed(4)} V` : 'N/A',
+              icon: 'flash-outline',
+              color: T.muted,
+            },
+            {
+              label: 'Temperature',
+              value:
+                temperature !== null
+                  ? `${temperature?.toFixed(2)} °C${
+                      temperatureFallback ? ' ⚠️ fallback' : ''
+                    }`
+                  : 'N/A',
+              icon: 'thermometer',
+              color: temperatureFallback ? '#F59E0B' : T.muted,
             },
             {
               label: 'Measured At',
@@ -782,7 +821,7 @@ export default function PHECResultScreen({ navigation }) {
                   s.tableVal,
                   {
                     color: row.color,
-                    fontFamily: i >= 2 ? 'Courier' : undefined,
+                    fontFamily: i >= 2 && i <= 5 ? 'Courier' : undefined,
                   },
                 ]}
                 numberOfLines={1}

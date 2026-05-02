@@ -107,10 +107,6 @@ export const bleScanStop = () => ({ type: BLE_SCAN_STOP });
 // ── TEST FLOW ────────────────────────────────────────────────
 export const testReset = () => ({ type: TEST_RESET });
 export const testPourDetected = () => ({ type: TEST_POUR_DETECTED });
-export const testResultsReceived = results => ({
-  type: TEST_RESULTS_RECEIVED,
-  payload: results,
-});
 
 export const startSettleTimer = () => dispatch => {
   dispatch({ type: TEST_TIMER_START });

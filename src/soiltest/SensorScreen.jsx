@@ -29,7 +29,7 @@ import {
   cmdStopStream,
   cmdReadSensors,
 } from '../redux/actions/bleActions';
-import { SENSOR_DURATION } from '../redux/reducers/testReducer';
+import { SENSOR_DURATION } from '../redux/reducers/phTestReducer';
 
 export function SensorScreen({ navigation }) {
   const dispatch = useDispatch();

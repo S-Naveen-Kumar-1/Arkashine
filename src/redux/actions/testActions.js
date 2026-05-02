@@ -9,18 +9,12 @@ import {
   TEST_SAVED,
 } from '../../config/actionTypes';
 import { cmdMotorStart, cmdMotorStop, cmdReadSensors } from './bleActions';
-import { MOTOR_DURATION } from '../reducers/testReducer';
+import { MOTOR_DURATION } from '../reducers/phTestReducer';
 
 export const testReset = () => ({ type: TEST_RESET });
 
 let _motorInterval = null;
 
-/**
- * Start the mixing motor:
- * 1. Send BLE command to hardware
- * 2. Start a local countdown in Redux
- * 3. After MOTOR_DURATION s → dispatch TEST_MOTOR_DONE
- */
 export const startMotor = () => async dispatch => {
   clearInterval(_motorInterval);
 
@@ -46,39 +40,23 @@ export const stopMotorEarly = () => dispatch => {
   dispatch(cmdMotorStop());
 };
 
-/**
- * Request a sensor reading.
- * The BLE notification listener in bleActions will push data to Redux (BLE_DATA_RECEIVED).
- * This action marks the reading phase as started and sends the command.
- */
 export const requestReading = () => async dispatch => {
   dispatch({ type: TEST_READING_START });
   await dispatch(cmdReadSensors());
 };
 
-/**
- * Called by PHECResultScreen once sensorData arrives with pH + EC.
- * Saves to test.results and increments testCount.
- */
 export const saveTestResult = result => dispatch => {
   dispatch({ type: TEST_RESULTS_RECEIVED, payload: result });
   dispatch({ type: TEST_SAVED });
 };
 
-
-
-
-
-export function createSoilReading({
-
-}) {
+export function createSoilReading({}) {
   return {
     type: '',
     payload: {
       request: {
         url: '/api/mobile/devices/',
         method: 'POST',
-    
       },
     },
   };

@@ -108,10 +108,6 @@ export function ProductsListingScreen({ navigation }) {
       setTimeout(() => {
         setLoadingProductId(null);
         if (product.route) {
-          dispatch({
-            type: 'SET_SELECTED_PRODUCT',
-            payload: product,
-          });
           navigation.navigate(product.route, { item: product });
         }
       }, 800);

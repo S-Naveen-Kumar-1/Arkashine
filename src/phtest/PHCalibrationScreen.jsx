@@ -65,29 +65,32 @@ const PH_POINTS = [
   },
 ];
 
-// ─── Mock + real voltage stability hook ───────────────────────────────────────
-// Phase 1: oscillate mock value around mockBase
-// Phase 2: when real voltage appears from BLE → lock it, stop mock, run stability check
-const STABLE_WINDOW = 8; // consecutive ticks
-const STABLE_THRESHOLD = 0.003; // V
+// ─── Mock + lock voltage hook ──────────────────────────────────────────────────
+// Phase 1 (isMocking=true):  oscillate a fake voltage so the UI shows activity
+//                            while we wait for the firmware to reply.
+// Phase 2 (isLocked=true):   firmware replied with a real pHVoltage.
+//                            Stop mock immediately, show the real value, and
+//                            set stable=true right away — no window needed.
+//                            The firmware already confirmed the calibration point;
+//                            we just need to capture whatever it returned.
 
 function useMockLockVoltage(active, mockBase) {
+  // pHVoltage from firmware {"pHVoltage":"2.4935"} → mapped to sensorData.voltage
   const realVoltage = useSelector(s => s.ble.sensorData.voltage);
   const realCount = useSelector(s => s.ble.sensorData.receivedCount);
 
   const [displayV, setDisplayV] = useState(null);
   const [isMocking, setIsMocking] = useState(true);
-  const [isLocked, setIsLocked] = useState(false); // locked = real value captured
+  const [isLocked, setIsLocked] = useState(false);
   const [stable, setStable] = useState(false);
-  const windowRef = useRef([]);
+
   const mockTimerRef = useRef(null);
   const prevCountRef = useRef(realCount);
 
-  // Reset on active change
+  // ── Reset / start mock when phase becomes active ──────────────────
   useEffect(() => {
     if (!active) {
       clearInterval(mockTimerRef.current);
-      windowRef.current = [];
       setDisplayV(null);
       setIsMocking(true);
       setIsLocked(false);
@@ -96,57 +99,38 @@ function useMockLockVoltage(active, mockBase) {
       return;
     }
 
-    // Start mock animation
     setIsMocking(true);
     setIsLocked(false);
     setStable(false);
 
-    // Oscillate: slowly approach stable value (simulating probe settling)
+    // Oscillate mock voltage while waiting for the device to reply
     let tick = 0;
     mockTimerRef.current = setInterval(() => {
       tick++;
-      // Drift: starts with ±0.025 noise, narrows to ±0.003 after 20 ticks
       const noise =
         Math.max(0.003, 0.025 - tick * 0.001) * (Math.random() - 0.5) * 2;
       setDisplayV(mockBase + noise);
     }, 300);
 
     return () => clearInterval(mockTimerRef.current);
-  }, [active]);
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When real BLE data arrives (count changes) → lock
+  // ── Real BLE value arrived → lock immediately, no stability window ─
   useEffect(() => {
     if (!active) return;
     if (realVoltage === null || realVoltage === undefined) return;
-    if (realCount === prevCountRef.current) return; // same packet, ignore
+    if (realCount === prevCountRef.current) return; // duplicate, skip
 
     prevCountRef.current = realCount;
 
-    if (!isLocked) {
-      clearInterval(mockTimerRef.current);
-      setIsMocking(false);
-      setIsLocked(true);
-      setDisplayV(realVoltage);
-    } else {
-      // Already locked: update display with new reading for stability
-      setDisplayV(realVoltage);
-    }
-  }, [realVoltage, realCount, active, isLocked]);
-
-  // Stability check on displayV
-  useEffect(() => {
-    if (!active || displayV === null) return;
-
-    const w = windowRef.current;
-    w.push(displayV);
-    if (w.length > STABLE_WINDOW) w.shift();
-
-    if (w.length >= STABLE_WINDOW) {
-      const max = Math.max(...w);
-      const min = Math.min(...w);
-      setStable(max - min < STABLE_THRESHOLD);
-    }
-  }, [active, displayV]);
+    // Stop mock, show real value, and mark stable immediately.
+    // The firmware has already done the averaging on-device; one reading is enough.
+    clearInterval(mockTimerRef.current);
+    setIsMocking(false);
+    setIsLocked(true);
+    setDisplayV(realVoltage);
+    setStable(true); // ← key fix: unlock capture button straight away
+  }, [realVoltage, realCount, active]);
 
   return { voltage: displayV, isMocking, isLocked, stable };
 }
@@ -309,13 +293,13 @@ function ReadingCard({
             { backgroundColor: point.color, transform: [{ scale: pulse }] },
           ]}
         />
-        <Text style={[s.liveText, { color: T.text }]}>
+        {/* <Text style={[s.liveText, { color: T.text }]}>
           {isMocking
             ? '🔄 Mock data — waiting for device…'
             : isLocked
             ? '🔗 Live BLE data'
             : 'Receiving…'}
-        </Text>
+        </Text> */}
         {isMocking && (
           <View
             style={[
@@ -324,7 +308,7 @@ function ReadingCard({
             ]}
           >
             <Text style={{ fontSize: 9, fontWeight: '800', color: '#F59E0B' }}>
-              MOCK
+              Reading...
             </Text>
           </View>
         )}
@@ -380,7 +364,7 @@ function ReadingCard({
           ]}
         />
       </View>
-      <Text style={[s.stabilityLabel, { color: stable ? T.primary : T.muted }]}>
+      {/* <Text style={[s.stabilityLabel, { color: stable ? T.primary : T.muted }]}>
         {voltage === null
           ? '⏳ Waiting for device data…'
           : stable
@@ -388,7 +372,7 @@ function ReadingCard({
           : isMocking
           ? '⏳ Mock signal stabilising… (waiting for real device)'
           : '⏳ Stabilising real signal…'}
-      </Text>
+      </Text> */}
 
       {/* Actions */}
       <View style={s.actionRow}>
@@ -582,14 +566,20 @@ export default function PHCalibrationScreen({ navigation, route }) {
     setPhase('reading');
   }, [dispatch, point.standardPH, connected]);
 
-  const handleCapture = useCallback(() => {
-    if (!stable) {
-      Alert.alert(
-        'Not Stable',
-        'Wait for the reading to stabilise before capturing.',
-      );
-      return;
+  // ── Auto-capture the moment the real value locks in ─────────────────
+  // No need for the user to press anything — firmware confirmed the point.
+  useEffect(() => {
+    if (isLocked && phase === 'reading' && voltage !== null) {
+      dispatch(savePhPoint(point.standardPH, voltage));
+      setCaptured(prev => ({
+        ...prev,
+        [point.id]: { voltage, standardPH: point.standardPH },
+      }));
+      setPhase('done');
     }
+  }, [isLocked]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCapture = useCallback(() => {
     if (voltage === null) {
       Alert.alert(
         'No Data',
@@ -603,7 +593,7 @@ export default function PHCalibrationScreen({ navigation, route }) {
       [point.id]: { voltage, standardPH: point.standardPH },
     }));
     setPhase('done');
-  }, [stable, voltage, point, dispatch]);
+  }, [voltage, point, dispatch]);
 
   const handleSkip = useCallback(() => {
     dispatch(savePhPoint(point.standardPH, null));

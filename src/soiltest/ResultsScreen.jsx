@@ -427,7 +427,8 @@ export default function ResultsScreen({ navigation, route }) {
       dispatch({ type: TEST_SAVED });
     }
   }, [results, dispatch]);
-  useEffect(async () => {
+useEffect(() => {
+  const fetchRecs = async () => {
     if (currentId && recsStatus === 'idle') {
       const getsoilRec = await dispatch(
         getSoilRecommendations(deviceId, currentId),
@@ -435,13 +436,17 @@ export default function ResultsScreen({ navigation, route }) {
       const getsoilAiRec = await dispatch(
         getSoilAIRecommendations(deviceId, currentId),
       );
+
       console.log(getsoilRec, 'soil rec check', getsoilAiRec);
     }
-  }, [currentId]);
+  };
+
+  fetchRecs();
+}, [currentId, recsStatus, deviceId, dispatch]);
   // Submit to server then fetch recs
   const runAPIFlow = useCallback(() => {
-    if (submittedRef.current || !results) return;
-    submittedRef.current = true;
+    // if (submittedRef.current || !results) return;
+    // submittedRef.current = true;
 
     const payload = buildSoilPayload(results, {
       areaName: route?.params?.areaName ?? 'Field Test',

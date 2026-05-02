@@ -40,7 +40,7 @@ const init = {
 
   // Handshake state (ARKASHINE_DEVICE → ARKASHINE_TRUE)
   handshakeStatus: null, // null | 'pending' | 'success' | 'failed'
-  handshakeRaw: null,    // raw string received for ARKASHINE_TRUE
+  handshakeRaw: null, // raw string received for ARKASHINE_TRUE
 
   // Latest sensor data from device
   sensorData: {
@@ -140,7 +140,11 @@ export default function bleReducer(state = init, action) {
       return { ...state, handshakeStatus: 'pending', handshakeRaw: null };
 
     case BLE_HANDSHAKE_SUCCESS:
-      return { ...state, handshakeStatus: 'success', handshakeRaw: action.payload };
+      return {
+        ...state,
+        handshakeStatus: 'success',
+        handshakeRaw: action.payload,
+      };
 
     case BLE_HANDSHAKE_FAILED:
       return { ...state, handshakeStatus: 'failed' };

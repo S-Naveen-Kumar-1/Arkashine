@@ -1,6 +1,4 @@
 // src/screens/phtest/MixerScreen.jsx
-// Controls mixing motor via BLE. Motor timer lives in Redux.
-// After mixing: sends READ_SENSORS and navigates to PHECResultScreen.
 
 import React, { useEffect, useRef } from 'react';
 import {
@@ -25,7 +23,8 @@ import {
   testReset,
 } from '../redux/actions/testActions';
 import { requestReading } from '../redux/actions/testActions';
-import { MOTOR_DURATION } from '../redux/reducers/testReducer';
+import { cmdMotorStart, cmdMotorStop } from '../redux/actions/bleActions';
+import { MOTOR_DURATION } from '../redux/reducers/phTestReducer';
 
 export default function MixerScreen({ navigation }) {
   const dispatch = useDispatch();
@@ -226,7 +225,12 @@ export default function MixerScreen({ navigation }) {
                 backgroundColor: connected ? T.primary : T.border,
               },
             ]}
-            onPress={() => dispatch(startMotor())}
+            onPress={async () => {
+              // Send {"TEST":"START"} to firmware (motor + measure sequence)
+              await dispatch(cmdMotorStart());
+              // Start local UI countdown timer for visual feedback
+              dispatch(startMotor());
+            }}
             disabled={!connected}
             activeOpacity={0.85}
           >
@@ -252,7 +256,11 @@ export default function MixerScreen({ navigation }) {
             </View>
             <TouchableOpacity
               style={[s.stopBtn, { borderColor: '#ef4444' }]}
-              onPress={() => dispatch(stopMotorEarly())}
+              onPress={async () => {
+                // Tell firmware to stop (best-effort) then update UI
+                await dispatch(cmdMotorStop());
+                dispatch(stopMotorEarly());
+              }}
             >
               <Icon name="stop" size={16} color="#ef4444" />
               <Text style={[s.stopBtnText, { color: '#ef4444' }]}>Stop</Text>

@@ -1,4 +1,4 @@
-// src/redux/reducers/testReducer.js
+// src/redux/reducers/phTestReducer.js
 import {
   TEST_RESET,
   TEST_POUR_DETECTED,

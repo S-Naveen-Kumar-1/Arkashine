@@ -210,6 +210,8 @@ function parsePayload(bytes, dispatch) {
   }
 
   // ── Calibration complete ───────────────────────────────────
+  // Firmware: {"CALIBERATE":"PH","STATUS":"DONE","value":"4.50"}
+  //           {"CALIBERATE":"EC","STATUS":"DONE","value":"500.00"}
   if (parsed.CALIBERATE && parsed.STATUS === 'DONE') {
     dispatch(
       ac.log(
@@ -217,6 +219,14 @@ function parsePayload(bytes, dispatch) {
         `${parsed.CALIBERATE} calibration DONE — value=${parsed.value}`,
       ),
     );
+    // Dispatch a dedicated action so calibration screens can react
+    dispatch({
+      type: 'CAL_POINT_DONE',
+      payload: {
+        type: parsed.CALIBERATE, // 'PH' | 'EC'
+        value: parseFloat(parsed.value), // confirmed value from device
+      },
+    });
     return null; // not sensor data
   }
 
@@ -252,7 +262,7 @@ function parsePayload(bytes, dispatch) {
     dispatch(
       ac.log(
         'DATA',
-        `Reading #${_dataCount} → pH=${reading.ph} TDS=${reading.ec} Temp=${reading.temperature}°C`,
+        `Reading #${_dataCount} → pH=${reading.ph} TDS/EC=${reading.ec} pHV=${reading.voltage} ECV=${reading.ecVoltage} Temp=${reading.temperature}°C fallback=${reading.temperatureFallback}`,
       ),
     );
     return reading;

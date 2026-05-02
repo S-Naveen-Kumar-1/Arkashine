@@ -67,10 +67,10 @@ export function DashboardScreen({ navigation }) {
     return mapProductsWithDevices(PRODUCTS, devices);
   }, [devices]);
 
-  console.log(updatedProducts, 'updated products in dashboard');  
+  console.log(updatedProducts, 'updated products in dashboard');
   const quickAccessProducts = useMemo(() => {
     return updatedProducts.slice(0, 4);
-  }, [updatedProducts])
+  }, [updatedProducts]);
   const handleScroll = event => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const currentSlide = Math.round(
@@ -130,7 +130,7 @@ export function DashboardScreen({ navigation }) {
             type: 'SET_SELECTED_PRODUCT',
             payload: item,
           });
-          navigation.navigate(item.route, { item });
+          navigation.navigate('SoilResultsScreen');
         }
       }}
       disabled={!item.active}

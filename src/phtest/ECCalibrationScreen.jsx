@@ -63,26 +63,28 @@ const EC_POINTS = [
   },
 ];
 
-// ─── Mock + lock voltage hook ─────────────────────────────────────────────────
-const STABLE_WINDOW = 8;
-const STABLE_THRESHOLD = 0.003;
+// ─── Mock + lock voltage hook ──────────────────────────────────────────────────
+// Phase 1 (isMocking=true):  fake oscillation while waiting for device reply.
+// Phase 2 (isLocked=true):   firmware returned ECVoltage → lock it, stable=true,
+//                            auto-capture triggers immediately in the parent.
 
 function useMockLockVoltage(active, mockBase) {
-  const realVoltage = useSelector(s => s.ble.sensorData.voltage);
+  // EC calibration tracks ECVoltage, not pHVoltage
+  const realVoltage = useSelector(s => s.ble.sensorData.ecVoltage);
   const realCount = useSelector(s => s.ble.sensorData.receivedCount);
 
   const [displayV, setDisplayV] = useState(null);
   const [isMocking, setIsMocking] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   const [stable, setStable] = useState(false);
-  const windowRef = useRef([]);
+
   const mockTimer = useRef(null);
   const prevCount = useRef(realCount);
 
+  // ── Reset / start mock ────────────────────────────────────────────
   useEffect(() => {
     if (!active) {
       clearInterval(mockTimer.current);
-      windowRef.current = [];
       setDisplayV(null);
       setIsMocking(true);
       setIsLocked(false);
@@ -91,10 +93,10 @@ function useMockLockVoltage(active, mockBase) {
       return;
     }
 
-    // Start mock oscillation
     setIsMocking(true);
     setIsLocked(false);
     setStable(false);
+
     let tick = 0;
     mockTimer.current = setInterval(() => {
       tick++;
@@ -104,32 +106,20 @@ function useMockLockVoltage(active, mockBase) {
     }, 300);
 
     return () => clearInterval(mockTimer.current);
-  }, [active]);
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Lock on real BLE data
+  // ── Real BLE ECVoltage arrived → lock immediately ─────────────────
   useEffect(() => {
     if (!active || realVoltage === null || realVoltage === undefined) return;
     if (realCount === prevCount.current) return;
     prevCount.current = realCount;
 
-    if (!isLocked) {
-      clearInterval(mockTimer.current);
-      setIsMocking(false);
-      setIsLocked(true);
-    }
+    clearInterval(mockTimer.current);
+    setIsMocking(false);
+    setIsLocked(true);
     setDisplayV(realVoltage);
-  }, [realVoltage, realCount, active, isLocked]);
-
-  // Stability check
-  useEffect(() => {
-    if (!active || displayV === null) return;
-    const w = windowRef.current;
-    w.push(displayV);
-    if (w.length > STABLE_WINDOW) w.shift();
-    if (w.length >= STABLE_WINDOW) {
-      setStable(Math.max(...w) - Math.min(...w) < STABLE_THRESHOLD);
-    }
-  }, [active, displayV]);
+    setStable(true); // ← firmware confirmed; no window needed
+  }, [realVoltage, realCount, active]);
 
   return { voltage: displayV, isMocking, isLocked, stable };
 }
@@ -231,7 +221,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
       return;
     }
     setSending(true);
-    await dispatch(cmdCalibrateEcPoint(String(point.standardEC)));
+    await dispatch(cmdCalibrateEcPoint(point.standardEC));
     setSending(false);
     setPhase('reading');
   }, [dispatch, point.standardEC, connected]);
@@ -478,13 +468,13 @@ export default function ECCalibrationScreen({ navigation, route }) {
                   },
                 ]}
               />
-              <Text style={[s.liveText, { color: T.text }]}>
+              {/* <Text style={[s.liveText, { color: T.text }]}>
                 {isMocking
                   ? '🔄 Mock data — waiting for device…'
                   : isLocked
                   ? '🔗 Live BLE data'
                   : 'Receiving…'}
-              </Text>
+              </Text> */}
               {isMocking && (
                 <View
                   style={[
@@ -495,7 +485,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
                   <Text
                     style={{ fontSize: 9, fontWeight: '800', color: '#F59E0B' }}
                   >
-                    MOCK
+                    Reading...
                   </Text>
                 </View>
               )}
@@ -553,7 +543,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
                 ]}
               />
             </View>
-            <Text
+            {/* <Text
               style={[
                 s.stabilityLabel,
                 { color: stable ? T.primary : T.muted },
@@ -566,7 +556,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
                 : isMocking
                 ? '⏳ Mock signal stabilising… (waiting for real device)'
                 : '⏳ Stabilising real signal…'}
-            </Text>
+            </Text> */}
 
             {/* Actions */}
             <View style={s.actionRow}>
