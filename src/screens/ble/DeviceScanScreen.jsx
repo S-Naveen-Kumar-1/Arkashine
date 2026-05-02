@@ -24,6 +24,7 @@ import {
   stopScan,
   connectDevice,
   disconnectDevice,
+  cmdReadSensors,
 } from '../../redux/actions/bleActions';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -79,6 +80,15 @@ export default function BLEScanScreen({ route, navigation }) {
     [connected, connectedDevice, dispatch],
   );
 
+  const handleProceed = useCallback(async () => {
+    await dispatch(cmdReadSensors()); // sends {"TEST":"START"}
+    if (item?.name === 'Ph Bottle') {
+      navigation.navigate('CalibrationGateScreen');
+    } else if (item?.name === 'SOILENZ') {
+      navigation.navigate('IntroScreen');
+    }
+  }, [dispatch, item, navigation]);
+
   const btOff =
     bleAdapterState !== 'PoweredOn' && bleAdapterState !== 'Unknown';
 
@@ -116,13 +126,7 @@ export default function BLEScanScreen({ route, navigation }) {
             handshakeRaw={handshakeRaw}
             T={T}
             onDisconnect={() => dispatch(disconnectDevice())}
-            onProceed={() => {
-              if (item?.name === 'Ph Bottle') {
-                navigation.navigate('CalibrationGateScreen');
-              } else if (item?.name === 'SOILENZ') {
-                navigation.navigate('IntroScreen');
-              }
-            }}
+            onProceed={handleProceed}
           />
         )}
 
@@ -195,7 +199,6 @@ export default function BLEScanScreen({ route, navigation }) {
               <DeviceRow
                 device={item}
                 isConnected={connected && connectedDevice?.id === item.id}
-                // Only show loader for the specific device being connected
                 isConnecting={connectingDeviceId === item.id}
                 T={T}
                 onPress={() => handleConnect(item)}
@@ -259,14 +262,12 @@ function ConnectedBanner({
         <Text style={[cb.name, { color: T.primary, flex: 1 }]}>
           {device.name || 'Device'}
         </Text>
-        {
-          <TouchableOpacity
-            style={[cb.proceedBtn, { backgroundColor: T.primary }]}
-            onPress={onProceed}
-          >
-            <Text style={cb.proceedText}>Begin Test →</Text>
-          </TouchableOpacity>
-        }
+        <TouchableOpacity
+          style={[cb.proceedBtn, { backgroundColor: T.primary }]}
+          onPress={onProceed}
+        >
+          <Text style={cb.proceedText}>Begin Test →</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={onDisconnect} style={{ padding: 4 }}>
           <Icon name="close" size={18} color={T.muted} />
         </TouchableOpacity>
@@ -384,7 +385,6 @@ function DeviceRow({ device, isConnected, isConnecting, T, onPress }) {
         onPress={onPress}
         activeOpacity={0.8}
       >
-        {/* Show spinner ONLY for this specific device while connecting */}
         {isConnecting ? (
           <ActivityIndicator size="small" color={T.primary} />
         ) : (

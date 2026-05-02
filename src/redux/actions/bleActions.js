@@ -2,13 +2,20 @@
 //
 // Single source of truth for ALL BLE operations.
 // BleManager lives here as a module-level singleton.
-// UUIDs are NEVER hardcoded — resolved by scanning the connected device at
-// runtime (same auto-detect strategy as BLEContext).
 //
 // Firmware: ESP32_S3_BLE
-//   • One characteristic: PROPERTY_WRITE | PROPERTY_NOTIFY (same UUID)
-//   • Responds to every write with  "ACK: <value>"
-//   • Handshake: app sends "ARKASHINE_DEVICE" → firmware replies "ACK: ARKASHINE_DEVICE"
+//   • Commands are JSON objects  e.g. {"TEST":"START"}
+//   • Calibration:  {"CALIBERATE":"PH","value":4.50}
+//                   {"CALIBERATE":"EC","value":500}
+//   • Responses are JSON objects (see firmware docs)
+//
+// UUIDs are hardcoded to match firmware (Config namespace in firmware source):
+//   kServiceUuid  = "12345678-1234-1234-1234-1234567890ab"
+//   kDataUuid     = "abcd1234-5678-1234-5678-1234567890ab"
+
+// ─── Firmware UUIDs ───────────────────────────────────────────────────────────
+const FIRMWARE_SERVICE_UUID = '12345678-1234-1234-1234-1234567890ab';
+const FIRMWARE_DATA_UUID = 'abcd1234-5678-1234-5678-1234567890ab';
 
 import { BleManager } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
@@ -34,6 +41,7 @@ import {
   BLE_HANDSHAKE_FAILED,
 } from '../../config/actionTypes';
 import { requestBLEPermissions } from '../../utils/permissions';
+
 // ─── Singleton BleManager ─────────────────────────────────────────────────────
 export const bleManager = new BleManager();
 
@@ -51,7 +59,6 @@ export const ac = {
   scanStart: () => ({ type: BLE_SCAN_START }),
   scanStop: () => ({ type: BLE_SCAN_STOP }),
   deviceFound: d => ({ type: BLE_DEVICE_FOUND, payload: d }),
-  // payload = device id so the reducer knows which row to spin
   connectRequest: id => ({ type: BLE_CONNECT_REQUEST, payload: id }),
   connectSuccess: d => ({ type: BLE_CONNECT_SUCCESS, payload: d }),
   connectFailed: e => ({ type: BLE_CONNECT_FAILED, payload: e }),
@@ -126,6 +133,7 @@ export const startScan = () => async dispatch => {
     dispatch(ac.log('SCAN', 'Auto-stopped after 15 s'));
   }, SCAN_TIMEOUT_MS);
 };
+
 export const stopScan = () => dispatch => {
   clearTimeout(_scanTimer);
   bleManager.stopDeviceScan();
@@ -133,165 +141,124 @@ export const stopScan = () => dispatch => {
   dispatch(ac.log('SCAN', 'Stopped'));
 };
 
-// ─── UUID auto-detection ──────────────────────────────────────────────────────
-// Mirrors the AUTO mode in BLEContext exactly:
-//   • Iterate every service → every characteristic.
-//   • Pick the first notifiable/indicatable char as notifyUUID.
-//   • Pick the first writable char as writeUUID.
-//   • On ESP32_S3_BLE the same characteristic carries WRITE + NOTIFY so
-//     notifyUUID === writeUUID.
+// ─── UUID resolution — hardcoded to firmware constants ────────────────────────
+// The ESP32 firmware exposes one custom service + one characteristic
+// (WRITE | NOTIFY on the same UUID). We hardcode these instead of
+// auto-detecting, which previously grabbed generic BLE system UUIDs
+// (0x1801 / 0x2a05) instead of the ArkaShine custom service.
 async function resolveUUIDs(conn, dispatch) {
-  dispatch(ac.log('UUID', 'Auto-detecting UUIDs…'));
-  const services = await conn.services();
+  dispatch(ac.log('UUID', 'Using hardcoded firmware UUIDs…'));
+  dispatch(ac.log('UUID', `  Service : ${FIRMWARE_SERVICE_UUID}`));
+  dispatch(ac.log('UUID', `  Char    : ${FIRMWARE_DATA_UUID}`));
 
-  for (const svc of services) {
-    dispatch(ac.log('UUID', `  Service: ${svc.uuid}`));
-    const chars = await svc.characteristics();
-    let notifyUUID = null;
-    let writeUUID = null;
-
-    for (const c of chars) {
-      const flags = [
-        c.isNotifiable && 'NOTIFY',
-        c.isIndicatable && 'INDICATE',
-        c.isWritableWithResponse && 'WRITE',
-        c.isWritableWithoutResponse && 'WRITE_NR',
-        c.isReadable && 'READ',
-      ]
-        .filter(Boolean)
-        .join('|');
-
-      dispatch(ac.log('UUID', `    Char: ${c.uuid}  [${flags}]`));
-
-      if (!notifyUUID && (c.isNotifiable || c.isIndicatable))
-        notifyUUID = c.uuid;
-      if (
-        !writeUUID &&
-        (c.isWritableWithResponse || c.isWritableWithoutResponse)
-      )
-        writeUUID = c.uuid;
+  // Optional: verify the service actually exists on this device
+  try {
+    const services = await conn.services();
+    const found = services.some(
+      s => s.uuid.toLowerCase() === FIRMWARE_SERVICE_UUID.toLowerCase(),
+    );
+    if (!found) {
+      dispatch(
+        ac.log(
+          'UUID',
+          `WARNING: service ${FIRMWARE_SERVICE_UUID} not advertised — ` +
+            `found: ${services.map(s => s.uuid).join(', ')}`,
+        ),
+      );
+      // Proceed anyway — some stacks report UUIDs in short/different form
     }
-
-    if (notifyUUID) {
-      const cfg = {
-        serviceUUID: svc.uuid,
-        notifyUUID,
-        writeUUID: writeUUID || notifyUUID,
-      };
-      dispatch(ac.log('UUID', `Resolved →`));
-      dispatch(ac.log('UUID', `  Service : ${cfg.serviceUUID}`));
-      dispatch(ac.log('UUID', `  Notify  : ${cfg.notifyUUID}`));
-      dispatch(ac.log('UUID', `  Write   : ${cfg.writeUUID}`));
-      return cfg;
-    }
+  } catch (e) {
+    dispatch(ac.log('UUID', `Service check skipped: ${e.message}`));
   }
 
-  dispatch(ac.log('UUID', 'ERROR: no notifiable characteristic found'));
-  return null;
+  const cfg = {
+    serviceUUID: FIRMWARE_SERVICE_UUID,
+    notifyUUID: FIRMWARE_DATA_UUID,
+    writeUUID: FIRMWARE_DATA_UUID, // same char handles WRITE + NOTIFY
+  };
+
+  dispatch(ac.log('UUID', 'Resolved ✅'));
+  return cfg;
 }
 
 // ─── Data / notification parser ───────────────────────────────────────────────
-// Handles four kinds of incoming data from the firmware:
+// Handles incoming JSON from firmware:
 //
-//  1. "ARKASHINE_TRUE"           → handshake success (custom firmware)
-//  2. "ACK: ARKASHINE_DEVICE"    → handshake success (current ACK firmware)
-//  3. "ACK: <other>"             → command acknowledgement, not sensor data
-//  4. JSON  { ec, ph, voltage }  → sensor reading
-//  5. key=value CSV  ph=6.45,... → sensor reading
+//  {"STATUS":"BLE_CONNECTED"}
+//  {"pH":"7.12","TDS":"486.34","temperature":"25.00","temperatureFallback":false,
+//   "pHVoltage":"2.4935","ECVoltage":"0.9720"}
+//  {"CALIBERATE":"PH","STATUS":"DONE","value":"4.50"}
+//  {"CALIBERATE":"EC","STATUS":"DONE","value":"500.00"}
+//  {"ERROR":"NO_COMMAND_RECEIVED"}  (and other error variants)
 function parsePayload(bytes, dispatch) {
   const raw = bytes.toString('utf-8').trim();
   dispatch(ac.log('DATA', `RAW RECV: "${raw}"`));
 
-  // ── 1. Handshake success (custom firmware) ─────────────────
-  if (raw === 'ARKASHINE_TRUE') {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (_) {
+    dispatch(ac.log('DATA', `Non-JSON payload — ignoring: "${raw}"`));
+    return null;
+  }
+
+  // ── BLE connected status ───────────────────────────────────
+  if (parsed.STATUS === 'BLE_CONNECTED') {
+    dispatch(ac.log('STATUS', 'BLE_CONNECTED received'));
     dispatch(ac.handshakeSuccess(raw));
-    dispatch(ac.log('HANDSHAKE', 'ARKASHINE_TRUE ✅'));
+    return null;
+  }
+
+  // ── Calibration complete ───────────────────────────────────
+  if (parsed.CALIBERATE && parsed.STATUS === 'DONE') {
+    dispatch(
+      ac.log(
+        'CAL',
+        `${parsed.CALIBERATE} calibration DONE — value=${parsed.value}`,
+      ),
+    );
     return null; // not sensor data
   }
 
-  // ── 2. Handshake ACK (current ESP32 test firmware) ─────────
-  if (raw === 'ACK: ARKASHINE_DEVICE') {
-    dispatch(ac.handshakeSuccess(raw));
-    dispatch(ac.log('HANDSHAKE', `ACK confirmed ✅  raw="${raw}"`));
+  // ── Error responses ────────────────────────────────────────
+  if (parsed.ERROR) {
+    dispatch(ac.log('ERROR', `Device error: ${parsed.ERROR}`));
     return null;
   }
 
-  // ── 3. Generic ACK — command confirmed, no sensor payload ──
-  if (raw.startsWith('ACK:')) {
-    dispatch(ac.log('CMD', `ACK received: "${raw}"`));
-    return null;
-  }
-
-  // ── 4. JSON sensor data ────────────────────────────────────
-  _dataCount += 1;
-  const timestamp = Date.now();
-  const base = {
-    ec: null,
-    ph: null,
-    voltage: null,
-    status: null,
-    timer: null,
-    raw,
-    timestamp,
-    receivedCount: _dataCount,
-  };
-
-  try {
-    const j = JSON.parse(raw);
-    const p = {
-      ...base,
-      ec: j.ec ?? j.EC ?? null,
-      ph: j.ph ?? j.pH ?? null,
-      voltage: j.voltage ?? j.v ?? null,
-      status: j.status ?? null,
-      timer: j.timer ?? j.time ?? null,
+  // ── Sensor reading ─────────────────────────────────────────
+  // {"pH":"7.12","TDS":"486.34","temperature":"25.00",
+  //  "temperatureFallback":false,"pHVoltage":"2.4935","ECVoltage":"0.9720"}
+  if (parsed.pH !== undefined || parsed.TDS !== undefined) {
+    _dataCount += 1;
+    const reading = {
+      ec: parsed.TDS !== undefined ? parseFloat(parsed.TDS) : null,
+      ph: parsed.pH !== undefined ? parseFloat(parsed.pH) : null,
+      voltage:
+        parsed.pHVoltage !== undefined ? parseFloat(parsed.pHVoltage) : null,
+      ecVoltage:
+        parsed.ECVoltage !== undefined ? parseFloat(parsed.ECVoltage) : null,
+      temperature:
+        parsed.temperature !== undefined
+          ? parseFloat(parsed.temperature)
+          : null,
+      temperatureFallback: parsed.temperatureFallback ?? false,
+      status: null,
+      timer: null,
+      raw,
+      timestamp: Date.now(),
+      receivedCount: _dataCount,
     };
     dispatch(
       ac.log(
         'DATA',
-        `JSON #${_dataCount} → EC=${p.ec} pH=${p.ph} V=${p.voltage}`,
+        `Reading #${_dataCount} → pH=${reading.ph} TDS=${reading.ec} Temp=${reading.temperature}°C`,
       ),
     );
-    return p;
-  } catch (_) {}
-
-  // ── 5. key=value CSV ───────────────────────────────────────
-  const r = { ...base };
-  for (const pair of raw.split(',')) {
-    const [k, v] = pair.split('=');
-    if (!k || v === undefined) continue;
-    switch (k.trim().toLowerCase()) {
-      case 'ec':
-      case 'ec_dsm':
-        r.ec = parseFloat(v);
-        break;
-      case 'ph':
-        r.ph = parseFloat(v);
-        break;
-      case 'voltage':
-      case 'v':
-        r.voltage = parseFloat(v);
-        break;
-      case 'status':
-        r.status = v.trim();
-        break;
-      case 'timer':
-      case 'time':
-        r.timer = parseInt(v, 10);
-        break;
-    }
-  }
-  if (r.ec !== null || r.ph !== null || r.voltage !== null) {
-    dispatch(
-      ac.log(
-        'DATA',
-        `KV #${_dataCount} → EC=${r.ec} pH=${r.ph} V=${r.voltage}`,
-      ),
-    );
-    return r;
+    return reading;
   }
 
-  dispatch(ac.log('DATA', `Unknown format — ignoring: "${raw}"`));
+  dispatch(ac.log('DATA', `Unhandled JSON — ignoring: "${raw}"`));
   return null;
 }
 
@@ -314,7 +281,6 @@ function startNotifications(device, cfg, dispatch) {
       try {
         const bytes = Buffer.from(char.value, 'base64');
         const parsed = parsePayload(bytes, dispatch);
-        // Only push sensor data to Redux; handshake / ACK are handled inside parsePayload
         if (parsed) dispatch(ac.dataReceived(parsed));
       } catch (e) {
         dispatch(ac.log('NOTIFY', `Parse error: ${e.message}`));
@@ -326,7 +292,7 @@ function startNotifications(device, cfg, dispatch) {
 
 // ─── Connect ──────────────────────────────────────────────────────────────────
 export const connectDevice = rawDevice => async dispatch => {
-  dispatch(ac.connectRequest(rawDevice.id)); // tells reducer which device is connecting
+  dispatch(ac.connectRequest(rawDevice.id));
   dispatch(ac.log('CONNECT', `→ ${rawDevice.name || rawDevice.id}`));
 
   clearTimeout(_scanTimer);
@@ -363,13 +329,12 @@ export const connectDevice = rawDevice => async dispatch => {
       ac.connectSuccess({ id: conn.id, name: conn.name || rawDevice.name }),
     );
 
-    // Subscribe BEFORE sending handshake so we catch the ACK
+    // Subscribe BEFORE sending handshake so we catch {"STATUS":"BLE_CONNECTED"}
     startNotifications(conn, cfg, dispatch);
 
-    // Handshake — firmware replies "ACK: ARKASHINE_DEVICE"
+    // Firmware will reply with {"STATUS":"BLE_CONNECTED"} on connection
     dispatch(ac.handshakeStart());
-    dispatch(ac.log('HANDSHAKE', 'Sending ARKASHINE_DEVICE…'));
-    await _sendCmd('ARKASHINE_DEVICE', '', dispatch);
+    dispatch(ac.log('HANDSHAKE', 'Waiting for BLE_CONNECTED status…'));
 
     // Auto-reconnect on drop
     conn.onDisconnected(() => {
@@ -398,7 +363,6 @@ export const connectDevice = rawDevice => async dispatch => {
           dispatch(ac.connectSuccess({ id: r.id, name: r.name }));
           startNotifications(r, newCfg, dispatch);
           dispatch(ac.handshakeStart());
-          await _sendCmd('ARKASHINE_DEVICE', '', dispatch);
           dispatch(ac.log('RECONNECT', 'Success ✅'));
         } catch (e) {
           dispatch(ac.log('RECONNECT', `Failed: ${e.message}`));
@@ -425,18 +389,20 @@ export const disconnectDevice = () => dispatch => {
   dispatch(ac.disconnect());
 };
 
-// ─── Internal write helper ────────────────────────────────────────────────────
-// Tries WRITE_WITH_RESPONSE first (matches ESP32 PROPERTY_WRITE), then without.
+// ─── Internal write helpers ───────────────────────────────────────────────────
+
+/**
+ * _sendCmd — legacy plain-string protocol (kept for handshake compatibility).
+ * Builds "COMMAND:params" or just "COMMAND", encodes as base64, writes to BLE.
+ */
 async function _sendCmd(command, params, dispatch) {
   if (!_device || !_config) {
     dispatch(ac.log('CMD', 'Not connected'));
     return false;
   }
-  // console.log(`_sendCmd: ${command}  params: ${params}`);
   const cmdStr = params ? `${command}:${params}` : command;
   const b64 = Buffer.from(cmdStr, 'utf-8').toString('base64');
   dispatch(ac.log('CMD', `→ "${cmdStr}"`));
-  console.log(`_sendCmd: cmdStr="${cmdStr}",b64="${b64}"`);
 
   try {
     await _device.writeCharacteristicWithResponseForService(
@@ -468,60 +434,127 @@ async function _sendCmd(command, params, dispatch) {
   }
 }
 
+/**
+ * _sendJSON — new firmware JSON protocol.
+ * Serialises an object to JSON, encodes as base64, writes to BLE.
+ * e.g. _sendJSON({ TEST: 'START' }, dispatch)
+ *      _sendJSON({ CALIBERATE: 'PH', value: 4 }, dispatch)
+ */
+async function _sendJSON(payload, dispatch) {
+  if (!_device || !_config) {
+    dispatch(ac.log('CMD', 'Not connected'));
+    return false;
+  }
+  const jsonStr = JSON.stringify(payload);
+  const b64 = Buffer.from(jsonStr, 'utf-8').toString('base64');
+  dispatch(ac.log('CMD', `→ JSON: ${jsonStr}`));
+
+  try {
+    await _device.writeCharacteristicWithResponseForService(
+      _config.serviceUUID,
+      _config.writeUUID,
+      b64,
+    );
+    dispatch(ac.log('CMD', `✅ sent (with-response)`));
+    dispatch(ac.cmdSent(jsonStr));
+    return true;
+  } catch (e1) {
+    dispatch(ac.log('CMD', `write-with-response failed: ${e1.message}`));
+  }
+
+  try {
+    await _device.writeCharacteristicWithoutResponseForService(
+      _config.serviceUUID,
+      _config.writeUUID,
+      b64,
+    );
+    dispatch(ac.log('CMD', `✅ sent (without-response)`));
+    dispatch(ac.cmdSent(jsonStr));
+    return true;
+  } catch (e2) {
+    const msg = `Both write methods failed: ${e2.message}`;
+    dispatch(ac.log('CMD', `❌ ${msg}`));
+    dispatch(ac.cmdFailed(msg));
+    return false;
+  }
+}
+
 // ─── Public command thunks ────────────────────────────────────────────────────
 
-/** Retrigger handshake manually */
+/** Retrigger handshake manually (no-op for new firmware — connection triggers it automatically) */
 export const cmdHandshake = () => async dispatch => {
   dispatch(ac.handshakeStart());
-  dispatch(ac.log('HANDSHAKE', 'Sending ARKASHINE_DEVICE…'));
-  await _sendCmd('ARKASHINE_DEVICE', '', dispatch);
+  dispatch(
+    ac.log('HANDSHAKE', 'Manual handshake — waiting for BLE_CONNECTED…'),
+  );
 };
 
 // ── pH / EC test ──────────────────────────────────────────────────────────────
 
-/** Request a single pH + EC + voltage reading */
+/**
+ * Start a full soil test.
+ * Device starts the mixing motor for 60 s (LED blue),
+ * then reads pH / TDS / temperature (LED yellow)
+ * and replies with a sensor-reading JSON.
+ *
+ * Sends: {"TEST":"START"}
+ */
 export const cmdReadSensors = () => dispatch =>
-  _sendCmd('READ_SENSORS', '', dispatch);
+  _sendJSON({ TEST: 'START' }, dispatch);
 
-/** Start continuous data stream */
+/** Start continuous data stream (plain-string, kept for compatibility) */
 export const cmdStartStream = () => dispatch =>
   _sendCmd('STREAM_START', '', dispatch);
 
-/** Stop continuous stream */
+/** Stop continuous stream (plain-string, kept for compatibility) */
 export const cmdStopStream = () => dispatch =>
   _sendCmd('STREAM_STOP', '', dispatch);
 
 // ── Soil test — motor control ─────────────────────────────────────────────────
 
-/** Run mixing motor for N seconds (default 60) */
-export const cmdMotorStart =
-  (seconds = 60) =>
-  dispatch =>
-    _sendCmd('MOTOR_ON', String(seconds), dispatch);
+/**
+ * Start soil test (motor + read sequence).
+ * Sends: {"TEST":"START"}
+ * The motor duration is controlled by the firmware (60 s).
+ */
+export const cmdMotorStart = () => dispatch =>
+  _sendJSON({ TEST: 'START' }, dispatch);
 
-/** Stop motor immediately */
+/** Stop motor immediately (plain-string fallback) */
 export const cmdMotorStop = () => dispatch =>
   _sendCmd('MOTOR_OFF', '', dispatch);
 
 // ── Calibration ───────────────────────────────────────────────────────────────
 
-/** pH calibration point — standardPH: 4 | 7 | 9 */
+/**
+ * pH calibration point.
+ * standardPH: 4 | 7 | 9  (number)
+ *
+ * Sends: {"CALIBERATE":"PH","value":4}
+ * Device replies: {"CALIBERATE":"PH","STATUS":"DONE","value":"4.00"}
+ */
 export const cmdCalibratePhPoint = standardPH => dispatch =>
-  _sendCmd('CAL_PH', String(standardPH), dispatch);
+  _sendJSON({ CALIBERATE: 'PH', value: Number(standardPH) }, dispatch);
 
-/** EC calibration point — standardEC: 0.0 | 1.413 | 12.88 */
+/**
+ * EC calibration point.
+ * standardEC: 0 | 500 | ... (number — use raw µS/cm or dS/m per your solution label)
+ *
+ * Sends: {"CALIBERATE":"EC","value":500}
+ * Device replies: {"CALIBERATE":"EC","STATUS":"DONE","value":"500.00"}
+ */
 export const cmdCalibrateEcPoint = standardEC => dispatch =>
-  _sendCmd('CAL_EC', String(standardEC), dispatch);
+  _sendJSON({ CALIBERATE: 'EC', value: Number(standardEC) }, dispatch);
 
-/** Save calibration to device flash */
+/** Save calibration to device flash (plain-string, kept for compatibility) */
 export const cmdSaveCalibration = () => dispatch =>
   _sendCmd('CAL_SAVE', '', dispatch);
 
-/** Wipe calibration from device flash */
+/** Wipe calibration from device flash (plain-string, kept for compatibility) */
 export const cmdResetCalibration = () => dispatch =>
   _sendCmd('CAL_RESET', '', dispatch);
 
-/** Retrieve stored calibration from device */
+/** Retrieve stored calibration from device (plain-string, kept for compatibility) */
 export const cmdGetCalibration = () => dispatch =>
   _sendCmd('CAL_GET', '', dispatch);
 
