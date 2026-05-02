@@ -33,6 +33,7 @@ export function DashboardScreen({ navigation }) {
   const scrollViewRef = useRef(null);
   const sliderRef = useRef(null);
   const devices = useSelector(s => s.userDevices?.devices);
+  console.log(devices, 'check devices in dashboard');
   console.log('Devices from Redux:/', devices);
   useEffect(() => {
     const fetchDevices = async () => {
@@ -66,9 +67,10 @@ export function DashboardScreen({ navigation }) {
     return mapProductsWithDevices(PRODUCTS, devices);
   }, [devices]);
 
+  console.log(updatedProducts, 'updated products in dashboard');  
   const quickAccessProducts = useMemo(() => {
     return updatedProducts.slice(0, 4);
-  }, [updatedProducts]);
+  }, [updatedProducts])
   const handleScroll = event => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const currentSlide = Math.round(
@@ -124,6 +126,10 @@ export function DashboardScreen({ navigation }) {
       activeOpacity={0.8}
       onPress={() => {
         if (item.route && item.active) {
+          dispatch({
+            type: 'SET_SELECTED_PRODUCT',
+            payload: item,
+          });
           navigation.navigate(item.route, { item });
         }
       }}

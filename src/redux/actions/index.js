@@ -89,10 +89,6 @@ export function getUserDevices(token) {
       request: {
         url: '/api/mobile/devices/',
         method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
       },
     },
   };

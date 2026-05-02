@@ -74,7 +74,7 @@ export function SensorScreen({ navigation }) {
   useEffect(() => {
     if (sensorDone && !navigatedRef.current) {
       navigatedRef.current = true;
-      navigation.replace('ResultsScreen');
+      navigation.replace('SoilResultsScreen');
     }
   }, [sensorDone, navigation]);
 

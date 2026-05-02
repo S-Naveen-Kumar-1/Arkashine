@@ -41,7 +41,7 @@ export const PRODUCTS = [
     tag: 'Smart Device',
     active: true,
     isMain: true,
-    route: 'BLEScanScreen',
+    route: 'SoilResultsScreen',
     stats: { tests: 213, lastUsed: 'Today' },
   },
   {
@@ -166,38 +166,41 @@ export const QUICK_STATS = [
 ];
 
 export const mapProductsWithDevices = (products, deviceResponse) => {
-  // handle full API response OR direct array
   const devices = deviceResponse?.results || deviceResponse || [];
 
+  const normalize = str => str?.toLowerCase()?.replace(/\s+/g, '')?.trim();
+
   if (!devices || devices.length === 0) {
-    return products.map(p => ({
-      ...p,
+    return products.map(product => ({
+      ...product,
       active: false,
       locked: true,
+      device: null,
+      deviceId: null,
     }));
   }
 
-  // normalize device types
-  const deviceTypes = devices
-    .map(d => d.type_name?.toLowerCase()?.trim())
-    .filter(Boolean);
-
   return products.map(product => {
-    const isUnlocked = deviceTypes.includes(
-      product.shortName.toLowerCase().trim(),
+    const productKey = normalize(product.shortName);
+
+    const matchedDevice = devices.find(
+      d => normalize(d.type_name) === productKey,
     );
 
+    const isUnlocked = !!matchedDevice;
+
     return {
-      ...product,
+      ...product, // ✅ keep ALL existing product fields unchanged
+
       active: isUnlocked,
       locked: !isUnlocked,
 
-      // 🔥 optional: attach device info
-      device: isUnlocked
-        ? devices.find(
-            d => d.type_name?.toLowerCase() === product.shortName.toLowerCase(),
-          )
-        : null,
+      // ✅ simple access helpers
+      deviceId: matchedDevice?.id ?? null,
+      deviceType: matchedDevice?.devise_type ?? null,
+
+      // 🔥 EXACT backend object (unchanged)
+      device: matchedDevice ? { ...matchedDevice } : null,
     };
   });
 };

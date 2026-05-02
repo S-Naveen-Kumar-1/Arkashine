@@ -108,6 +108,10 @@ export function ProductsListingScreen({ navigation }) {
       setTimeout(() => {
         setLoadingProductId(null);
         if (product.route) {
+          dispatch({
+            type: 'SET_SELECTED_PRODUCT',
+            payload: product,
+          });
           navigation.navigate(product.route, { item: product });
         }
       }, 800);
@@ -116,11 +120,10 @@ export function ProductsListingScreen({ navigation }) {
   );
 
   const handleSubscribe = useCallback(product => {
-      // if (product.route) {
-      //     navigation.navigate(product.route, { item: product });
-      //   }
+    if (product.route) {
+      navigation.navigate(product.route, { item: product });
+    }
     const { alreadySubscribed } = logSubscription(product);
-
 
     if (alreadySubscribed) {
       Alert.alert(

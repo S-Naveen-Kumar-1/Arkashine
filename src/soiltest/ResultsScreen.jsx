@@ -1,10 +1,6 @@
 // src/screens/soiltest/ResultsScreen.jsx
-//
-// Soil Test Results — reads from Redux test.results
-// Shows: pH, EC, voltage (real or mock), health score, recommendations,
-//        nutrient table, and a disclaimer if mock data was used.
 
-import React, { useRef } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,6 +8,7 @@ import {
   StatusBar,
   ScrollView,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -20,8 +17,14 @@ import { AppButton, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Typography, Radius } from '../theme';
 import { TEST_SAVED } from '../config/actionTypes';
+import {
+  createSoilReading,
+  getSoilRecommendations,
+  getSoilAIRecommendations,
+  buildSoilPayload,
+} from '../redux/actions/soilsaathiActions';
 
-// ─── Nutrient status engine ───────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function getStatus(key, val) {
   if (val === null || val === undefined)
     return { label: 'N/A', color: '#475569', level: 'na' };
@@ -63,8 +66,7 @@ function getStatus(key, val) {
   return { label: 'N/A', color: '#475569', level: 'na' };
 }
 
-// ─── Soil recommendations engine ─────────────────────────────────────────────
-function getRecommendations(ph, ec) {
+function getLocalRecs(ph, ec) {
   const recs = [];
   if (ph !== null) {
     if (ph < 5.5)
@@ -122,7 +124,7 @@ function getRecommendations(ph, ec) {
       recs.push({
         icon: 'water-pump',
         color: '#EF4444',
-        title: 'Leach Excess Salts Urgently',
+        title: 'Leach Excess Salts',
         desc: 'Irrigate 2× normal volume to flush salts below root zone. Halt fertiliser.',
       });
     else if (ec > 1.6)
@@ -140,14 +142,6 @@ function getRecommendations(ph, ec) {
         desc: 'Maintain current fertiliser regime. Continue regular monitoring.',
       });
   }
-  if (ph !== null && ec !== null && ph < 6.0 && ec < 0.5) {
-    recs.push({
-      icon: 'test-tube',
-      color: '#8B5CF6',
-      title: 'Combined Amendment Strategy',
-      desc: 'Apply lime + NPK together for faster soil recovery. Re-test in 4 weeks.',
-    });
-  }
   recs.push({
     icon: 'calendar-check',
     color: '#94A3B8',
@@ -157,7 +151,6 @@ function getRecommendations(ph, ec) {
   return recs;
 }
 
-// ─── Nutrient definitions ─────────────────────────────────────────────────────
 const NUTRIENTS = [
   {
     key: 'ph',
@@ -231,7 +224,7 @@ const NUTRIENTS = [
   },
 ];
 
-// ─── pH Scale Bar ─────────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 function PHScaleBar({ ph, T }) {
   const pct = ph !== null ? Math.min(100, Math.max(0, (ph / 14) * 100)) : null;
   const segs = [
@@ -253,8 +246,8 @@ function PHScaleBar({ ph, T }) {
         ))}
         {pct !== null && (
           <View style={[ps.needle, { left: `${pct}%` }]}>
-            <View style={[ps.needleLine, { backgroundColor: '#fff' }]} />
-            <Text style={ps.needleLabel}>{ph?.toFixed(1)}</Text>
+            <View style={[ps.line, { backgroundColor: '#fff' }]} />
+            <Text style={ps.label}>{ph?.toFixed(1)}</Text>
           </View>
         )}
       </View>
@@ -273,7 +266,6 @@ function PHScaleBar({ ph, T }) {
   );
 }
 
-// ─── Nutrient Row ─────────────────────────────────────────────────────────────
 function NutrientRow({ n, val, T, last }) {
   const st = getStatus(n.key, val);
   const fmt =
@@ -307,24 +299,172 @@ function NutrientRow({ n, val, T, last }) {
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-export default function ResultsScreen({ navigation }) {
+function UploadChip({ status, error, onRetry, T }) {
+  const cfg = {
+    idle: { icon: 'cloud-outline', color: T.muted, text: 'Not uploaded' },
+    loading: { icon: 'cloud-upload', color: '#F59E0B', text: 'Uploading…' },
+    success: { icon: 'cloud-check', color: '#22C55E', text: 'Saved to server' },
+    error: { icon: 'cloud-alert', color: '#EF4444', text: 'Upload failed' },
+  }[status] ?? { icon: 'cloud-outline', color: T.muted, text: '' };
+
+  return (
+    <TouchableOpacity
+      style={[
+        uc.chip,
+        { backgroundColor: cfg.color + '18', borderColor: cfg.color },
+      ]}
+      onPress={status === 'error' ? onRetry : undefined}
+      activeOpacity={status === 'error' ? 0.75 : 1}
+    >
+      {status === 'loading' ? (
+        <ActivityIndicator size="small" color={cfg.color} />
+      ) : (
+        <Icon name={cfg.icon} size={13} color={cfg.color} />
+      )}
+      <Text style={[uc.text, { color: cfg.color }]}>{cfg.text}</Text>
+      {status === 'error' && (
+        <Text style={[uc.retry, { color: cfg.color }]}>Tap to retry</Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function RecCard({ rec, T }) {
+  const title = rec.title ?? rec.recommendation ?? rec.name ?? 'Recommendation';
+  const desc = rec.description ?? rec.detail ?? rec.message ?? rec.desc ?? '';
+  const color = rec.color ?? '#22C55E';
+  const icon = rec.icon ?? 'information-outline';
+  return (
+    <View
+      style={[
+        s.recCard,
+        {
+          backgroundColor: T.card,
+          borderColor: color + '44',
+          borderLeftColor: color,
+        },
+      ]}
+    >
+      <View style={[s.recIcon, { backgroundColor: color + '20' }]}>
+        <Icon name={icon} size={18} color={color} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[s.recTitle, { color: T.white }]}>{title}</Text>
+        {!!desc && <Text style={[s.recDesc, { color: T.text }]}>{desc}</Text>}
+      </View>
+    </View>
+  );
+}
+
+function AISection({ data, status, T }) {
+  if (status === 'loading') {
+    return (
+      <View
+        style={[s.aiBox, { backgroundColor: T.card, borderColor: T.border }]}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <ActivityIndicator size="small" color="#8B5CF6" />
+          <Text style={[s.aiBoxHint, { color: T.muted }]}>
+            Generating AI analysis…
+          </Text>
+        </View>
+      </View>
+    );
+  }
+  if (!data) return null;
+  const text =
+    typeof data === 'string'
+      ? data
+      : data.recommendation ??
+        data.text ??
+        data.content ??
+        JSON.stringify(data, null, 2);
+  return (
+    <View
+      style={[s.aiBox, { backgroundColor: T.card, borderColor: '#8B5CF6' }]}
+    >
+      <View style={s.aiHeader}>
+        <Icon name="robot" size={15} color="#8B5CF6" />
+        <Text style={[s.aiTitle, { color: '#8B5CF6' }]}>AI Recommendation</Text>
+        <View style={s.aiBadge}>
+          <Text style={s.aiBadgeText}>AI</Text>
+        </View>
+      </View>
+      <Text style={[s.aiText, { color: T.text }]}>{text}</Text>
+    </View>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+export default function ResultsScreen({ navigation, route }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
 
   const results = useSelector(s => s.test.results);
+  const selectedProduct = useSelector(s => s.userDevices.selectedProduct);
+  const deviceId = selectedProduct?.deviceId;
+  console.log(deviceId, 'check', selectedProduct);
 
-  // Save once on mount
+  const {
+    createStatus,
+    createError,
+    currentId,
+    currentRecord,
+    recsStatus,
+    recommendations,
+    aiRecsStatus,
+    aiRecommendations,
+  } = useSelector(s => s.soilsaathi);
+
   const savedRef = useRef(false);
-  React.useEffect(() => {
+  const submittedRef = useRef(false);
+
+  // Mark test saved in Redux history
+  useEffect(() => {
     if (results && !savedRef.current) {
       savedRef.current = true;
       dispatch({ type: TEST_SAVED });
     }
   }, [results, dispatch]);
+  useEffect(async () => {
+    if (currentId && recsStatus === 'idle') {
+      const getsoilRec = await dispatch(
+        getSoilRecommendations(deviceId, currentId),
+      );
+      const getsoilAiRec = await dispatch(
+        getSoilAIRecommendations(deviceId, currentId),
+      );
+      console.log(getsoilRec, 'soil rec check', getsoilAiRec);
+    }
+  }, [currentId]);
+  // Submit to server then fetch recs
+  const runAPIFlow = useCallback(() => {
+    if (submittedRef.current || !results) return;
+    submittedRef.current = true;
 
-  // ── No results ────────────────────────────────────────────────────────────
+    const payload = buildSoilPayload(results, {
+      areaName: route?.params?.areaName ?? 'Field Test',
+      tag: route?.params?.tag ?? '',
+      cropType: route?.params?.cropType ?? 'arabica_coffee',
+      latitude: route?.params?.latitude ?? 0,
+      longitude: route?.params?.longitude ?? 0,
+    });
+
+    dispatch(createSoilReading(deviceId, payload));
+  }, [results, deviceId, dispatch, route?.params]);
+
+  useEffect(() => {
+    runAPIFlow();
+  }, []);
+
+  const handleRetry = () => {
+    submittedRef.current = false;
+    dispatch({ type: 'SOIL_CLEAR' });
+    runAPIFlow();
+  };
+
+  // ── Guard ──────────────────────────────────────────────────────────────────
   if (!results) {
     return (
       <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
@@ -373,10 +513,15 @@ export default function ResultsScreen({ navigation }) {
   const hColor =
     health >= 70 ? '#22C55E' : health >= 40 ? '#F59E0B' : '#EF4444';
 
-  const recs = getRecommendations(ph, ec);
-
   const phSt = getStatus('ph', ph);
   const ecSt = getStatus('ec', ec);
+
+  // Resolve which recs to show
+  const serverArr =
+    recommendations?.results ??
+    (Array.isArray(recommendations) ? recommendations : null);
+  const showServer = recsStatus === 'success' && serverArr?.length > 0;
+  const localRecs = getLocalRecs(ph, ec);
 
   return (
     <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
@@ -385,12 +530,14 @@ export default function ResultsScreen({ navigation }) {
         title="Soil Test Results"
         onBack={() => navigation.goBack()}
         rightIcon="📤"
-        onRight={() => navigation.navigate('ReportScreen')}
+        onRight={() =>
+          navigation.navigate('ReportScreen', { callId: currentId })
+        }
         theme={theme}
       />
 
       <ScrollView contentContainerStyle={s.scroll}>
-        {/* ── Mock data disclaimer ──────────────────────────────── */}
+        {/* ── Mock warning ─────────────────────────────────────────── */}
         {isMock && (
           <View
             style={[
@@ -398,7 +545,7 @@ export default function ResultsScreen({ navigation }) {
               { backgroundColor: '#F59E0B18', borderColor: '#F59E0B' },
             ]}
           >
-            <Icon name="information-outline" size={16} color="#F59E0B" />
+            <Icon name="information-outline" size={14} color="#F59E0B" />
             <Text style={[s.mockText, { color: '#F59E0B' }]}>
               ⚠️ Results based on mock data — connect device & retake for
               accurate readings
@@ -406,7 +553,31 @@ export default function ResultsScreen({ navigation }) {
           </View>
         )}
 
-        {/* ── Health score banner ─────────────────────────────────── */}
+        {/* ── Upload chip ──────────────────────────────────────────── */}
+        <UploadChip
+          status={createStatus}
+          error={createError}
+          onRetry={handleRetry}
+          T={T}
+        />
+
+        {/* ── Server record badge ──────────────────────────────────── */}
+        {currentId && (
+          <View
+            style={[
+              s.savedChip,
+              { backgroundColor: '#22C55E18', borderColor: '#22C55E' },
+            ]}
+          >
+            <Icon name="database-check" size={12} color="#22C55E" />
+            <Text style={{ color: '#22C55E', fontSize: 11, fontWeight: '700' }}>
+              Record #{currentId}
+              {currentRecord?.area_name ? ` · ${currentRecord.area_name}` : ''}
+            </Text>
+          </View>
+        )}
+
+        {/* ── Health score banner ──────────────────────────────────── */}
         <View
           style={[
             s.scoreBanner,
@@ -433,12 +604,12 @@ export default function ResultsScreen({ navigation }) {
                 : '❗ Significant soil amendment required'}
             </Text>
           </View>
-          <Text style={{ fontSize: 52 }}>
+          <Text style={{ fontSize: 50 }}>
             {health >= 70 ? '🌱' : health >= 40 ? '🌿' : '🍂'}
           </Text>
         </View>
 
-        {/* ── Timestamp + raw payload ─────────────────────────────── */}
+        {/* ── Timestamp + raw ──────────────────────────────────────── */}
         {timestamp && (
           <View style={[s.metaRow, { borderColor: T.border }]}>
             <Icon name="clock-outline" size={12} color={T.muted} />
@@ -460,7 +631,6 @@ export default function ResultsScreen({ navigation }) {
 
         {/* ── pH + EC big cards ────────────────────────────────────── */}
         <View style={s.bigRow}>
-          {/* pH card */}
           <View
             style={[
               s.bigCard,
@@ -481,16 +651,8 @@ export default function ResultsScreen({ navigation }) {
                 {phSt.label}
               </Text>
             </View>
-            <Text style={[s.bigDesc, { color: T.muted }]} numberOfLines={2}>
-              {ph < 6.0
-                ? 'Too acidic for most crops'
-                : ph <= 7.0
-                ? 'Ideal for nutrient uptake'
-                : 'Alkaline — may limit nutrients'}
-            </Text>
           </View>
 
-          {/* EC card */}
           <View
             style={[
               s.bigCard,
@@ -511,20 +673,18 @@ export default function ResultsScreen({ navigation }) {
                 {ecSt.label}
               </Text>
             </View>
-            <Text style={[s.bigDesc, { color: T.muted }]} numberOfLines={2}>
-              {ec !== null ? 'dS/m' : ''}
-            </Text>
+            <Text style={[s.bigDesc, { color: T.muted }]}>dS/m</Text>
           </View>
         </View>
 
-        {/* ── pH Scale ─────────────────────────────────────────────── */}
+        {/* ── pH Scale bar ─────────────────────────────────────────── */}
         <View
           style={[s.card, { backgroundColor: T.card, borderColor: T.border }]}
         >
           <PHScaleBar ph={ph} T={T} />
         </View>
 
-        {/* ── Nutrient Analysis ────────────────────────────────────── */}
+        {/* ── Nutrient table ────────────────────────────────────────── */}
         <Text style={[Typography.h4, { color: T.text, marginBottom: 10 }]}>
           Nutrient Analysis
         </Text>
@@ -545,45 +705,65 @@ export default function ResultsScreen({ navigation }) {
           ))}
         </View>
 
-        {/* ── Recommendations ──────────────────────────────────────── */}
-        <Text style={[Typography.h4, { color: T.text, marginBottom: 10 }]}>
-          Recommendations
-        </Text>
-        {recs.map((r, i) => (
-          <View
-            key={i}
-            style={[
-              s.recCard,
-              {
-                backgroundColor: T.card,
-                borderColor: r.color + '44',
-                borderLeftColor: r.color,
-              },
-            ]}
-          >
-            <View style={[s.recIcon, { backgroundColor: r.color + '20' }]}>
-              <Icon name={r.icon} size={20} color={r.color} />
+        {/* ── Recommendations ───────────────────────────────────────── */}
+        <View style={s.sectionHeader}>
+          <Text style={[Typography.h4, { color: T.text }]}>
+            Recommendations
+          </Text>
+          {recsStatus === 'loading' && (
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            >
+              <ActivityIndicator size="small" color={T.primary} />
+              <Text style={{ fontSize: 11, color: T.muted }}>
+                Loading from server…
+              </Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[s.recTitle, { color: T.white }]}>{r.title}</Text>
-              <Text style={[s.recDesc, { color: T.text }]}>{r.desc}</Text>
+          )}
+          {recsStatus === 'success' && (
+            <View
+              style={[
+                s.srcBadge,
+                { backgroundColor: T.primaryGlow, borderColor: T.primary },
+              ]}
+            >
+              <Icon name="server" size={9} color={T.primary} />
+              <Text
+                style={{ fontSize: 9, color: T.primary, fontWeight: '800' }}
+              >
+                SERVER
+              </Text>
             </View>
-          </View>
+          )}
+        </View>
+
+        {(showServer ? serverArr : localRecs).map((r, i) => (
+          <RecCard key={i} rec={r} T={T} />
         ))}
 
-        {/* ── CTAs ─────────────────────────────────────────────────── */}
+        {/* ── AI Analysis ───────────────────────────────────────────── */}
+        <View style={[s.sectionHeader, { marginTop: 6 }]}>
+          <Text style={[Typography.h4, { color: T.text }]}>AI Analysis</Text>
+        </View>
+        <AISection data={aiRecommendations} status={aiRecsStatus} T={T} />
+
+        {/* ── CTAs ──────────────────────────────────────────────────── */}
         <AppButton
           label="Full Report"
-          onPress={() => navigation.navigate('ReportScreen')}
+          onPress={() =>
+            navigation.navigate('ReportScreen', { callId: currentId })
+          }
           color="#3B82F6"
           textColor="#fff"
           size="lg"
           icon="🖨️"
-          style={{ marginBottom: 10, marginTop: 6 }}
+          style={{ marginBottom: 10, marginTop: 14 }}
         />
         <AppButton
           label="Save Farmer Details"
-          onPress={() => navigation.navigate('FarmerDetailsScreen')}
+          onPress={() =>
+            navigation.navigate('FarmerDetailsScreen', { callId: currentId })
+          }
           outlined
           color={T.primary}
           size="lg"
@@ -622,9 +802,20 @@ const s = StyleSheet.create({
     borderRadius: Radius.md,
     borderWidth: 1,
     padding: 10,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   mockText: { flex: 1, fontSize: 12, lineHeight: 18, fontWeight: '600' },
+  savedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginBottom: 10,
+    alignSelf: 'flex-start',
+  },
   scoreBanner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -632,7 +823,7 @@ const s = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1.5,
     padding: 16,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   scoreLabel: {
     fontSize: 11,
@@ -640,8 +831,8 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
-  scoreVal: { fontSize: 44, fontWeight: '900', letterSpacing: -1 },
-  scoreGrade: { fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  scoreVal: { fontSize: 42, fontWeight: '900', letterSpacing: -1 },
+  scoreGrade: { fontSize: 16, fontWeight: '800', marginBottom: 6 },
   scoreHint: { fontSize: 12, marginTop: 2 },
   metaRow: {
     flexDirection: 'row',
@@ -650,11 +841,11 @@ const s = StyleSheet.create({
     borderRadius: Radius.md,
     borderWidth: 1,
     padding: 8,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   metaText: { fontSize: 11 },
   metaRaw: { fontSize: 10, flex: 2, fontFamily: 'Courier' },
-  bigRow: { flexDirection: 'row', gap: 12, marginBottom: 14 },
+  bigRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   bigCard: {
     flex: 1,
     borderRadius: Radius.lg,
@@ -676,7 +867,7 @@ const s = StyleSheet.create({
   },
   bigEmoji: { fontSize: 22, marginBottom: 4 },
   bigValue: {
-    fontSize: 36,
+    fontSize: 34,
     fontWeight: '900',
     fontFamily: 'Courier',
     letterSpacing: -1,
@@ -689,12 +880,27 @@ const s = StyleSheet.create({
     marginBottom: 4,
   },
   bigStatusText: { fontSize: 10, fontWeight: '800' },
-  bigDesc: { fontSize: 10, textAlign: 'center', lineHeight: 14 },
+  bigDesc: { fontSize: 10 },
   card: {
     borderRadius: Radius.lg,
     borderWidth: 1,
     padding: Spacing.md,
-    marginBottom: 14,
+    marginBottom: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  srcBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
   recCard: {
     flexDirection: 'row',
@@ -707,14 +913,32 @@ const s = StyleSheet.create({
     marginBottom: 8,
   },
   recIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
   recTitle: { fontSize: 13, fontWeight: '800', marginBottom: 3 },
   recDesc: { fontSize: 12, lineHeight: 18 },
+  aiBox: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing.md,
+    marginBottom: 12,
+    gap: 10,
+  },
+  aiHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  aiTitle: { fontSize: 14, fontWeight: '800', flex: 1, color: '#8B5CF6' },
+  aiBadge: {
+    borderRadius: 4,
+    backgroundColor: '#8B5CF622',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  aiBadgeText: { fontSize: 8, color: '#8B5CF6', fontWeight: '900' },
+  aiBoxHint: { fontSize: 12 },
+  aiText: { fontSize: 13, lineHeight: 20 },
 });
 
 const ps = StyleSheet.create({
@@ -734,8 +958,8 @@ const ps = StyleSheet.create({
     alignItems: 'center',
     transform: [{ translateX: -1 }],
   },
-  needleLine: { width: 2, height: 22, borderRadius: 1 },
-  needleLabel: { fontSize: 9, color: '#fff', fontWeight: '900', marginTop: 2 },
+  line: { width: 2, height: 22, borderRadius: 1 },
+  label: { fontSize: 9, color: '#fff', fontWeight: '900', marginTop: 2 },
   legend: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -764,4 +988,25 @@ const nr = StyleSheet.create({
     alignItems: 'center',
   },
   pillText: { fontSize: 9, fontWeight: '800' },
+});
+
+const uc = StyleSheet.create({
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 8,
+    alignSelf: 'flex-start',
+  },
+  text: { fontSize: 11, fontWeight: '700' },
+  retry: {
+    fontSize: 10,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+    marginLeft: 2,
+  },
 });

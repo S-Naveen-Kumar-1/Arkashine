@@ -16,58 +16,57 @@ import {
   TEST_SAVED,
 } from '../../config/actionTypes';
 
-export const MOTOR_DURATION  = 60;  // seconds — pH/EC mixer
-export const TIMER_DURATION  = 180; // seconds — soil settle timer
-export const SENSOR_DURATION = 30;  // seconds — sensor scan countdown
+export const MOTOR_DURATION = 60; // seconds — pH/EC mixer
+export const TIMER_DURATION = 180; // seconds — soil settle timer
+export const SENSOR_DURATION = 30; // seconds — sensor scan countdown
 
 const init = {
   // ── Soil test — pour + settle timer ──────────────────────
   pourDetected: false,
-  timerLeft:    TIMER_DURATION,
-  timerTotal:   TIMER_DURATION,
-  timerDone:    false,
+  timerLeft: TIMER_DURATION,
+  timerTotal: TIMER_DURATION,
+  timerDone: false,
 
   // ── Soil test — sensor scan phase ─────────────────────────
   sensorRunning: false,
-  sensorDone:    false,
-  sensorLeft:    SENSOR_DURATION,
-  sensorTotal:   SENSOR_DURATION,
+  sensorDone: false,
+  sensorLeft: SENSOR_DURATION,
+  sensorTotal: SENSOR_DURATION,
 
   // ── pH/EC test — motor mixer phase ────────────────────────
-  motorState:    'idle',   // 'idle' | 'running' | 'done'
+  motorState: 'idle', // 'idle' | 'running' | 'done'
   motorTimeLeft: MOTOR_DURATION,
   motorStartedAt: null,
 
   // ── Reading phase (pH/EC after motor) ─────────────────────
-  readingState:    'idle', // 'idle' | 'reading' | 'done'
+  readingState: 'idle', // 'idle' | 'reading' | 'done'
   readingStartedAt: null,
 
   // ── Final results ─────────────────────────────────────────
-  results:   null,  // { ph, ec, voltage, timestamp, raw, … }
+  results: null, // { ph, ec, voltage, timestamp, raw, … }
   testCount: 0,
-  savedAt:   null,
-  history:   [],    // last 100 results
+  savedAt: null,
+  history: [], // last 100 results
 };
 
 export default function testReducer(state = init, action) {
   switch (action.type) {
-
     case TEST_RESET:
       return {
         ...state,
-        pourDetected:    false,
-        timerLeft:       TIMER_DURATION,
-        timerDone:       false,
-        sensorRunning:   false,
-        sensorDone:      false,
-        sensorLeft:      SENSOR_DURATION,
-        motorState:      'idle',
-        motorTimeLeft:   MOTOR_DURATION,
-        motorStartedAt:  null,
-        readingState:    'idle',
+        pourDetected: false,
+        timerLeft: TIMER_DURATION,
+        timerDone: false,
+        sensorRunning: false,
+        sensorDone: false,
+        sensorLeft: SENSOR_DURATION,
+        motorState: 'idle',
+        motorTimeLeft: MOTOR_DURATION,
+        motorStartedAt: null,
+        readingState: 'idle',
         readingStartedAt: null,
-        results:         null,
-        savedAt:         null,
+        results: null,
+        savedAt: null,
       };
 
     // ── Pour + settle timer (soil test) ─────────────────────
@@ -77,9 +76,9 @@ export default function testReducer(state = init, action) {
     case TEST_TIMER_START:
       return {
         ...state,
-        timerLeft:  TIMER_DURATION,
+        timerLeft: TIMER_DURATION,
         timerTotal: TIMER_DURATION,
-        timerDone:  false,
+        timerDone: false,
       };
 
     case TEST_TIMER_TICK:
@@ -96,9 +95,9 @@ export default function testReducer(state = init, action) {
       return {
         ...state,
         sensorRunning: true,
-        sensorDone:    false,
-        sensorLeft:    SENSOR_DURATION,
-        sensorTotal:   SENSOR_DURATION,
+        sensorDone: false,
+        sensorLeft: SENSOR_DURATION,
+        sensorTotal: SENSOR_DURATION,
       };
 
     case TEST_SENSOR_TICK:
@@ -108,13 +107,18 @@ export default function testReducer(state = init, action) {
       };
 
     case TEST_SENSOR_DONE:
-      return { ...state, sensorRunning: false, sensorDone: true, sensorLeft: 0 };
+      return {
+        ...state,
+        sensorRunning: false,
+        sensorDone: true,
+        sensorLeft: 0,
+      };
 
     // ── Motor mixer phase (pH/EC test) ──────────────────────
     case TEST_MOTOR_START:
       return {
         ...state,
-        motorState:    'running',
+        motorState: 'running',
         motorTimeLeft: MOTOR_DURATION,
         motorStartedAt: Date.now(),
       };
@@ -129,9 +133,9 @@ export default function testReducer(state = init, action) {
     case TEST_READING_START:
       return {
         ...state,
-        readingState:    'reading',
+        readingState: 'reading',
         readingStartedAt: Date.now(),
-        results:         null,
+        results: null,
       };
 
     // ── Results received from BLE ────────────────────────────
@@ -139,7 +143,7 @@ export default function testReducer(state = init, action) {
       return {
         ...state,
         readingState: 'done',
-        sensorDone:   true,
+        sensorDone: true,
         sensorRunning: false,
         results: { ...action.payload, timestamp: Date.now() },
       };
@@ -147,7 +151,7 @@ export default function testReducer(state = init, action) {
     case TEST_SAVED:
       return {
         ...state,
-        savedAt:   Date.now(),
+        savedAt: Date.now(),
         testCount: state.testCount + 1,
         history: [
           { ...state.results, savedAt: Date.now() },

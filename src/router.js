@@ -23,7 +23,6 @@ import CalibrationSummaryScreen from './phtest/CalibrationSummaryScreen';
 import MixerScreen from './phtest/MixerScreen';
 import Phecresultscreen from './phtest/Phecresultscreen';
 import BLEScanScreen from './screens/ble/DeviceScanScreen';
-import ReportScreen from './screens/ReportScreen';
 export const AppStack = () => {
   return (
     <NavigationContainer>
@@ -85,7 +84,7 @@ export const AppStack = () => {
           }}
         />
         <Stack.Screen
-          name="ResultsScreen"
+          name="SoilResultsScreen"
           component={ResultsScreen}
           options={{
             headerShown: false,
@@ -196,14 +195,9 @@ export const AppStack = () => {
             // gestureEnabled: false,
           }}
         />
-          <Stack.Screen
+        <Stack.Screen
           name="BLEScanScreen"
           component={BLEScanScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="ReportScreen"
-          component={ReportScreen}
           options={{ headerShown: false }}
         />
       </Stack.Navigator>

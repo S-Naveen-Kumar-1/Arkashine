@@ -3,6 +3,7 @@ const initialState = {
   loadingDevices: false,
   devicesError: null,
   userDeviceDetails: null,
+  selectedProduct: null,
 };
 
 const deviceReducer = (state = initialState, action) => {
@@ -24,7 +25,11 @@ const deviceReducer = (state = initialState, action) => {
         loadingDevices: false,
         devicesError: action.error,
       };
-
+    case 'SET_SELECTED_PRODUCT':
+      return {
+        ...state,
+        selectedProduct: action.payload,
+      };
     default:
       return state;
   }
