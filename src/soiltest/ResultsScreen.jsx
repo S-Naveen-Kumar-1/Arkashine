@@ -539,6 +539,7 @@ export default function ResultsScreen({ navigation, route }) {
           navigation.navigate('ReportScreen', { callId: currentId })
         }
         theme={theme}
+        onHome={() => navigation.navigate('Home')}
       />
 
       <ScrollView contentContainerStyle={s.scroll}>

@@ -65,18 +65,9 @@ const PH_POINTS = [
   },
 ];
 
-// ─── Mock + lock voltage hook ──────────────────────────────────────────────────
-// Phase 1 (isMocking=true):  oscillate a fake voltage so the UI shows activity
-//                            while we wait for the firmware to reply.
-// Phase 2 (isLocked=true):   firmware replied with a real pHVoltage.
-//                            Stop mock immediately, show the real value, and
-//                            set stable=true right away — no window needed.
-//                            The firmware already confirmed the calibration point;
-//                            we just need to capture whatever it returned.
-
 function useMockLockVoltage(active, mockBase) {
   // pHVoltage from firmware {"pHVoltage":"2.4935"} → mapped to sensorData.voltage
-  const realVoltage = useSelector(s => s.ble.sensorData.voltage);
+  const realVoltage = useSelector(s => s.ble.sensorData.phVoltage);
   const realCount = useSelector(s => s.ble.sensorData.receivedCount);
 
   const [displayV, setDisplayV] = useState(null);
@@ -500,6 +491,7 @@ export default function PHCalibrationScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors;
   const fullFlow = route?.params?.fullFlow ?? false;
+  console.log('PHCalibrationScreen rendered with fullFlow:@', fullFlow);
 
   const [step, setStep] = useState(0);
   const [phase, setPhase] = useState('prep'); // 'prep' | 'reading' | 'done'
@@ -750,7 +742,13 @@ export default function PHCalibrationScreen({ navigation, route }) {
         {!isDone && (
           <TouchableOpacity
             style={s.skipAll}
-            onPress={() => navigation.replace('CalibrationSummaryScreen')}
+            onPress={() => {
+              if (fullFlow) {
+                navigation.replace('ECCalibrationScreen', { fullFlow: true });
+              } else {
+                navigation.replace('CalibrationSummaryScreen');
+              }
+            }}
           >
             <Text style={[s.skipAllText, { color: T.muted }]}>
               Skip pH Calibration Entirely

@@ -6,8 +6,6 @@ import {
   CAL_RESET,
 } from '../../config/actionTypes';
 import {
-  cmdCalibratePhPoint,
-  cmdCalibrateEcPoint,
   cmdSaveCalibration,
   cmdResetCalibration,
 } from './bleActions';
@@ -20,7 +18,6 @@ import {
  * voltage — value read from sensorData.voltage after the command response
  */
 export const savePhPoint = (standardPH, voltage) => async dispatch => {
-  await dispatch(cmdCalibratePhPoint(standardPH));
   dispatch({ type: CAL_PH_POINT_SAVED, payload: { standardPH, voltage } });
 };
 
@@ -28,7 +25,6 @@ export const savePhPoint = (standardPH, voltage) => async dispatch => {
  * Capture an EC calibration point.
  */
 export const saveEcPoint = (standardEC, voltage) => async dispatch => {
-  await dispatch(cmdCalibrateEcPoint(standardEC));
   dispatch({ type: CAL_EC_POINT_SAVED, payload: { standardEC, voltage } });
 };
 

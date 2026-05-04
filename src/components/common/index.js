@@ -8,12 +8,12 @@ import {
   StyleSheet,
   ActivityIndicator,
   Animated,
-  Easing
+  Easing,
 } from 'react-native';
 import { Radius, Shadow, Typography } from '../../theme';
 
 import Svg, { Circle } from 'react-native-svg';
-
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 // ── AppButton ─────────────────────────────────────────────────────────────────
 export function AppButton({
   label,
@@ -294,25 +294,54 @@ export function DayCard({ day, action, qty, type, icon, theme }) {
 }
 
 // ── TopBar ────────────────────────────────────────────────────────────────────
-export function TopBar({ title, onBack, rightIcon, onRight, theme }) {
+export function TopBar({ title, onBack, rightIcon, onRight, theme, onHome }) {
   const T = theme?.colors || {};
+
+  // decide left action
+  const leftAction = onHome || onBack;
+
   return (
-    <View style={[c.topBar, { borderBottomColor: T.divider }]}>
-      {onBack ? (
-        <TouchableOpacity onPress={onBack} style={c.topBarBtn}>
-          <Text style={{ color: T.primary, fontSize: 22 }}>←</Text>
-        </TouchableOpacity>
-      ) : (
-        <View style={{ width: 40 }} />
-      )}
-      <Text style={[Typography.h4, { color: T.text }]}>{title}</Text>
-      {onRight ? (
-        <TouchableOpacity onPress={onRight} style={c.topBarBtn}>
-          <Text style={{ fontSize: 20 }}>{rightIcon}</Text>
-        </TouchableOpacity>
-      ) : (
-        <View style={{ width: 40 }} />
-      )}
+    <View
+      style={[
+        c.topBar,
+        {
+          borderBottomColor: T.divider,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        },
+      ]}
+    >
+      {/* LEFT */}
+      <View style={{ width: 40, alignItems: 'flex-start' }}>
+        {leftAction && (
+          <TouchableOpacity onPress={leftAction} style={c.topBarBtn}>
+            {onHome ? (
+              <Icon name="home-outline" size={22} color={T.primary} />
+            ) : (
+              <Text style={{ color: T.primary, fontSize: 22 }}>←</Text>
+            )}
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* TITLE */}
+      <Text style={[Typography.h4, { color: T.text }]} numberOfLines={1}>
+        {title}
+      </Text>
+
+      {/* RIGHT */}
+      <View style={{ width: 40, alignItems: 'flex-end' }}>
+        {onRight && (
+          <TouchableOpacity onPress={onRight} style={c.topBarBtn}>
+            <Icon
+              name={rightIcon || 'dots-vertical'}
+              size={22}
+              color={T.text}
+            />
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 }

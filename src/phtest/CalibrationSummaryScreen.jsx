@@ -22,6 +22,8 @@ export default function CalibrationSummaryScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
 
+
+  console.log('Rendering CalibrationSummaryScreen with theme:', theme);
   const { phPoints, ecPoints, lastCalibrated } = useSelector(
     s => s.calibration,
   );

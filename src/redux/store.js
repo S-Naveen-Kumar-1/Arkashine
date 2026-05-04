@@ -11,12 +11,10 @@ import { BASE_URL } from '../ApiConfig';
 import authReducer from './reducers/authReducer';
 import bleReducer from './reducers/bleReducer';
 import phTestReducer from './reducers/phTestReducer';
-import farmerReducer from './reducers/farmerReducer';
-import reportReducer from './reducers/reportReducer';
 import themeReducer from './reducers/themeReducer';
-import calibrationReducer from './reducers/calibrationReducer';
 import deviceReducer from './reducers/deviceReducer';
 import soilsaathiReducer from './reducers/soilsaathiReducer';
+import calibrationReducer from './reducers/calibrationReducer';
 
 // ─────────────────────────────────────────
 // Combine reducers
@@ -25,10 +23,9 @@ const rootReducer = combineReducers({
   auth: authReducer,
   ble: bleReducer,
   phtest: phTestReducer,
-  farmer: farmerReducer,
-  report: reportReducer,
   theme: themeReducer,
   calibration: calibrationReducer,
+
   userDevices: deviceReducer,
   soilsaathi: soilsaathiReducer,
 });

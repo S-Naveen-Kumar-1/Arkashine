@@ -1,4 +1,15 @@
 // src/screens/phtest/MixerScreen.jsx
+//
+// Two-way BLE communication:
+//  START  → {"TEST":"START"}
+//         ← {"TEST":"STARTED"}         immediate — stored in ble.testStarted
+//         ← {pH,TDS,...}               ~60 s — stored in ble.sensorData
+//
+//  STATUS → {"CHECKMOTORSTATUS":"CHECKMOTORSTATUS"}  (every 5 s while running)
+//         ← {"MOTORSTATUS":"RUNNING"|"STOPPED"}      stored in ble.motorStatus
+//
+//  STOP   → {"TEST":"STOP"}
+//         ← {"TEST":"STOPPED"}         stored in ble.motorStatus='stopped'
 
 import React, { useEffect, useRef } from 'react';
 import {
@@ -11,7 +22,6 @@ import {
   Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../theme';
@@ -22,8 +32,7 @@ import {
   stopMotorEarly,
   testReset,
 } from '../redux/actions/phTestActions';
-import { requestReading } from '../redux/actions/phTestActions';
-import { cmdPHMotorStart, cmdPHMotorStop } from '../redux/actions/bleActions';
+import { cmdStopTest, cmdCheckMotorStatus } from '../redux/actions/bleActions';
 import { MOTOR_DURATION } from '../redux/reducers/phTestReducer';
 
 export default function MixerScreen({ navigation }) {
@@ -32,11 +41,18 @@ export default function MixerScreen({ navigation }) {
   const T = theme.colors;
 
   const { motorState, motorTimeLeft } = useSelector(s => s.phtest);
-  const { connected, device } = useSelector(s => s.ble);
+  const {
+    connected,
+    device,
+    sensorData,
+    testStarted,
+    motorStatus,
+    lastDeviceError,
+  } = useSelector(s => s.ble);
 
-  // Spin animation for motor icon
   const spinAnim = useRef(new Animated.Value(0)).current;
   const spinLoop = useRef(null);
+  const pollRef = useRef(null);
 
   const startSpin = () => {
     spinLoop.current = Animated.loop(
@@ -49,34 +65,68 @@ export default function MixerScreen({ navigation }) {
     );
     spinLoop.current.start();
   };
-
   const stopSpin = () => {
     spinLoop.current?.stop();
     spinAnim.setValue(0);
   };
 
   useEffect(() => {
-    if (motorState === 'running') startSpin();
-    else stopSpin();
+    motorState === 'running' ? startSpin() : stopSpin();
   }, [motorState]);
   useEffect(() => {
     dispatch(testReset());
   }, [dispatch]);
+  useEffect(
+    () => () => {
+      stopSpin();
+      clearInterval(pollRef.current);
+    },
+    [],
+  );
 
-  useEffect(() => () => stopSpin(), []);
+  // Poll motor status every 5 s while running
+  // → {"CHECKMOTORSTATUS":"CHECKMOTORSTATUS"}  ← {"MOTORSTATUS":"RUNNING"|"STOPPED"}
+  useEffect(() => {
+    if (motorState === 'running' && connected) {
+      pollRef.current = setInterval(() => {
+        dispatch(cmdCheckMotorStatus());
+      }, 5000);
+    } else {
+      clearInterval(pollRef.current);
+    }
+    return () => clearInterval(pollRef.current);
+  }, [motorState, connected, dispatch]);
+
+  // Auto-navigate when sensor data arrives AND local timer is done
+
   const spin = spinAnim.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
   });
-
   const progress = MOTOR_DURATION - motorTimeLeft;
   const pct = Math.round((progress / MOTOR_DURATION) * 100);
   const minutes = Math.floor(motorTimeLeft / 60);
   const seconds = motorTimeLeft % 60;
 
-  const handleReadResults = async () => {
-    navigation.replace('PHECResultScreen');
+  // START: sends {"TEST":"START"} via phTestActions.startMotor + starts local timer
+  const handleStart = () => dispatch(startMotor());
+
+  // STOP: sends {"TEST":"STOP"} → recv {"TEST":"STOPPED"} → updates motorStatus
+  const handleStop = async () => {
+    clearInterval(pollRef.current);
+    await dispatch(cmdStopTest()); // → {"TEST":"STOP"}  ← {"TEST":"STOPPED"}
+    dispatch(stopMotorEarly()); // local timer done
   };
+
+  const handleReadResults = () => navigation.replace('PHECResultScreen');
+
+  // Firmware status label derived from ble.motorStatus (real device state)
+  const firmwareLabel =
+    motorStatus === 'running'
+      ? '🔵 Firmware: Motor RUNNING'
+      : motorStatus === 'stopped'
+      ? '🟢 Firmware: Motor STOPPED'
+      : null;
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
@@ -88,10 +138,10 @@ export default function MixerScreen({ navigation }) {
       />
 
       <View style={s.body}>
-        {/* ── BLE status ─────────────────────────────────────────── */}
+        {/* BLE connection chip */}
         <View
           style={[
-            s.bleChip,
+            s.chip,
             {
               backgroundColor: connected ? T.primaryGlow : T.cardAlt,
               borderColor: connected ? T.primary : T.border,
@@ -100,11 +150,11 @@ export default function MixerScreen({ navigation }) {
         >
           <Icon
             name={connected ? 'bluetooth-connect' : 'bluetooth-off'}
-            size={14}
+            size={13}
             color={connected ? T.primary : T.muted}
           />
           <Text
-            style={[s.bleChipText, { color: connected ? T.primary : T.muted }]}
+            style={[s.chipText, { color: connected ? T.primary : T.muted }]}
           >
             {connected
               ? `${device?.name || 'Device'} connected`
@@ -112,17 +162,57 @@ export default function MixerScreen({ navigation }) {
           </Text>
         </View>
 
-        {/* ── Motor ring ─────────────────────────────────────────── */}
+        {/* Test started ACK chip — shown when firmware sent {"TEST":"STARTED"} */}
+        {testStarted && motorState === 'running' && (
+          <View
+            style={[
+              s.chip,
+              { backgroundColor: '#0d2a0d', borderColor: '#22C55E' },
+            ]}
+          >
+            <Icon name="check-circle" size={13} color="#22C55E" />
+            <Text style={[s.chipText, { color: '#22C55E' }]}>
+              Firmware: Motor STARTED ✅
+            </Text>
+          </View>
+        )}
+
+        {/* Motor status chip — updated by CHECKMOTORSTATUS poll every 5 s */}
+        {firmwareLabel && motorState === 'running' && (
+          <View
+            style={[
+              s.chip,
+              {
+                backgroundColor: T.cardAlt,
+                borderColor: motorStatus === 'running' ? T.primary : '#22C55E',
+              },
+            ]}
+          >
+            <Text
+              style={[
+                s.chipText,
+                { color: motorStatus === 'running' ? T.primary : '#22C55E' },
+              ]}
+            >
+              {firmwareLabel}
+            </Text>
+          </View>
+        )}
+
+        {/* Device error banner */}
+        {lastDeviceError && (
+          <View style={[s.errorBar, { borderColor: '#EF4444' }]}>
+            <Icon name="alert-circle" size={14} color="#EF4444" />
+            <Text style={s.errorText}>Device: {lastDeviceError}</Text>
+          </View>
+        )}
+
+        {/* Motor ring */}
         <View
           style={[
             s.motorRing,
             {
-              borderColor:
-                motorState === 'running'
-                  ? T.primary
-                  : motorState === 'done'
-                  ? T.primary
-                  : T.border,
+              borderColor: motorState !== 'idle' ? T.primary : T.border,
               backgroundColor:
                 motorState === 'running' ? T.primaryGlow : 'transparent',
             },
@@ -145,9 +235,7 @@ export default function MixerScreen({ navigation }) {
         <Text
           style={[
             s.motorLabel,
-            {
-              color: motorState !== 'idle' ? T.primary : T.white,
-            },
+            { color: motorState !== 'idle' ? T.primary : T.white ?? T.text },
           ]}
         >
           {motorState === 'idle'
@@ -157,7 +245,7 @@ export default function MixerScreen({ navigation }) {
             : 'Mixing Complete ✅'}
         </Text>
 
-        {/* ── Instruction card ───────────────────────────────────── */}
+        {/* Prep checklist */}
         {motorState === 'idle' && (
           <View
             style={[
@@ -165,12 +253,12 @@ export default function MixerScreen({ navigation }) {
               { backgroundColor: T.card, borderColor: T.border },
             ]}
           >
-            <Text style={[s.instrTitle, { color: T.white }]}>
+            <Text style={[s.instrTitle, { color: T.white ?? T.text }]}>
               📋 Before Starting
             </Text>
             {[
-              'Add 5g soil sample to the beaker',
-              'Add 40ml extractant solution',
+              'Add 5 g soil sample to the beaker',
+              'Add 40 ml extractant solution',
               'Place the beaker under the mixer',
               'Ensure probe is connected and ready',
             ].map((t, i) => (
@@ -184,7 +272,7 @@ export default function MixerScreen({ navigation }) {
           </View>
         )}
 
-        {/* ── Timer ring ─────────────────────────────────────────── */}
+        {/* Countdown ring */}
         {motorState !== 'idle' && (
           <View style={s.ringWrap}>
             <ProgressRing
@@ -212,28 +300,25 @@ export default function MixerScreen({ navigation }) {
           </View>
         )}
 
-        {/* ── CTA ────────────────────────────────────────────────── */}
+        {/* Start button */}
         {motorState === 'idle' && (
           <TouchableOpacity
             style={[
               s.ctaBtn,
-              {
-                backgroundColor: connected ? T.primary : T.border,
-              },
+              { backgroundColor: connected ? T.primary : T.border },
             ]}
-            onPress={async () => {
-              await dispatch(cmdPHMotorStart());
-            }}
+            onPress={handleStart}
             disabled={!connected}
             activeOpacity={0.85}
           >
             <Icon name="play-circle" size={22} color="#fff" />
             <Text style={s.ctaBtnText}>
-              {connected ? 'Start Mixing Motor (60s)' : 'Connect device first'}
+              {connected ? 'Start Mixing Motor (60 s)' : 'Connect device first'}
             </Text>
           </TouchableOpacity>
         )}
 
+        {/* Running: status bar + stop */}
         {motorState === 'running' && (
           <View style={s.runningRow}>
             <View
@@ -249,11 +334,7 @@ export default function MixerScreen({ navigation }) {
             </View>
             <TouchableOpacity
               style={[s.stopBtn, { borderColor: '#ef4444' }]}
-              onPress={async () => {
-                // Tell firmware to stop (best-effort) then update UI
-                await dispatch(cmdPHMotorStop());
-                dispatch(stopMotorEarly());
-              }}
+              onPress={handleStop}
             >
               <Icon name="stop" size={16} color="#ef4444" />
               <Text style={[s.stopBtnText, { color: '#ef4444' }]}>Stop</Text>
@@ -261,6 +342,7 @@ export default function MixerScreen({ navigation }) {
           </View>
         )}
 
+        {/* Done: read results */}
         {motorState === 'done' && (
           <TouchableOpacity
             style={[s.ctaBtn, { backgroundColor: T.primary }]}
@@ -274,10 +356,10 @@ export default function MixerScreen({ navigation }) {
 
         <Text style={[s.hint, { color: T.muted }]}>
           {motorState === 'idle'
-            ? 'Motor mixes soil-extractant solution for accurate readings'
+            ? 'Motor mixes the soil-extractant solution for accurate readings'
             : motorState === 'running'
-            ? 'Motor running. Timer auto-stops at 60 seconds.'
-            : 'Solution ready. Proceed to read pH and EC from the probe.'}
+            ? 'Motor running. Polling firmware status every 5 s.'
+            : 'Solution ready. Proceed to read pH and EC results.'}
         </Text>
       </View>
     </SafeAreaView>
@@ -292,17 +374,28 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     padding: Spacing.lg,
   },
-  bleChip: {
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderRadius: Radius.full,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginBottom: Spacing.md,
+    paddingVertical: 5,
+    marginBottom: 6,
   },
-  bleChipText: { fontSize: 12, fontWeight: '700' },
+  chipText: { fontSize: 11, fontWeight: '700' },
+  errorBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: Radius.sm,
+    padding: 8,
+    marginBottom: 8,
+    width: '100%',
+  },
+  errorText: { color: '#EF4444', fontSize: 12, flex: 1 },
   motorRing: {
     width: 120,
     height: 120,
@@ -312,6 +405,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: Spacing.sm,
     position: 'relative',
+    marginTop: 8,
   },
   doneBadge: {
     position: 'absolute',

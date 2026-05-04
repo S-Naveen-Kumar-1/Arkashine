@@ -1,6 +1,4 @@
-// src/screens/ble/BLEScanScreen.jsx
-// Scan → list → connect → handshake (ARKASHINE_DEVICE / ARKASHINE_TRUE) → navigate
-// All state via Redux. No Context.
+// src/screens/ble/DeviceScanScreen.jsx
 
 import React, { useEffect, useCallback, useRef } from 'react';
 import {
@@ -13,6 +11,7 @@ import {
   ActivityIndicator,
   Animated,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../../theme';
@@ -25,11 +24,9 @@ import {
   connectDevice,
   disconnectDevice,
 } from '../../redux/actions/bleActions';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-export default function BLEScanScreen({ route, navigation }) {
+export default function DeviceScanScreen({ route, navigation }) {
   const item = route?.params?.item;
-
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
@@ -47,16 +44,17 @@ export default function BLEScanScreen({ route, navigation }) {
     handshakeRaw,
   } = useSelector(s => s.ble);
 
-  // Start adapter monitor once
+  // Init BLE adapter monitor once
   useEffect(() => {
     dispatch(initBLE());
   }, [dispatch]);
 
-  // Auto-scan when BT powers on
+  // Auto-scan when Bluetooth powers on
   useEffect(() => {
     if (bleAdapterState === 'PoweredOn') dispatch(startScan());
   }, [bleAdapterState, dispatch]);
 
+  // Stop scan on unmount
   useEffect(
     () => () => {
       dispatch(stopScan());
@@ -79,13 +77,12 @@ export default function BLEScanScreen({ route, navigation }) {
     [connected, connectedDevice, dispatch],
   );
 
-  const handleProceed = useCallback(async () => {
-    if (item?.name === 'Ph Bottle') {
+  // Navigate after connecting — handshake fires automatically in bleActions
+  const handleProceed = useCallback(() => {
+    if (item?.name === 'Ph Bottle')
       navigation.navigate('CalibrationGateScreen');
-    } else if (item?.name === 'SOILENZ') {
-      navigation.navigate('IntroScreen');
-    }
-  }, [dispatch, item, navigation]);
+    else navigation.navigate('MixerScreen');
+  }, [item, navigation]);
 
   const btOff =
     bleAdapterState !== 'PoweredOn' && bleAdapterState !== 'Unknown';
@@ -100,7 +97,7 @@ export default function BLEScanScreen({ route, navigation }) {
       />
 
       <View style={s.body}>
-        {/* ── BT Off ─────────────────────────────────────────────── */}
+        {/* ── Bluetooth off warning ──────────────────────── */}
         {btOff && (
           <View
             style={[
@@ -115,7 +112,7 @@ export default function BLEScanScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* ── Connected Banner ────────────────────────────────────── */}
+        {/* ── Connected banner with handshake status ────── */}
         {connected && connectedDevice && (
           <ConnectedBanner
             device={connectedDevice}
@@ -128,13 +125,13 @@ export default function BLEScanScreen({ route, navigation }) {
           />
         )}
 
-        {/* ── Header row ──────────────────────────────────────────── */}
+        {/* ── Header / scan toggle ──────────────────────── */}
         <View style={s.headerRow}>
           <View>
             <Text style={[s.title, { color: T.primary }]}>Nearby Devices</Text>
             <Text style={[s.sub, { color: T.muted }]}>
               {scanning
-                ? 'Scanning for BLE devices…'
+                ? 'Scanning…'
                 : `${devices.length} device${
                     devices.length !== 1 ? 's' : ''
                   } found`}
@@ -154,6 +151,7 @@ export default function BLEScanScreen({ route, navigation }) {
             disabled={btOff}
             activeOpacity={0.8}
           >
+            
             {scanning ? (
               <>
                 <ActivityIndicator size="small" color="#ef4444" />
@@ -168,7 +166,7 @@ export default function BLEScanScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
 
-        {/* ── Error ───────────────────────────────────────────────── */}
+        {/* ── Error ──────────────────────────────────────── */}
         {error && (
           <View
             style={[
@@ -184,28 +182,28 @@ export default function BLEScanScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* ── Device list ─────────────────────────────────────────── */}
+        {/* ── Device list ────────────────────────────────── */}
         {devices.length === 0 && !scanning ? (
           <EmptyState T={T} btOff={btOff} onScan={handleScanToggle} />
         ) : (
           <FlatList
             data={devices}
-            keyExtractor={item => item.id}
+            keyExtractor={d => d.id}
             contentContainerStyle={s.list}
             showsVerticalScrollIndicator={false}
-            renderItem={({ item }) => (
+            renderItem={({ item: dev }) => (
               <DeviceRow
-                device={item}
-                isConnected={connected && connectedDevice?.id === item.id}
-                isConnecting={connectingDeviceId === item.id}
+                device={dev}
+                isConnected={connected && connectedDevice?.id === dev.id}
+                isConnecting={connectingDeviceId === dev.id}
                 T={T}
-                onPress={() => handleConnect(item)}
+                onPress={() => handleConnect(dev)}
               />
             )}
           />
         )}
 
-        {/* ── Pulse while scanning, no devices yet ────────────────── */}
+        {/* ── Pulse animation while scanning ─────────────── */}
         {scanning && devices.length === 0 && (
           <View style={s.pulseWrap}>
             <PulseRing T={T} />
@@ -229,21 +227,15 @@ function ConnectedBanner({
   onDisconnect,
   onProceed,
 }) {
-  const handshakePending = handshakeStatus === 'pending';
-  const handshakeDone = handshakeStatus === 'success';
-  const handshakeFailed = handshakeStatus === 'failed';
-
-  const hsColor = handshakeDone
-    ? T.primary
-    : handshakeFailed
-    ? '#ef4444'
-    : T.warning ?? '#f59e0b';
-
-  const hsLabel = handshakePending
-    ? 'Handshake…'
-    : handshakeDone
+  const pending = handshakeStatus === 'pending';
+  const success = handshakeStatus === 'success';
+  const failed = handshakeStatus === 'failed';
+  const hsColor = success ? T.primary : failed ? '#ef4444' : '#f59e0b';
+  const hsLabel = pending
+    ? 'Handshaking…'
+    : success
     ? 'ArkaShine Verified ✅'
-    : handshakeFailed
+    : failed
     ? 'Handshake Failed ❌'
     : 'Awaiting handshake';
 
@@ -254,7 +246,7 @@ function ConnectedBanner({
         { backgroundColor: T.primaryGlow, borderColor: T.primary },
       ]}
     >
-      {/* ── Top row: icon + name + buttons ─────────────────── */}
+      {/* Device name + buttons */}
       <View style={cb.topRow}>
         <Icon name="bluetooth-connect" size={20} color={T.primary} />
         <Text style={[cb.name, { color: T.primary, flex: 1 }]}>
@@ -271,16 +263,16 @@ function ConnectedBanner({
         </TouchableOpacity>
       </View>
 
-      {/* ── Handshake status ─────────────────────────────── */}
+      {/* Handshake status row */}
       <View style={[cb.hsRow, { borderColor: hsColor + '44' }]}>
-        {handshakePending ? (
+        {pending ? (
           <ActivityIndicator size="small" color={hsColor} />
         ) : (
           <Icon
             name={
-              handshakeDone
+              success
                 ? 'shield-check'
-                : handshakeFailed
+                : failed
                 ? 'shield-off'
                 : 'shield-outline'
             }
@@ -289,41 +281,34 @@ function ConnectedBanner({
           />
         )}
         <Text style={[cb.hsLabel, { color: hsColor }]}>{hsLabel}</Text>
+        {handshakeRaw && (
+          <Text style={[cb.hsRaw, { color: T.muted }]} numberOfLines={1}>
+            {handshakeRaw}
+          </Text>
+        )}
       </View>
 
-      {/* ── Handshake raw data received ──────────────────── */}
-      {handshakeRaw != null && (
-        <View style={[cb.rawBox, { borderColor: T.border }]}>
-          <Text style={[cb.rawLabel, { color: T.muted }]}>
-            Handshake raw recv:
-          </Text>
-          <Text style={[cb.rawVal, { color: T.primary }]}>{handshakeRaw}</Text>
-        </View>
-      )}
-
-      {/* ── UUID info ────────────────────────────────────── */}
+      {/* UUIDs (debug info) */}
       {bleConfig && (
         <View style={[cb.uuidBox, { borderColor: T.border }]}>
-          <UUIDRow label="SVC" value={bleConfig.serviceUUID} T={T} />
-          <UUIDRow label="NTF" value={bleConfig.notifyUUID} T={T} />
-          <UUIDRow label="WRT" value={bleConfig.writeUUID} T={T} />
+          {[
+            ['SVC', bleConfig.serviceUUID],
+            ['NTF', bleConfig.notifyUUID],
+            ['WRT', bleConfig.writeUUID],
+          ].map(([label, val]) => (
+            <View key={label} style={cb.uuidRow}>
+              <Text style={[cb.uuidLabel, { color: T.muted }]}>{label}</Text>
+              <Text
+                style={[cb.uuidVal, { color: T.textSub ?? T.text }]}
+                numberOfLines={1}
+                ellipsizeMode="middle"
+              >
+                {val}
+              </Text>
+            </View>
+          ))}
         </View>
       )}
-    </View>
-  );
-}
-
-function UUIDRow({ label, value, T }) {
-  return (
-    <View style={cb.uuidRow}>
-      <Text style={[cb.uuidLabel, { color: T.muted }]}>{label}</Text>
-      <Text
-        style={[cb.uuidVal, { color: T.textSub ?? T.text }]}
-        numberOfLines={1}
-        ellipsizeMode="middle"
-      >
-        {value}
-      </Text>
     </View>
   );
 }
@@ -357,7 +342,10 @@ function DeviceRow({ device, isConnected, isConnecting, T, onPress }) {
       </View>
       <View style={dr.info}>
         <Text
-          style={[dr.name, { color: isConnected ? T.primary : T.orange }]}
+          style={[
+            dr.name,
+            { color: isConnected ? T.primary : T.orange ?? T.white },
+          ]}
           numberOfLines={1}
         >
           {device.name || 'Unknown Device'}
@@ -431,13 +419,13 @@ function EmptyState({ T, btOff, onScan }) {
         size={56}
         color={T.border}
       />
-      <Text style={[es.title, { color: T.textSub }]}>
+      <Text style={[es.title, { color: T.textSub ?? T.muted }]}>
         {btOff ? 'Bluetooth is off' : 'No devices found'}
       </Text>
       <Text style={[es.sub, { color: T.muted }]}>
         {btOff
           ? 'Enable Bluetooth and scan again'
-          : 'Make sure your Arkashine device is powered on and nearby'}
+          : 'Make sure your ArkaShine device is powered on and nearby'}
       </Text>
       {!btOff && (
         <TouchableOpacity
@@ -473,7 +461,6 @@ function PulseRing({ T }) {
       ]),
     ).start();
   }, [anim]);
-
   return (
     <Animated.View
       style={[
@@ -508,7 +495,6 @@ function rssiStrength(rssi) {
   return 0;
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   container: { flex: 1 },
   body: { flex: 1, paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
@@ -544,7 +530,6 @@ const s = StyleSheet.create({
   pulseWrap: { alignItems: 'center', paddingTop: 40, gap: 12 },
   pulseText: { fontSize: 13 },
 });
-
 const cb = StyleSheet.create({
   wrap: {
     borderRadius: Radius.lg,
@@ -553,11 +538,7 @@ const cb = StyleSheet.create({
     marginBottom: Spacing.md,
     gap: 8,
   },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   name: { fontSize: 14, fontWeight: '800' },
   proceedBtn: {
     borderRadius: Radius.md,
@@ -575,24 +556,12 @@ const cb = StyleSheet.create({
     paddingVertical: 6,
   },
   hsLabel: { fontSize: 12, fontWeight: '700' },
-  rawBox: {
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    padding: 8,
-  },
-  rawLabel: { fontSize: 10, fontWeight: '700', marginBottom: 2 },
-  rawVal: { fontSize: 11, fontFamily: 'Courier', fontWeight: '700' },
-  uuidBox: {
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    padding: 8,
-    gap: 4,
-  },
+  hsRaw: { fontSize: 10, flex: 1, fontFamily: 'Courier' },
+  uuidBox: { borderRadius: Radius.sm, borderWidth: 1, padding: 8, gap: 4 },
   uuidRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   uuidLabel: { fontSize: 10, fontWeight: '800', width: 28 },
   uuidVal: { fontSize: 10, flex: 1, fontFamily: 'Courier' },
 });
-
 const dr = StyleSheet.create({
   card: {
     flexDirection: 'row',
@@ -626,7 +595,6 @@ const dr = StyleSheet.create({
   },
   btnText: { fontSize: 12, fontWeight: '800' },
 });
-
 const es = StyleSheet.create({
   wrap: {
     flex: 1,
@@ -654,7 +622,6 @@ const es = StyleSheet.create({
   },
   btnText: { fontSize: 14, fontWeight: '800' },
 });
-
 const pr = StyleSheet.create({
   ring: {
     width: 90,

@@ -130,7 +130,7 @@ export function DashboardScreen({ navigation }) {
             type: 'SET_SELECTED_PRODUCT',
             payload: item,
           });
-          navigation.navigate('SoilResultsScreen');
+          navigation.navigate(item.route, { item });
         }
       }}
       disabled={!item.active}

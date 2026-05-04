@@ -1,120 +1,70 @@
 // src/redux/reducers/phTestReducer.js
+
 import {
   TEST_RESET,
-  TEST_POUR_DETECTED,
-  TEST_TIMER_START,
-  TEST_TIMER_TICK,
-  TEST_TIMER_DONE,
-  TEST_SENSOR_START,
-  TEST_SENSOR_TICK,
-  TEST_SENSOR_DONE,
   TEST_MOTOR_START,
   TEST_MOTOR_TICK,
   TEST_MOTOR_DONE,
-  TEST_READING_START,
   TEST_RESULTS_RECEIVED,
   TEST_SAVED,
+  CAL_PH_POINT_SAVED,
+  CAL_EC_POINT_SAVED,
+  CAL_SAVED_TO_DEVICE,
+  CAL_RESET,
+  CAL_POINT_DONE,
 } from '../../config/actionTypes';
 
-export const MOTOR_DURATION = 60; // seconds — pH/EC mixer
-export const TIMER_DURATION = 180; // seconds — soil settle timer
-export const SENSOR_DURATION = 30; // seconds — sensor scan countdown
+export const MOTOR_DURATION = 60; 
+const PH_DEFAULTS = [
+  { standardPH: 4, voltage: null, confirmedValue: null, capturedAt: null },
+  { standardPH: 7, voltage: null, confirmedValue: null, capturedAt: null },
+  { standardPH: 9, voltage: null, confirmedValue: null, capturedAt: null },
+];
+const EC_DEFAULTS = [
+  { standardEC: 0.0, voltage: null, confirmedValue: null, capturedAt: null },
+  { standardEC: 1.413, voltage: null, confirmedValue: null, capturedAt: null },
+  { standardEC: 12.88, voltage: null, confirmedValue: null, capturedAt: null },
+];
 
+// ─── Initial state ────────────────────────────────────────────────────────────
 const init = {
-  // ── Soil test — pour + settle timer ──────────────────────
-  pourDetected: false,
-  timerLeft: TIMER_DURATION,
-  timerTotal: TIMER_DURATION,
-  timerDone: false,
-
-  // ── Soil test — sensor scan phase ─────────────────────────
-  sensorRunning: false,
-  sensorDone: false,
-  sensorLeft: SENSOR_DURATION,
-  sensorTotal: SENSOR_DURATION,
-
-  // ── pH/EC test — motor mixer phase ────────────────────────
+  // ── Motor phase ─────────────────────────────────────────────────────────
   motorState: 'idle', // 'idle' | 'running' | 'done'
   motorTimeLeft: MOTOR_DURATION,
   motorStartedAt: null,
 
-  // ── Reading phase (pH/EC after motor) ─────────────────────
-  readingState: 'idle', // 'idle' | 'reading' | 'done'
-  readingStartedAt: null,
-
-  // ── Final results ─────────────────────────────────────────
-  results: null, // { ph, ec, voltage, timestamp, raw, … }
+  // ── Test results (from firmware after motor finishes) ────────────────────
+  // Populated by BLE_DATA_RECEIVED forwarded through TEST_RESULTS_RECEIVED
+  results: null, // { ph, ec, voltage, ecVoltage, temperature, temperatureFallback, raw, timestamp }
   testCount: 0,
   savedAt: null,
   history: [], // last 100 results
+
+  // ── pH calibration points ────────────────────────────────────────────────
+  phPoints: PH_DEFAULTS,
+
+  // ── EC calibration points ────────────────────────────────────────────────
+  ecPoints: EC_DEFAULTS,
+
+  // ── Calibration metadata ─────────────────────────────────────────────────
+  lastCalibrated: null, // ISO string — last time calibration was saved to device
 };
 
+// ─── Reducer ──────────────────────────────────────────────────────────────────
 export default function phTestReducer(state = init, action) {
   switch (action.type) {
+    // ── Full test reset (call before starting MixerScreen) ───────────────
     case TEST_RESET:
       return {
         ...state,
-        pourDetected: false,
-        timerLeft: TIMER_DURATION,
-        timerDone: false,
-        sensorRunning: false,
-        sensorDone: false,
-        sensorLeft: SENSOR_DURATION,
         motorState: 'idle',
         motorTimeLeft: MOTOR_DURATION,
         motorStartedAt: null,
-        readingState: 'idle',
-        readingStartedAt: null,
         results: null,
         savedAt: null,
       };
 
-    // ── Pour + settle timer (soil test) ─────────────────────
-    case TEST_POUR_DETECTED:
-      return { ...state, pourDetected: true };
-
-    case TEST_TIMER_START:
-      return {
-        ...state,
-        timerLeft: TIMER_DURATION,
-        timerTotal: TIMER_DURATION,
-        timerDone: false,
-      };
-
-    case TEST_TIMER_TICK:
-      return {
-        ...state,
-        timerLeft: Math.max(0, state.timerLeft - 1),
-      };
-
-    case TEST_TIMER_DONE:
-      return { ...state, timerDone: true, timerLeft: 0 };
-
-    // ── Sensor scan phase (soil test) ────────────────────────
-    case TEST_SENSOR_START:
-      return {
-        ...state,
-        sensorRunning: true,
-        sensorDone: false,
-        sensorLeft: SENSOR_DURATION,
-        sensorTotal: SENSOR_DURATION,
-      };
-
-    case TEST_SENSOR_TICK:
-      return {
-        ...state,
-        sensorLeft: Math.max(0, state.sensorLeft - 1),
-      };
-
-    case TEST_SENSOR_DONE:
-      return {
-        ...state,
-        sensorRunning: false,
-        sensorDone: true,
-        sensorLeft: 0,
-      };
-
-    // ── Motor mixer phase (pH/EC test) ──────────────────────
+    // ── Motor phase ──────────────────────────────────────────────────────
     case TEST_MOTOR_START:
       return {
         ...state,
@@ -124,27 +74,19 @@ export default function phTestReducer(state = init, action) {
       };
 
     case TEST_MOTOR_TICK:
-      return { ...state, motorTimeLeft: Math.max(0, state.motorTimeLeft - 1) };
+      return {
+        ...state,
+        motorTimeLeft: Math.max(0, state.motorTimeLeft - 1),
+      };
 
     case TEST_MOTOR_DONE:
       return { ...state, motorState: 'done', motorTimeLeft: 0 };
 
-    // ── Reading phase (pH/EC after motor) ───────────────────
-    case TEST_READING_START:
-      return {
-        ...state,
-        readingState: 'reading',
-        readingStartedAt: Date.now(),
-        results: null,
-      };
-
-    // ── Results received from BLE ────────────────────────────
+    // ── Results from firmware ────────────────────────────────────────────
+    // Payload: { ph, ec, voltage, ecVoltage, temperature, temperatureFallback, raw }
     case TEST_RESULTS_RECEIVED:
       return {
         ...state,
-        readingState: 'done',
-        sensorDone: true,
-        sensorRunning: false,
         results: { ...action.payload, timestamp: Date.now() },
       };
 
@@ -157,6 +99,86 @@ export default function phTestReducer(state = init, action) {
           { ...state.results, savedAt: Date.now() },
           ...state.history.slice(0, 99),
         ],
+      };
+
+    // ── pH calibration ───────────────────────────────────────────────────
+    // Fired by app when user captures a voltage reading locally
+    case CAL_PH_POINT_SAVED: {
+      const { standardPH, voltage } = action.payload;
+      return {
+        ...state,
+        phPoints: state.phPoints.map(p =>
+          p.standardPH === standardPH
+            ? { ...p, voltage, capturedAt: Date.now() }
+            : p,
+        ),
+      };
+    }
+
+    // ── EC calibration ───────────────────────────────────────────────────
+    case CAL_EC_POINT_SAVED: {
+      const { standardEC, voltage } = action.payload;
+      return {
+        ...state,
+        ecPoints: state.ecPoints.map(p =>
+          p.standardEC === standardEC
+            ? { ...p, voltage, capturedAt: Date.now() }
+            : p,
+        ),
+      };
+    }
+
+    // ── CAL_POINT_DONE — device confirmed the calibration point ──────────
+    // payload: { type: 'PH'|'EC', value: number }
+    // Stores the device-confirmed value alongside the probe voltage
+    case CAL_POINT_DONE: {
+      const { type, value } = action.payload;
+      if (type === 'PH') {
+        // Find the point that was most recently awaiting confirmation
+        const pending = state.phPoints.find(
+          p => p.capturedAt !== null && p.confirmedValue === null,
+        );
+        if (!pending) return state;
+        return {
+          ...state,
+          phPoints: state.phPoints.map(p =>
+            p.standardPH === pending.standardPH
+              ? { ...p, confirmedValue: value }
+              : p,
+          ),
+        };
+      }
+      if (type === 'EC') {
+        const pending = state.ecPoints.find(
+          p => p.capturedAt !== null && p.confirmedValue === null,
+        );
+        if (!pending) return state;
+        return {
+          ...state,
+          ecPoints: state.ecPoints.map(p =>
+            p.standardEC === pending.standardEC
+              ? { ...p, confirmedValue: value }
+              : p,
+          ),
+        };
+      }
+      return state;
+    }
+
+    // ── Saved to device flash ────────────────────────────────────────────
+    case CAL_SAVED_TO_DEVICE:
+      return {
+        ...state,
+        lastCalibrated: new Date().toISOString(),
+      };
+
+    // ── Reset calibration only (keep test history) ───────────────────────
+    case CAL_RESET:
+      return {
+        ...state,
+        phPoints: PH_DEFAULTS,
+        ecPoints: EC_DEFAULTS,
+        lastCalibrated: null,
       };
 
     default:

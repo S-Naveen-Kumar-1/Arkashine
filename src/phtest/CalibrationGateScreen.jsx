@@ -1,5 +1,4 @@
 // src/screens/phtest/CalibrationGateScreen.jsx
-// Checks test count, prompts calibrate or skip. Reads testCount from Redux.
 
 import React from 'react';
 import {
@@ -29,6 +28,7 @@ export default function CalibrationGateScreen({ navigation }) {
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
+
       <TopBar
         title="pH / EC Test"
         onBack={() => navigation.goBack()}
@@ -36,7 +36,8 @@ export default function CalibrationGateScreen({ navigation }) {
       />
 
       <View style={s.body}>
-        {/* ── Device chip ─────────────────────────────────────────── */}
+
+        {/* ── Device status ───────────────────────── */}
         {connected && device && (
           <View
             style={[
@@ -51,7 +52,7 @@ export default function CalibrationGateScreen({ navigation }) {
           </View>
         )}
 
-        {/* ── Icon ────────────────────────────────────────────────── */}
+        {/* ── Icon ───────────────────────────────── */}
         <View
           style={[
             s.iconRing,
@@ -67,19 +68,21 @@ export default function CalibrationGateScreen({ navigation }) {
           />
         </View>
 
+        {/* ── Title ──────────────────────────────── */}
         <Text style={[s.title, { color: T.primary }]}>
           {needsCalibration
-            ? '100-Test Recalibration Required'
+            ? 'Calibration Recommended'
             : 'Ready to Test'}
         </Text>
 
+        {/* ── Subtitle ───────────────────────────── */}
         <Text style={[s.sub, { color: T.text }]}>
           {needsCalibration
-            ? `You have completed ${testCount} tests. Recalibration ensures accurate pH & EC readings.`
-            : 'Calibration is recommended every 100 tests for accurate results.'}
+            ? `You’ve completed ${testCount} tests. Calibration improves accuracy.`
+            : 'You can start testing using existing calibration. Calibrate anytime for better accuracy.'}
         </Text>
 
-        {/* ── Test count chip ─────────────────────────────────────── */}
+        {/* ── Test count ─────────────────────────── */}
         <View
           style={[
             s.countChip,
@@ -93,7 +96,7 @@ export default function CalibrationGateScreen({ navigation }) {
           </Text>
         </View>
 
-        {/* ── Info box ────────────────────────────────────────────── */}
+        {/* ── Info box ───────────────────────────── */}
         <View
           style={[
             s.infoBox,
@@ -112,38 +115,37 @@ export default function CalibrationGateScreen({ navigation }) {
             style={{ marginTop: 2 }}
           />
           <Text style={[s.infoText, { color: T.text }]}>
-            Calibration uses standard buffer solutions (pH 4, 7, 9) and EC
-            standards (0.0, 1.413, 12.88 dS/m) to map probe voltage to accurate
-            readings.
+            Calibration maps probe voltage to accurate pH & EC values using standard solutions (pH 4, 7, 9 and EC standards).
           </Text>
         </View>
 
-        {/* ── Calibrate ───────────────────────────────────────────── */}
+        {/* ── PRIMARY: START TEST ────────────────── */}
         <TouchableOpacity
           style={[s.btnPrimary, { backgroundColor: T.primary }]}
-          onPress={() => navigation.navigate('CalibrationMenuScreen')}
+          onPress={() => navigation.navigate('MixerScreen')}
           activeOpacity={0.85}
         >
-          <Icon name="tune" size={20} color="#fff" />
+          <Icon name="play-circle" size={20} color="#fff" />
           <Text style={s.btnPrimaryText}>
-            {needsCalibration ? 'Start Recalibration' : 'Calibrate Device'}
+            Start Test (Use Existing Calibration)
           </Text>
         </TouchableOpacity>
 
-        {/* ── Skip ────────────────────────────────────────────────── */}
+        {/* ── SECONDARY: CALIBRATE ───────────────── */}
         <TouchableOpacity
-          style={[s.btnOutline, { borderColor: T.border }]}
-          onPress={() => navigation.navigate('MixerScreen')}
+          style={[s.btnOutline, { borderColor: T.primary }]}
+          onPress={() => navigation.navigate('CalibrationMenuScreen')}
           activeOpacity={0.75}
         >
-          <Text style={[s.btnOutlineText, { color: T.muted }]}>
-            Skip — Use Existing Calibration
+          <Text style={[s.btnOutlineText, { color: T.primary }]}>
+            Calibrate Device (Optional)
           </Text>
         </TouchableOpacity>
 
+        {/* ── Warning ───────────────────────────── */}
         {needsCalibration && (
           <Text style={[s.warn, { color: T.warning }]}>
-            ⚠️ Skipping may reduce measurement accuracy
+            ⚠️ Skipping calibration may reduce accuracy
           </Text>
         )}
       </View>
@@ -151,8 +153,10 @@ export default function CalibrationGateScreen({ navigation }) {
   );
 }
 
+// ───────── STYLES ─────────
 const s = StyleSheet.create({
   container: { flex: 1 },
+
   body: {
     flex: 1,
     alignItems: 'center',
@@ -160,6 +164,7 @@ const s = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.xl,
   },
+
   deviceChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -170,7 +175,12 @@ const s = StyleSheet.create({
     paddingVertical: 6,
     marginBottom: Spacing.md,
   },
-  deviceChipText: { fontSize: 12, fontWeight: '700' },
+
+  deviceChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
   iconRing: {
     width: 110,
     height: 110,
@@ -181,20 +191,21 @@ const s = StyleSheet.create({
     marginBottom: Spacing.lg,
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
+
   title: {
     fontSize: 22,
     fontWeight: '900',
     textAlign: 'center',
     marginBottom: Spacing.sm,
-    letterSpacing: -0.5,
   },
+
   sub: {
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: Spacing.md,
-    paddingHorizontal: Spacing.sm,
   },
+
   countChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -205,7 +216,9 @@ const s = StyleSheet.create({
     paddingVertical: 8,
     marginBottom: Spacing.md,
   },
+
   countText: { fontSize: 13 },
+
   infoBox: {
     flexDirection: 'row',
     gap: 10,
@@ -215,7 +228,13 @@ const s = StyleSheet.create({
     marginBottom: Spacing.lg,
     width: '100%',
   },
-  infoText: { fontSize: 13, lineHeight: 20, flex: 1 },
+
+  infoText: {
+    fontSize: 13,
+    lineHeight: 20,
+    flex: 1,
+  },
+
   btnPrimary: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -226,12 +245,13 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: Spacing.sm,
   },
+
   btnPrimaryText: {
     color: '#fff',
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '800',
-    letterSpacing: 0.3,
   },
+
   btnOutline: {
     width: '100%',
     height: 48,
@@ -239,8 +259,16 @@ const s = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: Spacing.sm,
   },
-  btnOutlineText: { fontSize: 14, fontWeight: '600' },
-  warn: { fontSize: 12, marginTop: Spacing.xs, textAlign: 'center' },
+
+  btnOutlineText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  warn: {
+    fontSize: 12,
+    marginTop: Spacing.sm,
+    textAlign: 'center',
+  },
 });
