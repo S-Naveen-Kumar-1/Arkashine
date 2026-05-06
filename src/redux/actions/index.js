@@ -105,19 +105,6 @@ export const bleScanStart = () => ({ type: BLE_SCAN_START });
 export const bleScanStop = () => ({ type: BLE_SCAN_STOP });
 
 // ── TEST FLOW ────────────────────────────────────────────────
-export const testReset = () => ({ type: TEST_RESET });
-export const testPourDetected = () => ({ type: TEST_POUR_DETECTED });
-
-export const startSettleTimer = () => dispatch => {
-  dispatch({ type: TEST_TIMER_START });
-  const interval = setInterval(() => {
-    dispatch({ type: TEST_TIMER_TICK });
-  }, 1000);
-  setTimeout(() => {
-    clearInterval(interval);
-    dispatch({ type: TEST_TIMER_DONE });
-  }, 180000);
-};
 
 export const startSensorCountdown = onTick => dispatch => {
   dispatch({ type: TEST_SENSOR_START });

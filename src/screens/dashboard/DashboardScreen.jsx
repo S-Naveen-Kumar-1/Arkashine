@@ -350,7 +350,7 @@ export function DashboardScreen({ navigation }) {
                 style={[s.weatherLocation, { color: T.textSub }]}
                 numberOfLines={1}
               >
-                Delhi, India
+                Bengaluru, India
               </Text>
             </View>
           </View>

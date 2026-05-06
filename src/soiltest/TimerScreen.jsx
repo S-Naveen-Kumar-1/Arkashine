@@ -1,47 +1,76 @@
 // src/screens/test/TimerScreen.js
-import React, { useEffect, useRef } from 'react';
+
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useDispatch, useSelector } from 'react-redux';
-import { testPourDetected } from '../redux/actions';
 import { AppButton, ProgressRing } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Typography } from '../theme';
+import {
+  cmdCheckSoilMotorStatus,
+  cmdStartSoilSensor,
+  cmdStopSoilTest,
+} from '../redux/actions/bleActions';
+import { useDispatch, useSelector } from 'react-redux';
+
+const MOTOR_DURATION = 180;
 
 export function TimerScreen({ navigation }) {
+  const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
-  const dispatch = useDispatch();
+  const soilSathiData = useSelector(s => s.soilsaathi);
+  console.log(soilSathiData, 'check ,,,');
 
-  const { timerLeft, timerTotal, timerDone } = useSelector(s => s.phtest);
-  const dispatched = useRef(false);
-
+  const [timeLeft, setTimeLeft] = useState(MOTOR_DURATION);
+  const intervalRef = useRef(null);
   useEffect(() => {
-    if (timerDone && !dispatched.current) {
-      dispatched.current = true;
-      navigation.replace('SensorScreen');
+    const interval = setInterval(() => {
+      dispatch(cmdCheckSoilMotorStatus());
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
+  useEffect(() => {
+    if (timeLeft === 0) {
+      dispatch(cmdStopSoilTest());
     }
-  }, [timerDone]);
+  }, [timeLeft]);
 
-  const minutes = Math.floor(timerLeft / 60);
-  const seconds = timerLeft % 60;
-  const progress = timerTotal - timerLeft;
+  // start timer on mount
+  useEffect(() => {
+    setTimeLeft(MOTOR_DURATION);
 
-  // ✅ Skip handler
-  const handleSkip = () => {
-    if (dispatched.current) return;
-    dispatched.current = true;
+    intervalRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(intervalRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-    // optional: mark timer as done in redux
-    dispatch(testPourDetected());
+    return () => clearInterval(intervalRef.current);
+  }, []);
 
+  const minutes = Math.floor(timeLeft / 60);
+  const seconds = timeLeft % 60;
+  const progress = MOTOR_DURATION - timeLeft;
+
+  const timerDone = timeLeft === 0;
+
+  // ✅ Skip → go immediately
+  const handleSkip = async () => {
+    clearInterval(intervalRef.current);
+    await dispatch(cmdStopSoilTest());
+    await dispatch(cmdStartSoilSensor());
     navigation.replace('SensorScreen');
   };
 
-  // ✅ Next handler (only when timer completes)
+  // ✅ Next → only after timer completes
   const handleNext = () => {
-    if (!timerDone || dispatched.current) return;
-    dispatched.current = true;
+    if (!timerDone) return;
     navigation.replace('SensorScreen');
   };
 
@@ -51,18 +80,28 @@ export function TimerScreen({ navigation }) {
 
       <View style={s.center}>
         <Text style={[Typography.h3, { color: T.text, marginBottom: 8 }]}>
-          Solution Settling
+          {`Motor State: ${soilSathiData?.motorState}` || 'Idle'}
         </Text>
+        {soilSathiData?.motorStateFromBle && (
+          <Text style={[Typography.h3, { color: T.text, marginBottom: 8 }]}>
+            {`Motor State from ble :${soilSathiData?.motorStateFromBle}`}
+          </Text>
+        )}
+          {!soilSathiData?.motorStateFromBle && (
+          <Text style={[Typography.h3, { color: T.text, marginBottom: 8 }]}>
+            {"No Response from device"}
+          </Text>
+        )}
 
         <Text style={[s.sub, { color: T.textSub }]}>
-          Wait for soil solution to settle
+          Please wait while motor completes
         </Text>
 
         <View style={s.timerWrap}>
           <ProgressRing
             size={220}
             progress={progress}
-            total={timerTotal}
+            total={MOTOR_DURATION}
             color={T.primary}
             bg={T.divider}
           >
@@ -76,46 +115,25 @@ export function TimerScreen({ navigation }) {
           </ProgressRing>
         </View>
 
-        <View
-          style={[
-            s.infoCard,
-            { backgroundColor: T.primaryDim, borderColor: T.primary },
-          ]}
-        >
-          <Text style={s.infoIcon}>⏳</Text>
-          <Text style={[s.infoText, { color: T.text }]}>
-            Wait{' '}
-            <Text style={{ fontWeight: '900', color: T.primary }}>
-              {timerTotal} seconds
-            </Text>{' '}
-            for the soil solution to properly settle in the device filter
-          </Text>
-        </View>
-
-        {/* Progress Bar */}
+        {/* Progress bar */}
         <View style={[s.progressBar, { backgroundColor: T.divider }]}>
           <View
             style={[
               s.progressFill,
               {
                 backgroundColor: T.primary,
-                width: `${(progress / (timerTotal || 1)) * 100}%`,
+                width: `${(progress / MOTOR_DURATION) * 100}%`,
               },
             ]}
           />
         </View>
 
         <Text style={[s.progressLabel, { color: T.muted }]}>
-          {Math.round((progress / (timerTotal || 1)) * 100)}% complete
-        </Text>
-
-        <Text style={[s.lockMsg, { color: T.muted }]}>
-          🔒 Navigation locked until timer completes
+          {Math.round((progress / MOTOR_DURATION) * 100)}% complete
         </Text>
 
         {/* ✅ Buttons */}
         <View style={s.buttonRow}>
-          {/* Skip */}
           <AppButton
             label="Skip"
             onPress={handleSkip}
@@ -125,13 +143,12 @@ export function TimerScreen({ navigation }) {
             style={{ flex: 1 }}
           />
 
-          {/* Next */}
           <AppButton
             label="Next"
             onPress={handleNext}
             disabled={!timerDone}
             color={T.primary}
-             textColor={T.primary} 
+            textColor={T.primary}
             style={{ flex: 1 }}
           />
         </View>
@@ -171,25 +188,6 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
 
-  infoCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    width: '100%',
-    marginBottom: 20,
-  },
-
-  infoIcon: { fontSize: 28 },
-
-  infoText: {
-    fontSize: 14,
-    flex: 1,
-    lineHeight: 20,
-  },
-
   progressBar: {
     width: '100%',
     height: 6,
@@ -205,11 +203,6 @@ const s = StyleSheet.create({
 
   progressLabel: {
     fontSize: 12,
-  },
-
-  lockMsg: {
-    fontSize: 12,
-    marginTop: 16,
   },
 
   buttonRow: {

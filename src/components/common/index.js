@@ -206,6 +206,7 @@ export function ProgressRing({
       toValue: pct,
       duration: 500,
       easing: Easing.out(Easing.ease),
+       useNativeDriver: false, 
     }).start();
   }, [pct]);
 

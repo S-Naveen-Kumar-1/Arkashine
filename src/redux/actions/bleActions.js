@@ -8,62 +8,6 @@
 //  COMPLETE TWO-WAY COMMUNICATION MAP
 // ═════════════════════════════════════════════════════════════════════════════
 //
-//  CMD 1 ─ HANDSHAKE
-//    →  {"HANDSHAKE":"HELLO"}
-//    ←  {"STATUS":"BLE_CONNECTED"}    auto-sent by firmware on link-up
-//       {"HANDSHAKE":"ACK"}           explicit ACK to our HELLO
-//    Redux: handshakeStatus='success', handshakeRaw stored
-//
-//  CMD 2 ─ START TEST
-//    →  {"TEST":"START"}
-//    ←  {"TEST":"STARTED"}            immediate ACK — motor now spinning
-//       ...~60 s later...
-//       {"pH":"7.12","TDS":"486.34","temperature":"25.00",
-//        "temperatureFallback":false,"pHVoltage":"2.4935","ECVoltage":"0.9720"}
-//    Redux: testStarted=true → sensorData updated on final result
-//
-//  CMD 3 ─ STOP TEST
-//    →  {"TEST":"STOP"}
-//    ←  {"TEST":"STOPPED"}
-//    Redux: testStarted=false, motorStatus='stopped'
-//
-//  CMD 4 ─ CHECK MOTOR STATUS
-//    →  {"CHECKMOTORSTATUS":"CHECKMOTORSTATUS"}
-//    ←  {"MOTORSTATUS":"RUNNING"}
-//       {"MOTORSTATUS":"STOPPED"}
-//    Redux: motorStatus='running'|'stopped'
-//
-//  CMD 5 ─ CALIBRATE pH POINT
-//    →  {"CALIBERATE":"PH","value":4}   (value: 4 | 7 | 9)
-//    ←  {"CALIBERATE":"PH","STATUS":"DONE","value":"4.00"}
-//    Redux: CAL_POINT_DONE → phPoints[].confirmedValue updated
-//
-//  CMD 6 ─ CALIBRATE EC POINT
-//    →  {"CALIBERATE":"EC","value":1.413}  (value: 0.0 | 1.413 | 12.88)
-//    ←  {"CALIBERATE":"EC","STATUS":"DONE","value":"1.41"}
-//    Redux: CAL_POINT_DONE → ecPoints[].confirmedValue updated
-//
-//  CMD 7 ─ CHECK CALIBRATION STATUS
-//    →  {"CALIBRATION_STATUS":true}
-//    ←  {"CALIBRATION_STATUS":"PH_4_DONE"|"PH_7_DONE"|"PH_9_DONE"|
-//         "EC_0_DONE"|"EC_1413_DONE"|"EC_1288_DONE"|"ALL_DONE"|"NOT_CALIBRATED"}
-//    Redux: calibrationStatus=string
-//
-//  CMD 8 ─ GET FINAL RESULT
-//    →  {"FINAL_RESULT":"RESULT"}
-//    ←  {"FINAL_RESULT":{"pH":"7.12","TDS":"486.34","temperature":"25.00",
-//         "pHVoltage":"2.4935","ECVoltage":"0.9720"}}
-//    Redux: finalResult + sensorData updated
-//
-//  UNSOLICITED ERRORS (device → app, no command triggers these)
-//    ←  {"ERROR":"NO_COMMAND_RECEIVED"}     no command received in 30 s
-//    ←  {"ERROR":"TEMPERATURE_OUT_OF_RANGE"}
-//    ←  {"ERROR":"INVALID_JSON"}
-//    ←  {"ERROR":"UNKNOWN_COMMAND"}
-//    Redux: lastDeviceError=string
-//
-// ═════════════════════════════════════════════════════════════════════════════
-
 import { BleManager } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
 import { Alert } from 'react-native';
@@ -259,6 +203,13 @@ async function _sendJSON(payload, dispatch) {
     return false;
   }
 }
+const normalizeSoil = data => {
+  const result = {};
+  Object.keys(data).forEach(k => {
+    result[k] = data[k] != null ? Number(data[k]) : null;
+  });
+  return result;
+};
 
 // Build a normalised sensor reading object from any firmware source
 function _buildReading(src, raw) {
@@ -394,6 +345,75 @@ function parsePayload(bytes, dispatch) {
     return reading;
   }
 
+  // soil test
+  if (parsed.SOILTEST == 'STARTED') {
+    dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'running' } });
+  }
+  if (parsed.SOILTEST == 'MIXING_COMPLETED') {
+    dispatch({
+      type: 'SOIL_MOTOR_STATE',
+      payload: { data: 'mixing completed' },
+    });
+  }
+
+  if (parsed.SOILMOTORSTATUS == 'RUNNING') {
+    dispatch({
+      type: 'SOIL_MOTOR_STATE_FROM_BLE',
+      payload: { data: 'running' },
+    });
+  }
+  if (parsed.SOILMOTORSTATUS == 'NOT_STARTED') {
+    dispatch({
+      type: 'SOIL_MOTOR_STATE_FROM_BLE',
+      payload: { data: 'not_started' },
+    });
+  }
+  if (parsed.SOILMOTORSTATUS == 'STOPPED') {
+    dispatch({
+      type: 'SOIL_MOTOR_STATE_FROM_BLE',
+      payload: { data: 'stopped' },
+    });
+  }
+
+  if (parsed.SOILSENSORSTATUS == 'READING') {
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'reading' },
+    });
+  }
+  if (parsed.SOILSENSORSTATUS == 'RUNNING') {
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'running' },
+    });
+  }
+  if (parsed.SOILSENSORSTATUS == 'NOT_STARTED') {
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'not_started' },
+    });
+  }
+
+  if (parsed.SOILSENSORSTATUS == 'SENSOR_READING_DONE') {
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'sensor_reading_done' },
+    });
+  }
+
+  if (parsed.SOILSENSORSTATUS == 'STOPPED') {
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'stopped' },
+    });
+  }
+  if (parsed.FINALSOILRESULT && typeof parsed.FINALSOILRESULT === 'object') {
+    dispatch({
+      type: 'SOIL_BLE_RESULT',
+      payload: normalizeSoil(parsed.FINALSOILRESULT),
+    });
+    return parsed.FINALSOILRESULT;
+  }
   dispatch(ac.log('DATA', `← Unhandled JSON ignored: ${raw}`));
   return null;
 }
@@ -544,3 +564,21 @@ export const cmdGetFinalResult = () => dispatch =>
   _sendJSON({ FINAL_RESULT: 'FINAL_RESULT' }, dispatch);
 
 export const clearDebugLog = () => dispatch => dispatch(ac.debugClear());
+
+//soil tests
+
+export const cmdStartSoilTest = () => dispatch =>
+  _sendJSON({ SOILTEST: 'START' }, dispatch);
+export const cmdStopSoilTest = () => dispatch =>
+  _sendJSON({ SOILTEST: 'STOP' }, dispatch);
+
+export const cmdCheckSoilMotorStatus = () => dispatch =>
+  _sendJSON({ CHECKSOILMOTORSTATUS: 'CHECKSOILMOTORSTATUS' }, dispatch);
+
+export const cmdStartSoilSensor = () => dispatch =>
+  _sendJSON({ SOILSENSOR: 'READ' }, dispatch);
+export const cmdCheckSoilSensorStatus = () => dispatch =>
+  _sendJSON({ CHECKSOILSENSORSTATUS: 'CHECKSOILSENSORSTATUS' }, dispatch);
+
+export const cmdGetSoilResult = () => dispatch =>
+  _sendJSON({ SOILRESULT: 'GET' }, dispatch);

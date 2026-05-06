@@ -81,7 +81,7 @@ export default function DeviceScanScreen({ route, navigation }) {
   const handleProceed = useCallback(() => {
     if (item?.name === 'Ph Bottle')
       navigation.navigate('CalibrationGateScreen');
-    else navigation.navigate('MixerScreen');
+    else navigation.navigate('SoilTestIntroScreen');
   }, [item, navigation]);
 
   const btOff =
@@ -151,7 +151,6 @@ export default function DeviceScanScreen({ route, navigation }) {
             disabled={btOff}
             activeOpacity={0.8}
           >
-            
             {scanning ? (
               <>
                 <ActivityIndicator size="small" color="#ef4444" />

@@ -52,7 +52,7 @@ export const AppStack = () => {
           }}
         />
         <Stack.Screen
-          name="IntroScreen"
+          name="SoilTestIntroScreen"
           component={IntroScreen}
           options={{
             headerShown: false,

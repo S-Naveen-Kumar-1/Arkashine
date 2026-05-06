@@ -14,7 +14,7 @@ import {
   CAL_POINT_DONE,
 } from '../../config/actionTypes';
 
-export const MOTOR_DURATION = 60; 
+export const MOTOR_DURATION = 60;
 const PH_DEFAULTS = [
   { standardPH: 4, voltage: null, confirmedValue: null, capturedAt: null },
   { standardPH: 7, voltage: null, confirmedValue: null, capturedAt: null },

@@ -86,9 +86,9 @@ export default function PHECResultScreen({ navigation }) {
 
   const hasData = ph !== null || tds !== null;
 
-  if (__DEV__) {
-    console.log('Result Screen: ble data', ble);
-  }
+  // if (__DEV__) {
+  //   console.log('Result Screen: ble data', ble);
+  // }
 
   const recs = getRecommendations(ph, tds);
 
@@ -103,7 +103,6 @@ export default function PHECResultScreen({ navigation }) {
   };
 
   // ───────── RUNNING ─────────
-
 
   // // ───────── NO DATA ─────────
   // if (!hasData) {
@@ -125,7 +124,7 @@ export default function PHECResultScreen({ navigation }) {
       <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
       <TopBar
         title="Soil Test Result"
-        onHome={() => navigation.navigate("ProductsListingScreen")}
+        onHome={() => navigation.navigate('ProductsListingScreen')}
         theme={theme}
       />
 
@@ -199,7 +198,7 @@ export default function PHECResultScreen({ navigation }) {
         {/* CTA */}
         <TouchableOpacity
           style={[s.ctaBtn, { backgroundColor: T.primary }]}
-          onPress={() => navigation.navigate('SoilTestBookingScreen')}
+          onPress={() => navigation.replace('SoilTestIntroScreen')}
         >
           <Icon name="flask-outline" size={20} color="#fff" />
           <Text style={s.ctaText}>Get Full 12 Parameter Soil Test →</Text>

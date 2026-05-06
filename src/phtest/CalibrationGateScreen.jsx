@@ -122,7 +122,7 @@ export default function CalibrationGateScreen({ navigation }) {
         {/* ── PRIMARY: START TEST ────────────────── */}
         <TouchableOpacity
           style={[s.btnPrimary, { backgroundColor: T.primary }]}
-          onPress={() => navigation.navigate('MixerScreen')}
+          onPress={() => navigation.replace('MixerScreen')}
           activeOpacity={0.85}
         >
           <Icon name="play-circle" size={20} color="#fff" />
@@ -134,7 +134,7 @@ export default function CalibrationGateScreen({ navigation }) {
         {/* ── SECONDARY: CALIBRATE ───────────────── */}
         <TouchableOpacity
           style={[s.btnOutline, { borderColor: T.primary }]}
-          onPress={() => navigation.navigate('CalibrationMenuScreen')}
+          onPress={() => navigation.replace('CalibrationMenuScreen')}
           activeOpacity={0.75}
         >
           <Text style={[s.btnOutlineText, { color: T.primary }]}>

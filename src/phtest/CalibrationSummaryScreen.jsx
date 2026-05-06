@@ -107,7 +107,7 @@ export default function CalibrationSummaryScreen({ navigation }) {
         {/* ── CTA ────────────────────────────────────────────────── */}
         <TouchableOpacity
           style={[s.cta, { backgroundColor: T.primary }]}
-          onPress={() => navigation.navigate('MixerScreen')}
+          onPress={() => navigation.replace('MixerScreen')}
           activeOpacity={0.85}
         >
           <Icon name="flask-outline" size={22} color="#fff" />
@@ -116,7 +116,7 @@ export default function CalibrationSummaryScreen({ navigation }) {
 
         <TouchableOpacity
           style={[s.secondBtn, { borderColor: T.border }]}
-          onPress={() => navigation.navigate('CalibrationMenuScreen')}
+          onPress={() => navigation.replace('CalibrationMenuScreen')}
         >
           <Text style={[s.secondBtnText, { color: T.muted }]}>
             Redo Calibration

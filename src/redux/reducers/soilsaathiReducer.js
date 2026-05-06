@@ -18,8 +18,24 @@ import {
   SOIL_CLEAR,
   SOIL_SET_CURRENT_ID,
 } from '../actions/soilsaathiActions';
-
+export const SENSOR_DURATION = 60;
+export const MOTOR_DURATION = 180;
 const init = {
+  // ── Phase control ─────────────────────────────
+  phase: 'idle', // 'idle' | 'motor' | 'sensor'
+
+  timerTotal: 0,
+  timerLeft: 0,
+  timerDone: false,
+  timerStartedAt: null,
+
+  motorState: 'Idle', // 'idle' | 'running' | 'done'
+  sensorState: 'Idle',
+  motorStateFromBle: null,
+  sensorStateFromBle: null,
+
+  bleResultData: null,
+  // ── Existing fields (unchanged) ───────────────
   createStatus: 'idle',
   createError: null,
   currentRecord: null,
@@ -40,6 +56,42 @@ const init = {
 
 export default function soilsaathiReducer(state = init, action) {
   switch (action.type) {
+    case 'TEST_RESET':
+      return {
+        ...init,
+      };
+
+    case 'SOIL_MOTOR_STATE': {
+      return {
+        ...state,
+        motorState: action.payload.data,
+      };
+    }
+    case 'SOIL_SENSOR_STATE': {
+      return {
+        ...state,
+        sensorState: action.payload.data,
+      };
+    }
+    case 'SOIL_MOTOR_STATE_FROM_BLE': {
+      return {
+        ...state,
+        motorStateFromBle: action.payload.data,
+      };
+    }
+    case 'SOIL_SENSOR_STATE_FROM_BLE': {
+      return {
+        ...state,
+        sensorStateFromBle: action.payload.data,
+      };
+    }
+
+    case 'SOIL_BLE_RESULT':
+      return {
+        ...state,
+        bleResultData: action.payload,
+      };
+
     // ─── CREATE ─────────────────────────────
     case SOIL_CREATE_REQUEST:
       return { ...state, createStatus: 'loading', createError: null };

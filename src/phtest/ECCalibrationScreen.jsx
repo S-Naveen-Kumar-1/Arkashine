@@ -373,7 +373,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
 
   const handleReconnect = useCallback(() => {
     dispatch(startScan());
-    navigation.navigate('DeviceScanScreen');
+    navigation.replace('DeviceScanScreen');
   }, [dispatch, navigation]);
 
   const allDone = step === EC_POINTS.length - 1 && phase === 'done';

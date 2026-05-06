@@ -62,7 +62,7 @@ export default function CalibrationMenuScreen({ navigation }) {
           <TouchableOpacity
             key={opt.id}
             style={[s.card, { backgroundColor: T.card, borderColor: T.border }]}
-            onPress={() => navigation.navigate(opt.screen)}
+            onPress={() => navigation.replace(opt.screen)}
             activeOpacity={0.8}
           >
             {/* Left accent bar */}
@@ -109,7 +109,7 @@ export default function CalibrationMenuScreen({ navigation }) {
             { backgroundColor: T.primaryGlow, borderColor: T.primary },
           ]}
           onPress={() =>
-            navigation.navigate('PHCalibrationScreen', { fullFlow: true })
+            navigation.replace('PHCalibrationScreen', { fullFlow: true })
           }
           activeOpacity={0.8}
         >

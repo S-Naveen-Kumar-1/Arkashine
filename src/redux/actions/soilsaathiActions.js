@@ -23,6 +23,8 @@ export const SOIL_AI_RECS_FAIL = 'SOIL_AI_RECS_FAIL';
 export const SOIL_CLEAR = 'SOIL_CLEAR';
 export const SOIL_SET_CURRENT_ID = 'SOIL_SET_CURRENT_ID';
 
+export const testReset = () => ({ type: 'TEST_RESET' });
+
 export function listSoilReadings(deviceId) {
   return {
     type: SOIL_LIST_REQUEST,

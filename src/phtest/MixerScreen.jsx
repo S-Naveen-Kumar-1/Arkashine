@@ -84,13 +84,13 @@ export default function MixerScreen({ navigation }) {
     [],
   );
 
-  // Poll motor status every 5 s while running
+  // Poll motor status every 3 s while running
   // → {"CHECKMOTORSTATUS":"CHECKMOTORSTATUS"}  ← {"MOTORSTATUS":"RUNNING"|"STOPPED"}
   useEffect(() => {
     if (motorState === 'running' && connected) {
       pollRef.current = setInterval(() => {
         dispatch(cmdCheckMotorStatus());
-      }, 5000);
+      }, 3000);
     } else {
       clearInterval(pollRef.current);
     }
@@ -163,7 +163,7 @@ export default function MixerScreen({ navigation }) {
         </View>
 
         {/* Test started ACK chip — shown when firmware sent {"TEST":"STARTED"} */}
-        {testStarted && motorState === 'running' && (
+        {/* {testStarted && (
           <View
             style={[
               s.chip,
@@ -175,10 +175,10 @@ export default function MixerScreen({ navigation }) {
               Firmware: Motor STARTED ✅
             </Text>
           </View>
-        )}
+        )} */}
 
         {/* Motor status chip — updated by CHECKMOTORSTATUS poll every 5 s */}
-        {firmwareLabel && motorState === 'running' && (
+        {firmwareLabel && (
           <View
             style={[
               s.chip,

@@ -41,7 +41,7 @@ export const PRODUCTS = [
     tag: 'Smart Device',
     active: true,
     isMain: true,
-    route: 'SoilResultsScreen',
+    route: 'BLEScanScreen',
     stats: { tests: 213, lastUsed: 'Today' },
   },
   {

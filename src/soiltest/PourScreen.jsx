@@ -11,16 +11,16 @@ import {
   Easing,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
-import { testPourDetected, startSettleTimer } from '../redux/actions';
+import { startMotorTimer } from '../redux/actions/soilsaathiActions';
 import { AppButton, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Radius, Typography, Shadow } from '../theme';
+import { cmdStartSoilTest } from '../redux/actions/bleActions';
 
 export default function PourScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
-  const { pourDetected } = useSelector(s => s.phtest);
 
   // ✅ FIX: persist animated values
   const dropAnim = useRef(new Animated.Value(0)).current;
@@ -62,13 +62,10 @@ export default function PourScreen({ navigation }) {
     ).start();
   }, []);
 
-  useEffect(() => {
-    if (pourDetected) navigation.replace('TimerScreen');
-  }, [pourDetected]);
-
-  const simulatePour = () => {
-    dispatch(testPourDetected());
-    dispatch(startSettleTimer());
+  const startMotor = async () => {
+    // ✅ reset
+    await dispatch({ type: 'TEST_RESET' });
+    await dispatch(cmdStartSoilTest());
     navigation.replace('TimerScreen');
   };
 
@@ -169,8 +166,8 @@ export default function PourScreen({ navigation }) {
 
         {/* 🧪 DEV BUTTON */}
         <AppButton
-          label="Simulate Pour"
-          onPress={simulatePour}
+          label="Start Motor"
+          onPress={startMotor}
           color={T.primary}
           textColor={T.primary}
           outlined

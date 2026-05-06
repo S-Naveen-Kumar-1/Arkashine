@@ -10,7 +10,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useDispatch } from 'react-redux';
-import { testReset } from '../redux/actions';
+import { testReset } from '../redux/actions/soilsaathiActions';
 import { AppButton, TopBar } from '../components/common';
 import { Spacing, Radius, Shadow, Typography } from '../theme';
 import useTheme from '../hooks/useTheme';
@@ -41,7 +41,7 @@ export default function IntroScreen({ navigation }) {
 
   const handleStart = () => {
     dispatch(testReset());
-    navigation.navigate('PourScreen');
+    navigation.replace('PourScreen');
   };
 
   return (
