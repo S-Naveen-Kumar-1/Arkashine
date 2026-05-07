@@ -65,9 +65,11 @@ const PH_POINTS = [
   },
 ];
 
-function useMockLockVoltage(active, mockBase) {
+function useMockLockVoltage(active, mockBase, standardPH) {
   // pHVoltage from firmware {"pHVoltage":"2.4935"} → mapped to sensorData.voltage
-  const realVoltage = useSelector(s => s.ble.sensorData.phVoltage);
+  const realVoltage = useSelector(
+    s => s?.ble?.calibrationPoints?.PH?.[standardPH] ?? null,
+  );
   const realCount = useSelector(s => s.ble.sensorData.receivedCount);
 
   const [displayV, setDisplayV] = useState(null);
@@ -508,6 +510,7 @@ export default function PHCalibrationScreen({ navigation, route }) {
   const { voltage, isMocking, isLocked, stable } = useMockLockVoltage(
     isActive,
     point.mockBase,
+    point.standardPH,
   );
 
   // Pulse animation

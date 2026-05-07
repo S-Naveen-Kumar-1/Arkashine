@@ -227,17 +227,12 @@ export default function MixerScreen({ navigation }) {
           </Animated.View>
           {motorState === 'done' && (
             <View style={[s.doneBadge, { backgroundColor: T.primary }]}>
-              <Icon name="check" size={16} color="#fff" />
+              <Icon name="check" size={16} color={T.primary} />
             </View>
           )}
         </View>
 
-        <Text
-          style={[
-            s.motorLabel,
-            { color: motorState !== 'idle' ? T.primary : T.white ?? T.text },
-          ]}
-        >
+        <Text style={[s.motorLabel, { color: T.primary }]}>
           {motorState === 'idle'
             ? 'Motor Ready'
             : motorState === 'running'
@@ -253,7 +248,7 @@ export default function MixerScreen({ navigation }) {
               { backgroundColor: T.card, borderColor: T.border },
             ]}
           >
-            <Text style={[s.instrTitle, { color: T.white ?? T.text }]}>
+            <Text style={[s.instrTitle, { color: T.primary }]}>
               📋 Before Starting
             </Text>
             {[
@@ -264,7 +259,9 @@ export default function MixerScreen({ navigation }) {
             ].map((t, i) => (
               <View key={i} style={s.instrRow}>
                 <View style={[s.instrDot, { backgroundColor: T.primary }]}>
-                  <Text style={s.instrDotNum}>{i + 1}</Text>
+                  <Text style={[s.instrDotNum, { color: T.primary }]}>
+                    {i + 1}
+                  </Text>
                 </View>
                 <Text style={[s.instrText, { color: T.text }]}>{t}</Text>
               </View>
@@ -311,8 +308,14 @@ export default function MixerScreen({ navigation }) {
             disabled={!connected}
             activeOpacity={0.85}
           >
-            <Icon name="play-circle" size={22} color="#fff" />
-            <Text style={s.ctaBtnText}>
+            <Icon
+              name="play-circle"
+              size={22}
+              color={!connected ? 'orange' : '#fff'}
+            />
+            <Text
+              style={[s.ctaBtnText, { color: connected ? '#fff' : T.primary }]}
+            >
               {connected ? 'Start Mixing Motor (60 s)' : 'Connect device first'}
             </Text>
           </TouchableOpacity>
@@ -349,7 +352,7 @@ export default function MixerScreen({ navigation }) {
             onPress={handleReadResults}
             activeOpacity={0.85}
           >
-            <Icon name="flask-outline" size={22} color="#fff" />
+            <Icon name="flask-outline" size={22} color={"#fff"} />
             <Text style={s.ctaBtnText}>Read pH & EC Results →</Text>
           </TouchableOpacity>
         )}

@@ -66,9 +66,10 @@ const EC_POINTS = [
 
 // ─── EC voltage hook ───────────────────────────────────────────────────────────
 // Tracks sensorData.ecVoltage (mapped from firmware ECVoltage field)
-function useLiveECVoltage(active, mockBase) {
-  const realVoltage = useSelector(s => s.ble.sensorData.ecVoltage); // ECVoltage
-  const realCount = useSelector(s => s.ble.sensorData.receivedCount);
+function useLiveECVoltage(active, mockBase, standardEC) {
+  const realVoltage = useSelector(
+    s => s?.ble?.calibrationPoints?.EC?.[standardEC] ?? null,
+  );
 
   const [displayV, setDisplayV] = useState(null);
   const [isMocking, setIsMocking] = useState(true);
@@ -76,43 +77,55 @@ function useLiveECVoltage(active, mockBase) {
   const [stable, setStable] = useState(false);
 
   const mockTimer = useRef(null);
-  const prevCount = useRef(realCount);
 
   useEffect(() => {
     if (!active) {
       clearInterval(mockTimer.current);
+
       setDisplayV(null);
       setIsMocking(true);
       setIsLocked(false);
       setStable(false);
-      prevCount.current = realCount;
+
       return;
     }
+
     setIsMocking(true);
     setIsLocked(false);
     setStable(false);
+
     let tick = 0;
+
     mockTimer.current = setInterval(() => {
       tick++;
+
       const noise =
         Math.max(0.003, 0.025 - tick * 0.001) * (Math.random() - 0.5) * 2;
+
       setDisplayV(mockBase + noise);
     }, 300);
+
     return () => clearInterval(mockTimer.current);
-  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active]);
 
   useEffect(() => {
-    if (!active || realVoltage === null || realVoltage === undefined) return;
-    if (realCount === prevCount.current) return;
-    prevCount.current = realCount;
+    if (!active) return;
+    if (realVoltage == null) return;
+
     clearInterval(mockTimer.current);
+
     setIsMocking(false);
     setIsLocked(true);
     setDisplayV(realVoltage);
     setStable(true);
-  }, [realVoltage, realCount, active]);
+  }, [realVoltage, active]);
 
-  return { voltage: displayV, isMocking, isLocked, stable };
+  return {
+    voltage: displayV,
+    isMocking,
+    isLocked,
+    stable,
+  };
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -287,6 +300,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
   const { voltage, isMocking, isLocked, stable } = useLiveECVoltage(
     isActive,
     point.mockBase,
+    point.standardEC,
   );
 
   const pulse = useRef(new Animated.Value(1)).current;

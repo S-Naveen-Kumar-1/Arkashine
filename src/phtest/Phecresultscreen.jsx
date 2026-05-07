@@ -83,7 +83,7 @@ export default function PHECResultScreen({ navigation }) {
 
   const phVoltage = toNumber(data?.voltage ?? data?.pHVoltage);
   const ecVoltage = toNumber(data?.ecVoltage ?? data?.ECVoltage);
-
+s
   const hasData = ph !== null || tds !== null;
 
   // if (__DEV__) {
