@@ -1,10 +1,9 @@
 // src/screens/phtest/ECCalibrationScreen.jsx
 //
 // 3-point EC calibration.
-// Same flow as PHCalibrationScreen but:
-//   - Sends {"CALIBERATE":"EC","value":1.413}
-//   - Reads sensorData.ecVoltage (ECVoltage from firmware)
-//   - Device confirms: {"CALIBERATE":"EC","STATUS":"DONE","value":"1.41"}
+// • Sends {"CALIBERATE":"EC","value":1.413}
+// • Reads ble.calibrationPoints.EC[standardEC] (set by CAL_POINT_DONE)
+// • Device confirms: {"CALIBERATE":"EC","STATUS":"DONE","value":"1.41","ECVoltage":...}
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -27,7 +26,7 @@ import useTheme from '../hooks/useTheme';
 import {
   saveEcPoint,
   persistCalibration,
-} from '../redux/actions/phTestActions';
+} from '../redux/actions/calibrationActions'; // FIX: was importing from phTestActions
 import { cmdCalibrateEcPoint, startScan } from '../redux/actions/bleActions';
 
 // ─── EC calibration points ────────────────────────────────────────────────────
@@ -64,8 +63,10 @@ const EC_POINTS = [
   },
 ];
 
-// ─── EC voltage hook ───────────────────────────────────────────────────────────
-// Tracks sensorData.ecVoltage (mapped from firmware ECVoltage field)
+// ─── useLiveECVoltage ─────────────────────────────────────────────────────────
+// FIX: replaced with lockedRef pattern (same fix as PHCalibrationScreen).
+// Old code re-fired the lock effect on every render because it had no guard,
+// meaning a stale realVoltage from a previous point could trigger a false lock.
 function useLiveECVoltage(active, mockBase, standardEC) {
   const realVoltage = useSelector(
     s => s?.ble?.calibrationPoints?.EC?.[standardEC] ?? null,
@@ -77,55 +78,51 @@ function useLiveECVoltage(active, mockBase, standardEC) {
   const [stable, setStable] = useState(false);
 
   const mockTimer = useRef(null);
+  const lockedRef = useRef(false); // FIX: boolean guard — locks once per activation
 
+  // Reset / start mock when phase becomes active
   useEffect(() => {
     if (!active) {
       clearInterval(mockTimer.current);
-
       setDisplayV(null);
       setIsMocking(true);
       setIsLocked(false);
       setStable(false);
-
+      lockedRef.current = false; // FIX: reset so next point can lock
       return;
     }
 
+    lockedRef.current = false; // FIX: also reset on activate
     setIsMocking(true);
     setIsLocked(false);
     setStable(false);
 
     let tick = 0;
-
     mockTimer.current = setInterval(() => {
       tick++;
-
       const noise =
         Math.max(0.003, 0.025 - tick * 0.001) * (Math.random() - 0.5) * 2;
-
       setDisplayV(mockBase + noise);
     }, 300);
 
     return () => clearInterval(mockTimer.current);
-  }, [active]);
+  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Lock when real BLE voltage arrives
   useEffect(() => {
     if (!active) return;
     if (realVoltage == null) return;
+    if (lockedRef.current) return; // FIX: already locked, ignore re-renders
 
+    lockedRef.current = true;
     clearInterval(mockTimer.current);
-
     setIsMocking(false);
     setIsLocked(true);
     setDisplayV(realVoltage);
     setStable(true);
   }, [realVoltage, active]);
 
-  return {
-    voltage: displayV,
-    isMocking,
-    isLocked,
-    stable,
-  };
+  return { voltage: displayV, isMocking, isLocked, stable };
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -329,11 +326,12 @@ export default function ECCalibrationScreen({ navigation, route }) {
       setShowReconnect(true);
     wasConnected.current = connected;
   }, [connected, phase]);
+
   useEffect(() => {
     if (connected && showReconnect) setShowReconnect(false);
-  }, [connected]);
+  }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-capture when device confirms point
+  // Auto-capture when device confirms point (lockedRef prevents double-fire)
   useEffect(() => {
     if (isLocked && phase === 'reading' && voltage !== null) {
       dispatch(saveEcPoint(point.standardEC, voltage));
@@ -351,7 +349,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
       return;
     }
     setSending(true);
-    await dispatch(cmdCalibrateEcPoint(point.standardEC)); // → {"CALIBERATE":"EC","value":1.413}
+    await dispatch(cmdCalibrateEcPoint(point.standardEC));
     setSending(false);
     setPhase('reading');
   }, [dispatch, point.standardEC, connected]);
@@ -373,7 +371,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
     dispatch(saveEcPoint(point.standardEC, null));
     setCaptured(prev => ({ ...prev, [point.id]: null }));
     goNext();
-  }, [point, dispatch]);
+  }, [point, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const goNext = useCallback(() => {
     if (step < EC_POINTS.length - 1) {
@@ -535,12 +533,12 @@ export default function ECCalibrationScreen({ navigation, route }) {
             <Text style={[s.cardTitle, { color: T.white ?? T.text }]}>
               📋 Preparation
             </Text>
-            {point.prepMsg.split('\n').map((step, i) => (
+            {point.prepMsg.split('\n').map((line, i) => (
               <View key={i} style={s.instrRow}>
                 <View style={[s.instrDot, { backgroundColor: point.color }]}>
                   <Text style={s.instrDotNum}>{i + 1}</Text>
                 </View>
-                <Text style={[s.instrText, { color: T.text }]}>{step}</Text>
+                <Text style={[s.instrText, { color: T.text }]}>{line}</Text>
               </View>
             ))}
             <TouchableOpacity
@@ -668,6 +666,18 @@ export default function ECCalibrationScreen({ navigation, route }) {
               <Icon name="arrow-right" size={18} color="#fff" />
             </TouchableOpacity>
           </View>
+        )}
+
+        {/* Skip all */}
+        {phase !== 'done' && (
+          <TouchableOpacity
+            style={s.skipAll}
+            onPress={() => navigation.replace('CalibrationSummaryScreen')}
+          >
+            <Text style={[s.skipAllText, { color: T.muted }]}>
+              Skip EC Calibration Entirely
+            </Text>
+          </TouchableOpacity>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -807,7 +817,10 @@ const s = StyleSheet.create({
   capturedRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   capturedRowLabel: { flex: 1, fontSize: 13, fontWeight: '600' },
   capturedRowVal: { fontSize: 13, fontWeight: '800' },
+  skipAll: { alignItems: 'center', paddingVertical: Spacing.md },
+  skipAllText: { fontSize: 13, textDecorationLine: 'underline' },
 });
+
 const rm = StyleSheet.create({
   overlay: {
     flex: 1,

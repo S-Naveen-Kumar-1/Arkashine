@@ -52,6 +52,70 @@ let _reconnectTimer = null,
   _scanTimer = null,
   _dataCount = 0;
 
+let _chunkBuffer = '';
+
+function _isCompleteJSON(str) {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let hasObject = false;
+  for (const ch of str) {
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '{') {
+      depth++;
+      hasObject = true;
+    } else if (ch === '}') depth--;
+  }
+  return hasObject && depth === 0;
+}
+
+function _extractFirstJSON(str) {
+  const start = str.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < str.length; i++) {
+    const ch = str[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return {
+          jsonStr: str.slice(start, i + 1),
+          remainder: str.slice(i + 1).trim(),
+        };
+      }
+    }
+  }
+  return null;
+}
+
 // ─── Action creators ──────────────────────────────────────────────────────────
 export const ac = {
   bleStateChanged: s => ({ type: BLE_STATE_CHANGED, payload: s }),
@@ -203,6 +267,7 @@ async function _sendJSON(payload, dispatch) {
     return false;
   }
 }
+
 const normalizeSoil = data => {
   const result = {};
   Object.keys(data).forEach(k => {
@@ -211,7 +276,6 @@ const normalizeSoil = data => {
   return result;
 };
 
-// Build a normalised sensor reading object from any firmware source
 function _buildReading(src, raw) {
   _dataCount += 1;
   return {
@@ -227,9 +291,9 @@ function _buildReading(src, raw) {
   };
 }
 
-// ─── Notification parser — handles every firmware → app message ───────────────
-function parsePayload(bytes, dispatch) {
-  const raw = bytes.toString('utf-8').trim();
+// ─── Notification parser ───────────────────────────────────────────────────────
+function parsePayload(jsonStr, dispatch) {
+  const raw = jsonStr.trim();
   dispatch(ac.log('DATA', `← RECV: ${raw}`));
   console.log('[BLE RECV]', raw);
 
@@ -241,36 +305,36 @@ function parsePayload(bytes, dispatch) {
     return null;
   }
 
-  // 1. {"STATUS":"BLE_CONNECTED"} — auto on link-up
+  // 1. {"STATUS":"BLE_CONNECTED"}
   if (parsed.STATUS === 'BLE_CONNECTED') {
     dispatch(ac.log('HANDSHAKE', '← BLE_CONNECTED ✅'));
     dispatch(ac.handshakeSuccess(raw));
     return null;
   }
 
-  // 2. {"HANDSHAKE":"ACK"} — response to {"HANDSHAKE":"HELLO"}
+  // 2. {"HANDSHAKE":"ACK"}
   if (parsed.HANDSHAKE === 'ACK') {
     dispatch(ac.log('HANDSHAKE', '← HANDSHAKE ACK ✅'));
     dispatch(ac.handshakeSuccess(raw));
     return null;
   }
 
-  // 3. {"TEST":"STARTED"} — immediate ACK to {"TEST":"START"}
-  if (parsed.TEST === 'STARTED') {
-    dispatch(ac.log('TEST', '← TEST STARTED — motor now running'));
+  // 3. {"PHTEST":"STARTED"}
+  if (parsed.PHTEST === 'STARTED') {
+    dispatch(ac.log('TEST', '← PHTEST STARTED — motor now running'));
     dispatch(ac.testStarted());
     return null;
   }
 
-  // 4. {"TEST":"STOPPED"} — response to {"TEST":"STOP"}
-  if (parsed.TEST === 'STOPPED') {
-    dispatch(ac.log('TEST', '← TEST STOPPED'));
+  // 4. {"PHTEST":"STOPPED"}
+  if (parsed.PHTEST === 'STOPPED') {
+    dispatch(ac.log('TEST', '← PHTEST STOPPED'));
     dispatch(ac.testStopped());
     dispatch(ac.motorStatus('stopped'));
     return null;
   }
 
-  // 5. {"MOTORSTATUS":"RUNNING"|"STOPPED"} — response to CHECKMOTORSTATUS
+  // 5. {"MOTORSTATUS":"RUNNING"|"STOPPED"}
   if (parsed.MOTORSTATUS !== undefined) {
     const s = parsed.MOTORSTATUS.toLowerCase();
     dispatch(ac.log('MOTOR', `← MOTORSTATUS: ${s}`));
@@ -278,33 +342,22 @@ function parsePayload(bytes, dispatch) {
     return null;
   }
 
-  // 6. {"CALIBERATE":"PH"|"EC","STATUS":"DONE","value":"4.00"}
+  // 6. {"CALIBERATE":"PH"|"EC","STATUS":"DONE","value":"4.00","pHVoltage":...}
   if (parsed.CALIBERATE && parsed.STATUS === 'DONE') {
-    const type = parsed.CALIBERATE; // PH or EC
+    const type = parsed.CALIBERATE;
     const value = parseFloat(parsed.value);
-
-    // ✅ extract correct voltage
     const voltage =
       type === 'PH'
         ? parseFloat(parsed.pHVoltage)
         : parseFloat(parsed.ECVoltage);
-
     dispatch(
       ac.log('CAL', `← ${type} DONE — value=${value}, voltage=${voltage}`),
     );
-
-    dispatch({
-      type: CAL_POINT_DONE,
-      payload: {
-        type, // PH / EC
-        value, // 4 / 7 / 1.413
-        voltage, // REAL voltage
-      },
-    });
-
+    dispatch({ type: CAL_POINT_DONE, payload: { type, value, voltage } });
     return null;
   }
-  // 7. {"CALIBRATION_STATUS":"..."} — response to CALIBRATION_STATUS query
+
+  // 7. {"CALIBRATION_STATUS":"..."}
   if (parsed.CALIBRATION_STATUS !== undefined) {
     dispatch(
       ac.log('CAL', `← CALIBRATION_STATUS: ${parsed.CALIBRATION_STATUS}`),
@@ -313,7 +366,7 @@ function parsePayload(bytes, dispatch) {
     return null;
   }
 
-  // 8. {"FINAL_RESULT":{...}} — response to FINAL_RESULT command
+  // 8. {"FINAL_RESULT":{...}}
   if (parsed.FINAL_RESULT && typeof parsed.FINAL_RESULT === 'object') {
     const reading = _buildReading(parsed.FINAL_RESULT, raw);
     dispatch(
@@ -322,18 +375,18 @@ function parsePayload(bytes, dispatch) {
         `← FINAL_RESULT pH=${reading.ph} TDS=${reading.ec} T=${reading.temperature}°C`,
       ),
     );
-    dispatch(ac.finalResult(reading)); // stored in finalResult AND sensorData via reducer
+    dispatch(ac.finalResult(reading));
     return reading;
   }
 
-  // 9. {"ERROR":"..."} — unsolicited device errors
+  // 9. {"ERROR":"..."}
   if (parsed.ERROR) {
     dispatch(ac.log('ERROR', `← Device ERROR: ${parsed.ERROR}`));
     dispatch(ac.deviceError(parsed.ERROR));
     return null;
   }
 
-  // 10. Sensor reading — {"pH":"7.12","TDS":"486.34",...} — from TEST:START result
+  // 10. Sensor reading — {"pH":"7.12","TDS":"486.34",...} — from PHTEST result
   if (parsed.pH !== undefined || parsed.TDS !== undefined) {
     const reading = _buildReading(parsed, raw);
     dispatch(
@@ -345,68 +398,57 @@ function parsePayload(bytes, dispatch) {
     return reading;
   }
 
-  // soil test
-  if (parsed.SOILTEST == 'STARTED') {
+  // ─── Soil test messages ───────────────────────────────────────────────────
+  if (parsed.SOILTEST === 'STARTED')
     dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'running' } });
-  }
-  if (parsed.SOILTEST == 'MIXING_COMPLETED') {
+  if (parsed.SOILTEST === 'MIXING_COMPLETED')
     dispatch({
       type: 'SOIL_MOTOR_STATE',
       payload: { data: 'mixing completed' },
     });
-  }
 
-  if (parsed.SOILMOTORSTATUS == 'RUNNING') {
+  if (parsed.SOILMOTORSTATUS === 'RUNNING')
     dispatch({
       type: 'SOIL_MOTOR_STATE_FROM_BLE',
       payload: { data: 'running' },
     });
-  }
-  if (parsed.SOILMOTORSTATUS == 'NOT_STARTED') {
+  if (parsed.SOILMOTORSTATUS === 'NOT_STARTED')
     dispatch({
       type: 'SOIL_MOTOR_STATE_FROM_BLE',
       payload: { data: 'not_started' },
     });
-  }
-  if (parsed.SOILMOTORSTATUS == 'STOPPED') {
+  if (parsed.SOILMOTORSTATUS === 'STOPPED')
     dispatch({
       type: 'SOIL_MOTOR_STATE_FROM_BLE',
       payload: { data: 'stopped' },
     });
-  }
 
-  if (parsed.SOILSENSORSTATUS == 'READING') {
+  if (parsed.SOILSENSORSTATUS === 'READING')
     dispatch({
       type: 'SOIL_SENSOR_STATE_FROM_BLE',
       payload: { data: 'reading' },
     });
-  }
-  if (parsed.SOILSENSORSTATUS == 'RUNNING') {
+  if (parsed.SOILSENSORSTATUS === 'RUNNING')
     dispatch({
       type: 'SOIL_SENSOR_STATE_FROM_BLE',
       payload: { data: 'running' },
     });
-  }
-  if (parsed.SOILSENSORSTATUS == 'NOT_STARTED') {
+  if (parsed.SOILSENSORSTATUS === 'NOT_STARTED')
     dispatch({
       type: 'SOIL_SENSOR_STATE_FROM_BLE',
       payload: { data: 'not_started' },
     });
-  }
-
-  if (parsed.SOILSENSORSTATUS == 'SENSOR_READING_DONE') {
+  if (parsed.SOILSENSORSTATUS === 'SENSOR_READING_DONE')
     dispatch({
       type: 'SOIL_SENSOR_STATE_FROM_BLE',
       payload: { data: 'sensor_reading_done' },
     });
-  }
-
-  if (parsed.SOILSENSORSTATUS == 'STOPPED') {
+  if (parsed.SOILSENSORSTATUS === 'STOPPED')
     dispatch({
       type: 'SOIL_SENSOR_STATE_FROM_BLE',
       payload: { data: 'stopped' },
     });
-  }
+
   if (parsed.FINALSOILRESULT && typeof parsed.FINALSOILRESULT === 'object') {
     dispatch({
       type: 'SOIL_BLE_RESULT',
@@ -414,15 +456,19 @@ function parsePayload(bytes, dispatch) {
     });
     return parsed.FINALSOILRESULT;
   }
+
   dispatch(ac.log('DATA', `← Unhandled JSON ignored: ${raw}`));
   return null;
 }
 
+// ─── Notification handler — chunk buffering + full raw debug logging ──────────
 function startNotifications(device, cfg, dispatch) {
   _notifySub?.remove();
+  _chunkBuffer = '';
   dispatch(
     ac.log('NOTIFY', `Subscribing S:${cfg.serviceUUID} C:${cfg.notifyUUID}`),
   );
+
   _notifySub = device.monitorCharacteristicForService(
     cfg.serviceUUID,
     cfg.notifyUUID,
@@ -432,18 +478,70 @@ function startNotifications(device, cfg, dispatch) {
         return;
       }
       if (!char?.value) return;
+
       try {
-        const bytes = Buffer.from(char.value, 'base64');
-        const reading = parsePayload(bytes, dispatch);
-        if (reading) dispatch(ac.dataReceived(reading));
+        const chunk = Buffer.from(char.value, 'base64').toString('utf-8');
+
+        dispatch(ac.log('RAW', `CHUNK(${chunk.length}B) → ${chunk}`));
+        console.log('[BLE RAW CHUNK]', chunk);
+
+        _chunkBuffer += chunk;
+        dispatch(ac.log('RAW', `BUFFER → ${_chunkBuffer}`));
+
+        while (true) {
+          const start = _chunkBuffer.indexOf('{');
+          if (start === -1) {
+            _chunkBuffer = '';
+            break;
+          }
+          if (start > 0) {
+            dispatch(
+              ac.log(
+                'RAW',
+                `DISCARD ${start}B before '{': ${_chunkBuffer.slice(0, start)}`,
+              ),
+            );
+            _chunkBuffer = _chunkBuffer.slice(start);
+          }
+
+          if (!_isCompleteJSON(_chunkBuffer)) {
+            dispatch(
+              ac.log(
+                'RAW',
+                `INCOMPLETE(${_chunkBuffer.length}B) — waiting for next chunk…`,
+              ),
+            );
+            break;
+          }
+
+          const result = _extractFirstJSON(_chunkBuffer);
+          if (!result) break;
+
+          const { jsonStr, remainder } = result;
+          _chunkBuffer = remainder;
+
+          dispatch(ac.log('RAW', `FULL JSON → ${jsonStr}`));
+          console.log('[BLE FULL JSON]', jsonStr);
+
+          if (remainder.length > 0)
+            dispatch(
+              ac.log('RAW', `REMAINDER(${remainder.length}B) → ${remainder}`),
+            );
+
+          const reading = parsePayload(jsonStr, dispatch);
+          if (reading) dispatch(ac.dataReceived(reading));
+        }
       } catch (e) {
         dispatch(ac.log('NOTIFY', `Parse error: ${e.message}`));
+        _chunkBuffer = '';
       }
     },
   );
+
   dispatch(ac.log('NOTIFY', 'Subscribed ✅'));
 }
 
+// ─── connectDevice ────────────────────────────────────────────────────────────
 export const connectDevice = rawDevice => async dispatch => {
   dispatch(ac.connectRequest(rawDevice.id));
   dispatch(ac.log('CONNECT', `→ ${rawDevice.name || rawDevice.id}`));
@@ -456,6 +554,22 @@ export const connectDevice = rawDevice => async dispatch => {
     });
     dispatch(ac.log('CONNECT', 'Connected — discovering services…'));
     await conn.discoverAllServicesAndCharacteristics();
+
+    // FIX: request larger MTU from the app side so the phone and firmware
+    // agree on a packet size big enough to hold full JSON payloads in one
+    // notify. Without this the default 20-byte MTU causes every payload
+    // over 20B to split across multiple packets, and the second packet
+    // often gets silently dropped by the ESP32 Bluedroid stack.
+    try {
+      const negotiatedMtu = await conn.requestMTU(512);
+      dispatch(ac.log('CONNECT', `MTU negotiated: ${negotiatedMtu}`));
+    } catch (mtuErr) {
+      // Non-fatal — chunk buffer handles split packets as fallback
+      dispatch(
+        ac.log('CONNECT', `MTU request failed (non-fatal): ${mtuErr.message}`),
+      );
+    }
+
     const cfg = await resolveUUIDs(conn, dispatch);
     _device = conn;
     _config = cfg;
@@ -465,10 +579,10 @@ export const connectDevice = rawDevice => async dispatch => {
       ac.connectSuccess({ id: conn.id, name: conn.name || rawDevice.name }),
     );
     startNotifications(conn, cfg, dispatch);
-    // → {"HANDSHAKE":"HELLO"}   ← {"STATUS":"BLE_CONNECTED"} or {"HANDSHAKE":"ACK"}
     dispatch(ac.handshakeStart());
     dispatch(ac.log('HANDSHAKE', '→ {"HANDSHAKE":"HELLO"}'));
     await _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
+
     conn.onDisconnected(() => {
       dispatch(ac.log('DISCONNECT', 'Device disconnected'));
       dispatch(ac.disconnect());
@@ -476,6 +590,7 @@ export const connectDevice = rawDevice => async dispatch => {
       _notifySub = null;
       _device = null;
       _config = null;
+      _chunkBuffer = '';
       _reconnectTimer = setTimeout(async () => {
         try {
           dispatch(ac.log('RECONNECT', 'Attempting…'));
@@ -483,6 +598,20 @@ export const connectDevice = rawDevice => async dispatch => {
             timeout: 8_000,
           });
           await r.discoverAllServicesAndCharacteristics();
+
+          // FIX: also request MTU on reconnect
+          try {
+            const mtu = await r.requestMTU(512);
+            dispatch(ac.log('RECONNECT', `MTU negotiated: ${mtu}`));
+          } catch (mtuErr) {
+            dispatch(
+              ac.log(
+                'RECONNECT',
+                `MTU request failed (non-fatal): ${mtuErr.message}`,
+              ),
+            );
+          }
+
           const newCfg = await resolveUUIDs(r, dispatch);
           _device = r;
           _config = newCfg;
@@ -510,6 +639,7 @@ export const disconnectDevice = () => dispatch => {
   clearTimeout(_scanTimer);
   _notifySub?.remove();
   _notifySub = null;
+  _chunkBuffer = '';
   _device?.cancelConnection();
   _device = null;
   _config = null;
@@ -521,17 +651,17 @@ export const disconnectDevice = () => dispatch => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // 1. Start Test
-// →  {"TEST":"START"}
-// ←  {"TEST":"STARTED"}  (immediate)
+// →  {"PHTEST":"START"}
+// ←  {"PHTEST":"STARTED"}  (immediate)
 // ←  {pH,TDS,temperature,temperatureFallback,pHVoltage,ECVoltage}  (~60 s later)
 export const cmdStartTest = () => dispatch =>
-  _sendJSON({ TEST: 'START' }, dispatch);
+  _sendJSON({ PHTEST: 'START' }, dispatch);
 
 // 2. Stop Test
-// →  {"TEST":"STOP"}
-// ←  {"TEST":"STOPPED"}
+// →  {"PHTEST":"STOP"}
+// ←  {"PHTEST":"STOPPED"}
 export const cmdStopTest = () => dispatch =>
-  _sendJSON({ TEST: 'STOP' }, dispatch);
+  _sendJSON({ PHTEST: 'STOP' }, dispatch);
 
 // 3. Check Motor Status
 // →  {"CHECKMOTORSTATUS":"CHECKMOTORSTATUS"}
@@ -541,13 +671,13 @@ export const cmdCheckMotorStatus = () => dispatch =>
 
 // 4. Calibrate pH Point
 // →  {"CALIBERATE":"PH","value":4}   (4 | 7 | 9)
-// ←  {"CALIBERATE":"PH","STATUS":"DONE","value":"4.00"}
+// ←  {"CALIBERATE":"PH","STATUS":"DONE","value":"4.00","pHVoltage":...}
 export const cmdCalibratePhPoint = standardPH => dispatch =>
   _sendJSON({ CALIBERATE: 'PH', value: Number(standardPH) }, dispatch);
 
 // 5. Calibrate EC Point
 // →  {"CALIBERATE":"EC","value":1.413}   (0.0 | 1.413 | 12.88)
-// ←  {"CALIBERATE":"EC","STATUS":"DONE","value":"1.41"}
+// ←  {"CALIBERATE":"EC","STATUS":"DONE","value":"1.41","ECVoltage":...}
 export const cmdCalibrateEcPoint = standardEC => dispatch =>
   _sendJSON({ CALIBERATE: 'EC', value: Number(standardEC) }, dispatch);
 
@@ -565,20 +695,16 @@ export const cmdGetFinalResult = () => dispatch =>
 
 export const clearDebugLog = () => dispatch => dispatch(ac.debugClear());
 
-//soil tests
-
+// ─── Soil test commands ───────────────────────────────────────────────────────
 export const cmdStartSoilTest = () => dispatch =>
   _sendJSON({ SOILTEST: 'START' }, dispatch);
 export const cmdStopSoilTest = () => dispatch =>
   _sendJSON({ SOILTEST: 'STOP' }, dispatch);
-
 export const cmdCheckSoilMotorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILMOTORSTATUS: 'CHECKSOILMOTORSTATUS' }, dispatch);
-
 export const cmdStartSoilSensor = () => dispatch =>
   _sendJSON({ SOILSENSOR: 'READ' }, dispatch);
 export const cmdCheckSoilSensorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILSENSORSTATUS: 'CHECKSOILSENSORSTATUS' }, dispatch);
-
 export const cmdGetSoilResult = () => dispatch =>
   _sendJSON({ SOILRESULT: 'GET' }, dispatch);

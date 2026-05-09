@@ -4,10 +4,8 @@ import {
   CAL_EC_POINT_SAVED,
   CAL_SAVED_TO_DEVICE,
   CAL_RESET,
+  CAL_POINT_DONE, // FIX: added — this is what bleActions dispatches on DONE
 } from '../../config/actionTypes';
-
-// phPoints / ecPoints:  array of { standardPH/EC, voltage, capturedAt }
-// voltage = null means the point was skipped
 
 const PH_DEFAULTS = [
   { standardPH: 4, voltage: null, capturedAt: null },
@@ -24,14 +22,14 @@ const EC_DEFAULTS = [
 const init = {
   phPoints: PH_DEFAULTS,
   ecPoints: EC_DEFAULTS,
-  savedAt: null, // timestamp when CAL_SAVED_TO_DEVICE
-  lastCalibrated: null, // ISO string
+  savedAt: null,
+  lastCalibrated: null,
 };
 
 export default function calibrationReducer(state = init, action) {
   switch (action.type) {
+    // Dispatched manually by handleCapture / handleSkip in the screen
     case CAL_PH_POINT_SAVED: {
-      // payload: { standardPH, voltage }
       const { standardPH, voltage } = action.payload;
       return {
         ...state,
@@ -53,6 +51,35 @@ export default function calibrationReducer(state = init, action) {
             : p,
         ),
       };
+    }
+
+    // FIX: dispatched automatically by bleActions.parsePayload when firmware
+    // responds with {"CALIBERATE":"PH","STATUS":"DONE","value":4,"pHVoltage":...}
+    // Without this case, calibration.phPoints voltages stayed null forever and
+    // CalibrationSummaryScreen always showed 0/3 points.
+    case CAL_POINT_DONE: {
+      const { type, value, voltage } = action.payload;
+      if (type === 'PH') {
+        return {
+          ...state,
+          phPoints: state.phPoints.map(p =>
+            p.standardPH === value
+              ? { ...p, voltage, capturedAt: Date.now() }
+              : p,
+          ),
+        };
+      }
+      if (type === 'EC') {
+        return {
+          ...state,
+          ecPoints: state.ecPoints.map(p =>
+            p.standardEC === value
+              ? { ...p, voltage, capturedAt: Date.now() }
+              : p,
+          ),
+        };
+      }
+      return state;
     }
 
     case CAL_SAVED_TO_DEVICE:

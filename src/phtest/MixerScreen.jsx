@@ -1,15 +1,3 @@
-// src/screens/phtest/MixerScreen.jsx
-//
-// Two-way BLE communication:
-//  START  → {"TEST":"START"}
-//         ← {"TEST":"STARTED"}         immediate — stored in ble.testStarted
-//         ← {pH,TDS,...}               ~60 s — stored in ble.sensorData
-//
-//  STATUS → {"CHECKMOTORSTATUS":"CHECKMOTORSTATUS"}  (every 5 s while running)
-//         ← {"MOTORSTATUS":"RUNNING"|"STOPPED"}      stored in ble.motorStatus
-//
-//  STOP   → {"TEST":"STOP"}
-//         ← {"TEST":"STOPPED"}         stored in ble.motorStatus='stopped'
 
 import React, { useEffect, useRef } from 'react';
 import {
@@ -352,7 +340,7 @@ export default function MixerScreen({ navigation }) {
             onPress={handleReadResults}
             activeOpacity={0.85}
           >
-            <Icon name="flask-outline" size={22} color={"#fff"} />
+            <Icon name="flask-outline" size={22} color={'#fff'} />
             <Text style={s.ctaBtnText}>Read pH & EC Results →</Text>
           </TouchableOpacity>
         )}

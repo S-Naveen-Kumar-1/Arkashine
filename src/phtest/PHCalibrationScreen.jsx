@@ -2,7 +2,7 @@
 // 3-point pH calibration.
 // • Mocks voltage oscillation until real BLE data arrives
 // • Once real value arrives → locks it, stops mock
-// • Captures on stable reading
+// • Auto-captures on lock (no user action needed)
 // • Reconnects device if disconnected mid-flow
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -28,8 +28,7 @@ import {
   savePhPoint,
   persistCalibration,
 } from '../redux/actions/calibrationActions';
-import { cmdCalibratePhPoint } from '../redux/actions/bleActions';
-import { startScan, connectDevice } from '../redux/actions/bleActions';
+import { cmdCalibratePhPoint, startScan } from '../redux/actions/bleActions';
 
 // ─── pH buffer points ─────────────────────────────────────────────────────────
 const PH_POINTS = [
@@ -39,7 +38,7 @@ const PH_POINTS = [
     standardPH: 4,
     color: '#EF4444',
     icon: 'numeric-4-circle-outline',
-    mockBase: 0.42, // mock voltage center for pH 4
+    mockBase: 0.42,
     prepMsg:
       'Pour the pH 4 standard buffer into a clean beaker.\nInsert probe fully and wait for reading to stabilise (≈ 30 s).',
   },
@@ -49,7 +48,7 @@ const PH_POINTS = [
     standardPH: 7,
     color: '#F59E0B',
     icon: 'numeric-7-circle-outline',
-    mockBase: 0.58, // mock voltage center for pH 7
+    mockBase: 0.58,
     prepMsg:
       'Rinse probe with distilled water and dry gently.\nPour pH 7 buffer and insert probe fully.',
   },
@@ -59,18 +58,23 @@ const PH_POINTS = [
     standardPH: 9,
     color: '#3B82F6',
     icon: 'numeric-9-circle-outline',
-    mockBase: 0.72, // mock voltage center for pH 9
+    mockBase: 0.72,
     prepMsg:
       'Rinse probe with distilled water and dry gently.\nPour pH 9 buffer and insert probe fully.',
   },
 ];
 
+// ─── useMockLockVoltage ───────────────────────────────────────────────────────
+// FIX: replaced the fragile receivedCount / prevCountRef approach with a simple
+// lockedRef boolean. The old code could miss the lock or re-fire on re-renders
+// because `receivedCount` was shared across all pH points and the reset effect
+// captured a stale value of the counter. Now: once realVoltage becomes non-null
+// for this point while active, it locks exactly once. Resets cleanly per step.
 function useMockLockVoltage(active, mockBase, standardPH) {
-  // pHVoltage from firmware {"pHVoltage":"2.4935"} → mapped to sensorData.voltage
+  // Reads from ble.calibrationPoints.PH[standardPH] — set by CAL_POINT_DONE in bleReducer
   const realVoltage = useSelector(
     s => s?.ble?.calibrationPoints?.PH?.[standardPH] ?? null,
   );
-  const realCount = useSelector(s => s.ble.sensorData.receivedCount);
 
   const [displayV, setDisplayV] = useState(null);
   const [isMocking, setIsMocking] = useState(true);
@@ -78,9 +82,9 @@ function useMockLockVoltage(active, mockBase, standardPH) {
   const [stable, setStable] = useState(false);
 
   const mockTimerRef = useRef(null);
-  const prevCountRef = useRef(realCount);
+  const lockedRef = useRef(false); // FIX: single boolean flag per activation
 
-  // ── Reset / start mock when phase becomes active ──────────────────
+  // ── Reset / start mock when phase becomes active ──────────────────────────
   useEffect(() => {
     if (!active) {
       clearInterval(mockTimerRef.current);
@@ -88,15 +92,17 @@ function useMockLockVoltage(active, mockBase, standardPH) {
       setIsMocking(true);
       setIsLocked(false);
       setStable(false);
-      prevCountRef.current = realCount;
+      lockedRef.current = false; // FIX: reset flag so next point can lock
       return;
     }
 
+    // Starting a new reading phase
+    lockedRef.current = false; // FIX: also reset on activate in case of edge cases
     setIsMocking(true);
     setIsLocked(false);
     setStable(false);
 
-    // Oscillate mock voltage while waiting for the device to reply
+    // Oscillate mock voltage while waiting for device to reply
     let tick = 0;
     mockTimerRef.current = setInterval(() => {
       tick++;
@@ -108,22 +114,19 @@ function useMockLockVoltage(active, mockBase, standardPH) {
     return () => clearInterval(mockTimerRef.current);
   }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Real BLE value arrived → lock immediately, no stability window ─
+  // ── Lock when real BLE voltage arrives ───────────────────────────────────
   useEffect(() => {
     if (!active) return;
     if (realVoltage === null || realVoltage === undefined) return;
-    if (realCount === prevCountRef.current) return; // duplicate, skip
+    if (lockedRef.current) return; // FIX: already locked for this step, ignore re-renders
 
-    prevCountRef.current = realCount;
-
-    // Stop mock, show real value, and mark stable immediately.
-    // The firmware has already done the averaging on-device; one reading is enough.
+    lockedRef.current = true; // FIX: mark locked — won't fire again until next step
     clearInterval(mockTimerRef.current);
     setIsMocking(false);
     setIsLocked(true);
     setDisplayV(realVoltage);
-    setStable(true); // ← key fix: unlock capture button straight away
-  }, [realVoltage, realCount, active]);
+    setStable(true);
+  }, [realVoltage, active]);
 
   return { voltage: displayV, isMocking, isLocked, stable };
 }
@@ -268,7 +271,6 @@ function ReadingCard({
   onCapture,
   onSkip,
 }) {
-  // Stability bar fill (0–100%)
   const pct = stable ? 100 : isMocking ? 45 : 70;
 
   return (
@@ -286,13 +288,6 @@ function ReadingCard({
             { backgroundColor: point.color, transform: [{ scale: pulse }] },
           ]}
         />
-        {/* <Text style={[s.liveText, { color: T.text }]}>
-          {isMocking
-            ? '🔄 Mock data — waiting for device…'
-            : isLocked
-            ? '🔗 Live BLE data'
-            : 'Receiving…'}
-        </Text> */}
         {isMocking && (
           <View
             style={[
@@ -357,15 +352,6 @@ function ReadingCard({
           ]}
         />
       </View>
-      {/* <Text style={[s.stabilityLabel, { color: stable ? T.primary : T.muted }]}>
-        {voltage === null
-          ? '⏳ Waiting for device data…'
-          : stable
-          ? '✅ Signal stable — ready to capture!'
-          : isMocking
-          ? '⏳ Mock signal stabilising… (waiting for real device)'
-          : '⏳ Stabilising real signal…'}
-      </Text> */}
 
       {/* Actions */}
       <View style={s.actionRow}>
@@ -493,7 +479,6 @@ export default function PHCalibrationScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors;
   const fullFlow = route?.params?.fullFlow ?? false;
-  console.log('PHCalibrationScreen rendered with fullFlow:@', fullFlow);
 
   const [step, setStep] = useState(0);
   const [phase, setPhase] = useState('prep'); // 'prep' | 'reading' | 'done'
@@ -545,10 +530,8 @@ export default function PHCalibrationScreen({ navigation, route }) {
 
   // Auto dismiss reconnect modal once reconnected
   useEffect(() => {
-    if (connected && showReconnect) {
-      setShowReconnect(false);
-    }
-  }, [connected]);
+    if (connected && showReconnect) setShowReconnect(false);
+  }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStartReading = useCallback(async () => {
     if (!connected) {
@@ -561,8 +544,7 @@ export default function PHCalibrationScreen({ navigation, route }) {
     setPhase('reading');
   }, [dispatch, point.standardPH, connected]);
 
-  // ── Auto-capture the moment the real value locks in ─────────────────
-  // No need for the user to press anything — firmware confirmed the point.
+  // Auto-capture the moment the real value locks in from firmware
   useEffect(() => {
     if (isLocked && phase === 'reading' && voltage !== null) {
       dispatch(savePhPoint(point.standardPH, voltage));
@@ -574,6 +556,7 @@ export default function PHCalibrationScreen({ navigation, route }) {
     }
   }, [isLocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Manual capture (fallback if user presses button before auto-capture)
   const handleCapture = useCallback(() => {
     if (voltage === null) {
       Alert.alert(
@@ -594,7 +577,7 @@ export default function PHCalibrationScreen({ navigation, route }) {
     dispatch(savePhPoint(point.standardPH, null));
     setCaptured(prev => ({ ...prev, [point.id]: null }));
     handleNext();
-  }, [point, dispatch]);
+  }, [point, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNext = useCallback(() => {
     if (step < PH_POINTS.length - 1) {
@@ -629,14 +612,12 @@ export default function PHCalibrationScreen({ navigation, route }) {
         theme={theme}
       />
 
-      {/* Reconnect modal */}
       <ReconnectModal
         visible={showReconnect}
         onReconnect={handleReconnect}
         T={T}
       />
 
-      {/* Disconnection banner */}
       {!connected && phase !== 'prep' && (
         <View
           style={[
@@ -697,7 +678,6 @@ export default function PHCalibrationScreen({ navigation, route }) {
               Standard pH: {point.standardPH}
             </Text>
           </View>
-          {/* Connection status */}
           <View
             style={[
               s.connDot,
@@ -741,7 +721,6 @@ export default function PHCalibrationScreen({ navigation, route }) {
           />
         )}
 
-        {/* Skip all */}
         {!isDone && (
           <TouchableOpacity
             style={s.skipAll}
@@ -839,7 +818,6 @@ const s = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   liveDot: { width: 10, height: 10, borderRadius: 5 },
-  liveText: { fontSize: 13, fontWeight: '700', flex: 1 },
   mockBadge: {
     borderRadius: 4,
     borderWidth: 1,
@@ -869,11 +847,6 @@ const s = StyleSheet.create({
     marginBottom: 6,
   },
   stabilityFill: { height: 6, borderRadius: 3 },
-  stabilityLabel: {
-    fontSize: 12,
-    marginBottom: Spacing.md,
-    textAlign: 'center',
-  },
   actionRow: { flexDirection: 'row', gap: 12 },
   btnPrimary: {
     flexDirection: 'row',

@@ -36,7 +36,6 @@ export default function CalibrationGateScreen({ navigation }) {
       />
 
       <View style={s.body}>
-
         {/* ── Device status ───────────────────────── */}
         {connected && device && (
           <View
@@ -70,9 +69,7 @@ export default function CalibrationGateScreen({ navigation }) {
 
         {/* ── Title ──────────────────────────────── */}
         <Text style={[s.title, { color: T.primary }]}>
-          {needsCalibration
-            ? 'Calibration Recommended'
-            : 'Ready to Test'}
+          {needsCalibration ? 'Calibration Recommended' : 'Ready to Test'}
         </Text>
 
         {/* ── Subtitle ───────────────────────────── */}
@@ -115,7 +112,8 @@ export default function CalibrationGateScreen({ navigation }) {
             style={{ marginTop: 2 }}
           />
           <Text style={[s.infoText, { color: T.text }]}>
-            Calibration maps probe voltage to accurate pH & EC values using standard solutions (pH 4, 7, 9 and EC standards).
+            Calibration maps probe voltage to accurate pH & EC values using
+            standard solutions (pH 4, 7, 9 and EC standards).
           </Text>
         </View>
 

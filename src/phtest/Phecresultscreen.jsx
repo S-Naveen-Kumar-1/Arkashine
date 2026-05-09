@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StatusBar,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -22,14 +21,14 @@ import {
   cmdCheckMotorStatus,
 } from '../redux/actions/bleActions';
 
-// ✅ SAFE NUMBER (FIXED)
+// Safe number coercion — returns null for anything non-finite
 const toNumber = v => {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
 
-// ───────── RECOMMENDATIONS ─────────
+// ─── Recommendations ──────────────────────────────────────────────────────────
 function getRecommendations(ph, tds) {
   const recs = [];
 
@@ -51,7 +50,6 @@ function getRecommendations(ph, tds) {
   }
 
   recs.push('🔬 For full analysis, test all 12 soil parameters');
-
   return recs;
 }
 
@@ -61,35 +59,21 @@ export default function PHECResultScreen({ navigation }) {
   const T = theme.colors;
 
   const ble = useSelector(s => s.ble || {});
-  const {
-    sensorData,
-    finalResult,
-    motorStatus,
-    testStarted,
-    lastDeviceError,
-    lastCmdError,
-    connected,
-  } = ble;
+  const { sensorData, finalResult, connected } = ble;
 
   const [fetching, setFetching] = useState(false);
 
-  // ✅ SAFE SOURCE
+  // Prefer finalResult (from explicit FINAL_RESULT command) over sensorData
   const data = finalResult ?? sensorData ?? {};
 
-  // ✅ SUPPORT BOTH FORMATS (CRITICAL FIX)
+  // Support both normalised keys (ph/ec) and raw firmware keys (pH/TDS)
   const ph = toNumber(data?.ph ?? data?.pH);
   const tds = toNumber(data?.ec ?? data?.TDS);
   const temp = toNumber(data?.temperature);
-
   const phVoltage = toNumber(data?.voltage ?? data?.pHVoltage);
-  const ecVoltage = toNumber(data?.ecVoltage ?? data?.ECVoltage);
-s
+  const ecVoltage = toNumber(data?.ecVoltage ?? data?.ECVoltage); // FIX: removed stray `s` that was here
+
   const hasData = ph !== null || tds !== null;
-
-  // if (__DEV__) {
-  //   console.log('Result Screen: ble data', ble);
-  // }
-
   const recs = getRecommendations(ph, tds);
 
   const handleRetry = () => {
@@ -98,27 +82,6 @@ s
     setTimeout(() => setFetching(false), 1000);
   };
 
-  const handleCheckMotor = () => {
-    dispatch(cmdCheckMotorStatus());
-  };
-
-  // ───────── RUNNING ─────────
-
-  // // ───────── NO DATA ─────────
-  // if (!hasData) {
-  //   return (
-  //     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
-  //       <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
-  //       <TopBar
-  //         title="No Data"
-  //         onBack={() => navigation.goBack()}
-  //         theme={theme}
-  //       />
-  //     </SafeAreaView>
-  //   );
-  // }
-
-  // ───────── MAIN UI ─────────
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
@@ -129,14 +92,14 @@ s
       />
 
       <ScrollView contentContainerStyle={s.scroll}>
-        {/* STATUS */}
+        {/* Connection status strip */}
         <View style={[s.statusStrip, { backgroundColor: T.card }]}>
           <Text style={{ color: connected ? T.primary : T.error }}>
             {connected ? 'Connected' : 'Disconnected'}
           </Text>
         </View>
 
-        {/* DATA */}
+        {/* Result cards */}
         <Card title="pH" value={ph?.toFixed(2)} T={T} />
         <Card title="TDS (ppm)" value={tds?.toFixed(0)} T={T} />
         <Card
@@ -144,14 +107,12 @@ s
           value={temp != null ? `${temp.toFixed(1)} °C` : '--'}
           T={T}
         />
-
         <Card
           title="pH Voltage"
           value={phVoltage != null ? `${phVoltage.toFixed(4)} V` : '--'}
           T={T}
           mono
         />
-
         <Card
           title="EC Voltage"
           value={ecVoltage != null ? `${ecVoltage.toFixed(4)} V` : '--'}
@@ -159,7 +120,7 @@ s
           mono
         />
 
-        {/* RECOMMENDATIONS */}
+        {/* Recommendations */}
         <View
           style={[
             s.card,
@@ -178,12 +139,13 @@ s
             </Text>
           ))}
         </View>
+
+        {/* No-data fetch button */}
         {!hasData && (
           <View style={s.center}>
             <Text style={[s.title, { color: T.textSub }]}>
               No Data Received From Device
             </Text>
-
             <TouchableOpacity
               style={[s.btn, { backgroundColor: T.primary }]}
               onPress={handleRetry}
@@ -195,7 +157,7 @@ s
           </View>
         )}
 
-        {/* CTA */}
+        {/* Full 12-parameter CTA */}
         <TouchableOpacity
           style={[s.ctaBtn, { backgroundColor: T.primary }]}
           onPress={() => navigation.replace('SoilTestIntroScreen')}
@@ -208,7 +170,7 @@ s
   );
 }
 
-// ───────── CARD ─────────
+// ─── Card ─────────────────────────────────────────────────────────────────────
 function Card({ title, value, T, mono }) {
   return (
     <View
@@ -227,16 +189,12 @@ function Card({ title, value, T, mono }) {
   );
 }
 
-// ───────── STYLES ─────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   container: { flex: 1 },
   scroll: { padding: Spacing.md },
 
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
   title: { fontSize: 18, fontWeight: 'bold' },
 
@@ -259,7 +217,6 @@ const s = StyleSheet.create({
     borderRadius: Radius.lg,
     alignItems: 'center',
   },
-
   btnText: { color: '#fff', fontWeight: 'bold' },
 
   statusStrip: {
@@ -277,10 +234,5 @@ const s = StyleSheet.create({
     borderRadius: Radius.lg,
     marginTop: 10,
   },
-
-  ctaText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '900',
-  },
+  ctaText: { color: '#fff', fontSize: 15, fontWeight: '900' },
 });
