@@ -19,39 +19,38 @@ export function SoilResultsScreen({ navigation }) {
 
   const soilData = useSelector(s => s.soilsaathi?.bleResultData);
 
+  // // ✅ Loading state UI
+  // if (false) {
+  //   return (
+  //     <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
+  //       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
 
-  // ✅ Loading state UI
-  if (!soilData || Object.keys(soilData).length === 0) {
-    return (
-      <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
-        <StatusBar barStyle="light-content" backgroundColor={T.bg} />
+  //       <TopBar
+  //         title="Soil Results"
+  //         onBack={() => navigation.goBack()}
+  //         theme={theme}
+  //       />
 
-        <TopBar
-          title="Soil Results"
-          onBack={() => navigation.goBack()}
-          theme={theme}
-        />
+  //       <View style={s.center}>
+  //         <Text style={{ color: T.textSub, marginBottom: 10 }}>
+  //           Waiting for results...
+  //         </Text>
 
-        <View style={s.center}>
-          <Text style={{ color: T.textSub, marginBottom: 10 }}>
-            Waiting for results...
-          </Text>
+  //         <Text style={{ color: T.muted, fontSize: 12, marginBottom: 20 }}>
+  //           Make sure device is connected
+  //         </Text>
 
-          <Text style={{ color: T.muted, fontSize: 12, marginBottom: 20 }}>
-            Make sure device is connected
-          </Text>
-
-          <AppButton
-            label="Fetch Results"
-            onPress={() => dispatch(cmdGetSoilResult())}
-            color={T.primary}
-            textColor="#fff"
-            style={{ width: '60%' }}
-          />
-        </View>
-      </SafeAreaView>
-    );
-  }
+  //         <AppButton
+  //           label="Fetch Results"
+  //           onPress={() => dispatch(cmdGetSoilResult())}
+  //           color={T.primary}
+  //           textColor="#fff"
+  //           style={{ width: '60%' }}
+  //         />
+  //       </View>
+  //     </SafeAreaView>
+  //   );
+  // }
 
   // ✅ map values
   const mapped = nutrients.map(n => ({
@@ -97,6 +96,7 @@ export function SoilResultsScreen({ navigation }) {
         theme={theme}
       />
 
+      {!soilData || (Object.keys(soilData).length === 0 && <></>)}
       <ScrollView contentContainerStyle={s.container}>
         <Text style={[Typography.h3, { color: T.text }]}>Test Summary</Text>
 
@@ -148,6 +148,17 @@ export function SoilResultsScreen({ navigation }) {
             );
           })}
         </View>
+        {(!soilData || Object.keys(soilData).length === 0) && (
+          <View style={s.center}>
+            <AppButton
+              label="Fetch Results"
+              onPress={() => dispatch(cmdGetSoilResult())}
+              color={T.primary}
+              textColor="#fff"
+              style={{ width: '60%' }}
+            />
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -177,7 +188,7 @@ const s = StyleSheet.create({
     width: '30%',
     borderRadius: 16,
     borderWidth: 1.5,
-    paddingVertical: 16,
+    paddingVertical: 4,
     marginBottom: 14,
     alignItems: 'center',
   },

@@ -139,7 +139,7 @@ export const ac = {
   motorStatus: s => ({ type: BLE_MOTOR_STATUS, payload: s }),
   deviceError: e => ({ type: BLE_DEVICE_ERROR, payload: e }),
   calibrationStatus: s => ({ type: BLE_CALIBRATION_STATUS, payload: s }),
-  finalResult: r => ({ type: "PH_FINAL_RESULT", payload: r }),
+  finalResult: r => ({ type: 'PH_FINAL_RESULT', payload: r }),
 
   log: (tag, message) => ({
     type: BLE_DEBUG_LOG,
@@ -343,7 +343,7 @@ function parsePayload(jsonStr, dispatch) {
   }
 
   // 6. {"CALIBERATE":"PH"|"EC","STATUS":"DONE","value":"4.00","pHVoltage":...}
-  
+
   if (parsed.CALIBERATE && parsed.STATUS === 'DONE') {
     const type = parsed.CALIBERATE;
     const value = parseFloat(parsed.value);

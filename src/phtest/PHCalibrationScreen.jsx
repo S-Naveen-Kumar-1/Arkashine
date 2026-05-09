@@ -68,8 +68,10 @@ const PH_POINTS = [
 // ─── useMockLockVoltage ───────────────────────────────────────────────────────
 function useMockLockVoltage(active, mockBase, standardPH) {
   const realVoltage = useSelector(
-    s => s?.ble?.calibrationPoints?.PH?.[standardPH] ?? null,
+    s => s?.phtest?.calibrationPoints?.PH?.[standardPH] ?? null,
   );
+  const { phPoints, lastCalibrated } = useSelector(s => s.calibration);
+
 
   const [displayV, setDisplayV] = useState(null);
   const [isMocking, setIsMocking] = useState(true);

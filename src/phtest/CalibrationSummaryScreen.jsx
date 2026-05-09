@@ -12,13 +12,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 
 export default function CalibrationSummaryScreen({ navigation }) {
+  const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
 
@@ -33,7 +34,11 @@ export default function CalibrationSummaryScreen({ navigation }) {
   const ecComplete = ecPoints.filter(
     p => p.voltage !== null && p.capturedAt,
   ).length;
+  const handleRedo = async () => {
+    await dispatch({ type: 'CAL_POINT_RESET' });
 
+    navigation.replace('CalibrationMenuScreen');
+  };
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
@@ -115,7 +120,7 @@ export default function CalibrationSummaryScreen({ navigation }) {
 
         <TouchableOpacity
           style={[s.secondBtn, { borderColor: T.border }]}
-          onPress={() => navigation.replace('CalibrationMenuScreen')}
+          onPress={handleRedo}
         >
           <Text style={[s.secondBtnText, { color: T.muted }]}>
             Redo Calibration

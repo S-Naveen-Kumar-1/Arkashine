@@ -67,8 +67,9 @@ const EC_POINTS = [
 // ─── useLiveECVoltage ─────────────────────────────────────────────────────────
 function useLiveECVoltage(active, mockBase, standardEC) {
   const realVoltage = useSelector(
-    s => s?.ble?.calibrationPoints?.EC?.[standardEC] ?? null,
+    s => s?.phtest?.calibrationPoints?.EC?.[standardEC] ?? null,
   );
+  const { phPoints, lastCalibrated } = useSelector(s => s.calibration);
 
   const [displayV, setDisplayV] = useState(null);
   const [isMocking, setIsMocking] = useState(true);

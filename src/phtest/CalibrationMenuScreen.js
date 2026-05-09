@@ -40,6 +40,7 @@ export default function CalibrationMenuScreen({ navigation }) {
     },
   ];
 
+  
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />

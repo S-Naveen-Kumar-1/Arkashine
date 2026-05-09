@@ -38,6 +38,10 @@ const init = {
 
   lastCalibrated: null,
   finalPhResult: null,
+  calibrationPoints: {
+    PH: {},
+    EC: {},
+  },
 };
 
 // ─── Reducer ──────────────────────────────────────────────────────────────────
@@ -117,44 +121,38 @@ export default function phTestReducer(state = init, action) {
     }
 
     case CAL_POINT_DONE: {
-      const { type, value } = action.payload;
-      if (type === 'PH') {
-        const pending = state.phPoints.find(
-          p => p.capturedAt !== null && p.confirmedValue === null,
-        );
-        if (!pending) return state;
-        return {
-          ...state,
-          phPoints: state.phPoints.map(p =>
-            p.standardPH === pending.standardPH
-              ? { ...p, confirmedValue: value }
-              : p,
-          ),
-        };
-      }
-      if (type === 'EC') {
-        const pending = state.ecPoints.find(
-          p => p.capturedAt !== null && p.confirmedValue === null,
-        );
-        if (!pending) return state;
-        return {
-          ...state,
-          ecPoints: state.ecPoints.map(p =>
-            p.standardEC === pending.standardEC
-              ? { ...p, confirmedValue: value }
-              : p,
-          ),
-        };
-      }
-      return state;
+      const { type, value, voltage } = action.payload;
+
+      return {
+        ...state,
+
+        // ✅ store calibration history
+        calibrationPoints: {
+          ...state.calibrationPoints,
+          [type]: {
+            ...state.calibrationPoints[type],
+            [value]: voltage,
+          },
+        },
+      };
     }
 
-    case CAL_SAVED_TO_DEVICE:
+    case 'CAL_POINT_RESET':
+      return {
+        ...state,
+
+        calibrationPoints: {
+          PH: {},
+          EC: {},
+        },
+      };
+
+    case 'CAL_SAVED_TO_DEVICE':
       return {
         ...state,
         lastCalibrated: new Date().toISOString(),
       };
-    case CAL_RESET:
+    case 'CAL_RESET':
       return {
         ...state,
         phPoints: PH_DEFAULTS,

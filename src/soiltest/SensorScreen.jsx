@@ -119,7 +119,6 @@ export function SensorScreen({ navigation }) {
 
         <Text style={[Typography.h3, { color: T.text }]}>Sensor Operation</Text>
 
-      
         {!soilSathiData?.sensorStateFromBle && (
           <Text style={[s.sub, { color: T.textSub }]}>
             {'No Response from device'}
