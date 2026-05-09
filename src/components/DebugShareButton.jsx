@@ -12,6 +12,7 @@ const DebugButton = () => {
       const fullState = store.getState();
 
       const formattedData = JSON.stringify(fullState, null, 2);
+      console.log('Complete Redux Store Data\n\n' + formattedData);
 
       await Share.open({
         title: 'Redux Store Data',

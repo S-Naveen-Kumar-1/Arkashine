@@ -4,6 +4,7 @@
 // • Once real value arrives → locks it, stops mock
 // • Auto-captures on lock (no user action needed)
 // • Reconnects device if disconnected mid-flow
+// • Skip pH → prompts user to do EC or skip everything (fullFlow)
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -65,13 +66,7 @@ const PH_POINTS = [
 ];
 
 // ─── useMockLockVoltage ───────────────────────────────────────────────────────
-// FIX: replaced the fragile receivedCount / prevCountRef approach with a simple
-// lockedRef boolean. The old code could miss the lock or re-fire on re-renders
-// because `receivedCount` was shared across all pH points and the reset effect
-// captured a stale value of the counter. Now: once realVoltage becomes non-null
-// for this point while active, it locks exactly once. Resets cleanly per step.
 function useMockLockVoltage(active, mockBase, standardPH) {
-  // Reads from ble.calibrationPoints.PH[standardPH] — set by CAL_POINT_DONE in bleReducer
   const realVoltage = useSelector(
     s => s?.ble?.calibrationPoints?.PH?.[standardPH] ?? null,
   );
@@ -82,9 +77,8 @@ function useMockLockVoltage(active, mockBase, standardPH) {
   const [stable, setStable] = useState(false);
 
   const mockTimerRef = useRef(null);
-  const lockedRef = useRef(false); // FIX: single boolean flag per activation
+  const lockedRef = useRef(false);
 
-  // ── Reset / start mock when phase becomes active ──────────────────────────
   useEffect(() => {
     if (!active) {
       clearInterval(mockTimerRef.current);
@@ -92,17 +86,15 @@ function useMockLockVoltage(active, mockBase, standardPH) {
       setIsMocking(true);
       setIsLocked(false);
       setStable(false);
-      lockedRef.current = false; // FIX: reset flag so next point can lock
+      lockedRef.current = false;
       return;
     }
 
-    // Starting a new reading phase
-    lockedRef.current = false; // FIX: also reset on activate in case of edge cases
+    lockedRef.current = false;
     setIsMocking(true);
     setIsLocked(false);
     setStable(false);
 
-    // Oscillate mock voltage while waiting for device to reply
     let tick = 0;
     mockTimerRef.current = setInterval(() => {
       tick++;
@@ -114,13 +106,12 @@ function useMockLockVoltage(active, mockBase, standardPH) {
     return () => clearInterval(mockTimerRef.current);
   }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Lock when real BLE voltage arrives ───────────────────────────────────
   useEffect(() => {
     if (!active) return;
     if (realVoltage === null || realVoltage === undefined) return;
-    if (lockedRef.current) return; // FIX: already locked for this step, ignore re-renders
+    if (lockedRef.current) return;
 
-    lockedRef.current = true; // FIX: mark locked — won't fire again until next step
+    lockedRef.current = true;
     clearInterval(mockTimerRef.current);
     setIsMocking(false);
     setIsLocked(true);
@@ -216,6 +207,38 @@ function ReconnectModal({ visible, onReconnect, T }) {
         </View>
       </View>
     </Modal>
+  );
+}
+
+// ─── Skip pH Alert ─────────────────────────────────────────────────────────────
+// Shows when user taps "Skip pH Calibration Entirely"
+// fullFlow  → ask whether to go to EC or skip everything
+// standalone → go straight to summary
+function showSkipPhAlert({ fullFlow, navigation }) {
+  if (!fullFlow) {
+    navigation.replace('CalibrationSummaryScreen');
+    return;
+  }
+
+  Alert.alert(
+    'Skip pH Calibration?',
+    'pH calibration will not be saved.\nWould you like to continue with EC Calibration instead?',
+    [
+      {
+        text: 'Do EC Calibration',
+        onPress: () =>
+          navigation.replace('ECCalibrationScreen', { fullFlow: true }),
+      },
+      {
+        text: 'Skip Everything',
+        style: 'destructive',
+        onPress: () => navigation.replace('CalibrationSummaryScreen'),
+      },
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+    ],
   );
 }
 
@@ -465,7 +488,7 @@ function DoneCard({ point, T, captured, allDone, fullFlow, step, onNext }) {
             ? fullFlow
               ? 'Next: EC Calibration →'
               : 'Save & Finish pH Cal'
-            : `Next: pH ${PH_POINTS[step + 1]?.standardPH} →`}
+            : `Next: pH ${PH_POINTS[step + 1]?.standardPH} `}
         </Text>
         <Icon name="arrow-right" size={18} color="#fff" />
       </TouchableOpacity>
@@ -486,7 +509,7 @@ export default function PHCalibrationScreen({ navigation, route }) {
   const [sending, setSending] = useState(false);
   const [showReconnect, setShowReconnect] = useState(false);
 
-  const { connected, devices } = useSelector(s => s.ble);
+  const { connected } = useSelector(s => s.ble);
   const wasConnected = useRef(connected);
 
   const point = PH_POINTS[step];
@@ -597,6 +620,37 @@ export default function PHCalibrationScreen({ navigation, route }) {
     dispatch(startScan());
     navigation.navigate('BLEScanScreen');
   }, [dispatch, navigation]);
+
+  // ── Skip pH Entirely ───────────────────────────────────────────────────────
+  // fullFlow  → ask user: do EC or skip everything?
+  // standalone → go straight to summary
+  const handleSkipAll = useCallback(() => {
+    if (!fullFlow) {
+      navigation.replace('CalibrationSummaryScreen');
+      return;
+    }
+
+    Alert.alert(
+      'Skip pH Calibration?',
+      'pH calibration will not be saved.\nWould you like to continue with EC Calibration instead?',
+      [
+        {
+          text: 'Do EC Calibration',
+          onPress: () =>
+            navigation.replace('ECCalibrationScreen', { fullFlow: true }),
+        },
+        {
+          text: 'Skip Everything',
+          style: 'destructive',
+          onPress: () => navigation.replace('CalibrationSummaryScreen'),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ],
+    );
+  }, [fullFlow, navigation]);
 
   const isDone = phase === 'done';
   const isReading = phase === 'reading';
@@ -721,17 +775,9 @@ export default function PHCalibrationScreen({ navigation, route }) {
           />
         )}
 
+        {/* Skip pH Calibration Entirely — hidden on final done screen */}
         {!isDone && (
-          <TouchableOpacity
-            style={s.skipAll}
-            onPress={() => {
-              if (fullFlow) {
-                navigation.replace('ECCalibrationScreen', { fullFlow: true });
-              } else {
-                navigation.replace('CalibrationSummaryScreen');
-              }
-            }}
-          >
+          <TouchableOpacity style={s.skipAll} onPress={handleSkipAll}>
             <Text style={[s.skipAllText, { color: T.muted }]}>
               Skip pH Calibration Entirely
             </Text>

@@ -17,7 +17,7 @@ import useTheme from '../hooks/useTheme';
 import { Radius, Spacing, Shadow } from '../theme';
 
 import {
-  cmdGetFinalResult,
+  cmdGetfinalPhResult,
   cmdCheckMotorStatus,
 } from '../redux/actions/bleActions';
 
@@ -57,14 +57,17 @@ export default function PHECResultScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
+  const phtest = useSelector(s => s.phtest || {});
 
   const ble = useSelector(s => s.ble || {});
-  const { sensorData, finalResult, connected } = ble;
+  const { connected } = ble;
 
+  const { finalPhResult } = phtest;
   const [fetching, setFetching] = useState(false);
 
-  // Prefer finalResult (from explicit FINAL_RESULT command) over sensorData
-  const data = finalResult ?? sensorData ?? {};
+  console.log(finalPhResult, 'finalPhResult..//');
+
+  const data = finalPhResult;
 
   // Support both normalised keys (ph/ec) and raw firmware keys (pH/TDS)
   const ph = toNumber(data?.ph ?? data?.pH);
@@ -78,7 +81,7 @@ export default function PHECResultScreen({ navigation }) {
 
   const handleRetry = () => {
     setFetching(true);
-    dispatch(cmdGetFinalResult());
+    dispatch(cmdGetfinalPhResult());
     setTimeout(() => setFetching(false), 1000);
   };
 

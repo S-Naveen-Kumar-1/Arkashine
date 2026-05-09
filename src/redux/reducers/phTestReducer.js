@@ -26,34 +26,23 @@ const EC_DEFAULTS = [
   { standardEC: 12.88, voltage: null, confirmedValue: null, capturedAt: null },
 ];
 
-// ─── Initial state ────────────────────────────────────────────────────────────
 const init = {
-  // ── Motor phase ─────────────────────────────────────────────────────────
-  motorState: 'idle', // 'idle' | 'running' | 'done'
-  motorTimeLeft: MOTOR_DURATION,
-  motorStartedAt: null,
-
-  // ── Test results (from firmware after motor finishes) ────────────────────
-  // Populated by BLE_DATA_RECEIVED forwarded through TEST_RESULTS_RECEIVED
-  results: null, // { ph, ec, voltage, ecVoltage, temperature, temperatureFallback, raw, timestamp }
+  results: null,
   testCount: 0,
   savedAt: null,
-  history: [], // last 100 results
+  history: [],
 
-  // ── pH calibration points ────────────────────────────────────────────────
   phPoints: PH_DEFAULTS,
 
-  // ── EC calibration points ────────────────────────────────────────────────
   ecPoints: EC_DEFAULTS,
 
-  // ── Calibration metadata ─────────────────────────────────────────────────
-  lastCalibrated: null, // ISO string — last time calibration was saved to device
+  lastCalibrated: null,
+  finalPhResult: null,
 };
 
 // ─── Reducer ──────────────────────────────────────────────────────────────────
 export default function phTestReducer(state = init, action) {
   switch (action.type) {
-    // ── Full test reset (call before starting MixerScreen) ───────────────
     case TEST_RESET:
       return {
         ...state,
@@ -64,7 +53,6 @@ export default function phTestReducer(state = init, action) {
         savedAt: null,
       };
 
-    // ── Motor phase ──────────────────────────────────────────────────────
     case TEST_MOTOR_START:
       return {
         ...state,
@@ -81,9 +69,6 @@ export default function phTestReducer(state = init, action) {
 
     case TEST_MOTOR_DONE:
       return { ...state, motorState: 'done', motorTimeLeft: 0 };
-
-    // ── Results from firmware ────────────────────────────────────────────
-    // Payload: { ph, ec, voltage, ecVoltage, temperature, temperatureFallback, raw }
     case TEST_RESULTS_RECEIVED:
       return {
         ...state,
@@ -100,9 +85,6 @@ export default function phTestReducer(state = init, action) {
           ...state.history.slice(0, 99),
         ],
       };
-
-    // ── pH calibration ───────────────────────────────────────────────────
-    // Fired by app when user captures a voltage reading locally
     case CAL_PH_POINT_SAVED: {
       const { standardPH, voltage } = action.payload;
       return {
@@ -114,6 +96,12 @@ export default function phTestReducer(state = init, action) {
         ),
       };
     }
+
+    case 'PH_FINAL_RESULT':
+      return {
+        ...state,
+        finalPhResult: action.payload,
+      };
 
     // ── EC calibration ───────────────────────────────────────────────────
     case CAL_EC_POINT_SAVED: {
@@ -128,13 +116,9 @@ export default function phTestReducer(state = init, action) {
       };
     }
 
-    // ── CAL_POINT_DONE — device confirmed the calibration point ──────────
-    // payload: { type: 'PH'|'EC', value: number }
-    // Stores the device-confirmed value alongside the probe voltage
     case CAL_POINT_DONE: {
       const { type, value } = action.payload;
       if (type === 'PH') {
-        // Find the point that was most recently awaiting confirmation
         const pending = state.phPoints.find(
           p => p.capturedAt !== null && p.confirmedValue === null,
         );
@@ -165,14 +149,11 @@ export default function phTestReducer(state = init, action) {
       return state;
     }
 
-    // ── Saved to device flash ────────────────────────────────────────────
     case CAL_SAVED_TO_DEVICE:
       return {
         ...state,
         lastCalibrated: new Date().toISOString(),
       };
-
-    // ── Reset calibration only (keep test history) ───────────────────────
     case CAL_RESET:
       return {
         ...state,

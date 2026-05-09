@@ -4,6 +4,7 @@
 // • Sends {"CALIBERATE":"EC","value":1.413}
 // • Reads ble.calibrationPoints.EC[standardEC] (set by CAL_POINT_DONE)
 // • Device confirms: {"CALIBERATE":"EC","STATUS":"DONE","value":"1.41","ECVoltage":...}
+// • Skip EC → confirmation alert before going to summary
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -26,7 +27,7 @@ import useTheme from '../hooks/useTheme';
 import {
   saveEcPoint,
   persistCalibration,
-} from '../redux/actions/calibrationActions'; // FIX: was importing from phTestActions
+} from '../redux/actions/calibrationActions';
 import { cmdCalibrateEcPoint, startScan } from '../redux/actions/bleActions';
 
 // ─── EC calibration points ────────────────────────────────────────────────────
@@ -64,9 +65,6 @@ const EC_POINTS = [
 ];
 
 // ─── useLiveECVoltage ─────────────────────────────────────────────────────────
-// FIX: replaced with lockedRef pattern (same fix as PHCalibrationScreen).
-// Old code re-fired the lock effect on every render because it had no guard,
-// meaning a stale realVoltage from a previous point could trigger a false lock.
 function useLiveECVoltage(active, mockBase, standardEC) {
   const realVoltage = useSelector(
     s => s?.ble?.calibrationPoints?.EC?.[standardEC] ?? null,
@@ -78,7 +76,7 @@ function useLiveECVoltage(active, mockBase, standardEC) {
   const [stable, setStable] = useState(false);
 
   const mockTimer = useRef(null);
-  const lockedRef = useRef(false); // FIX: boolean guard — locks once per activation
+  const lockedRef = useRef(false);
 
   // Reset / start mock when phase becomes active
   useEffect(() => {
@@ -88,11 +86,11 @@ function useLiveECVoltage(active, mockBase, standardEC) {
       setIsMocking(true);
       setIsLocked(false);
       setStable(false);
-      lockedRef.current = false; // FIX: reset so next point can lock
+      lockedRef.current = false;
       return;
     }
 
-    lockedRef.current = false; // FIX: also reset on activate
+    lockedRef.current = false;
     setIsMocking(true);
     setIsLocked(false);
     setStable(false);
@@ -112,7 +110,7 @@ function useLiveECVoltage(active, mockBase, standardEC) {
   useEffect(() => {
     if (!active) return;
     if (realVoltage == null) return;
-    if (lockedRef.current) return; // FIX: already locked, ignore re-renders
+    if (lockedRef.current) return;
 
     lockedRef.current = true;
     clearInterval(mockTimer.current);
@@ -331,7 +329,7 @@ export default function ECCalibrationScreen({ navigation, route }) {
     if (connected && showReconnect) setShowReconnect(false);
   }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-capture when device confirms point (lockedRef prevents double-fire)
+  // Auto-capture when device confirms point
   useEffect(() => {
     if (isLocked && phase === 'reading' && voltage !== null) {
       dispatch(saveEcPoint(point.standardEC, voltage));
@@ -386,6 +384,29 @@ export default function ECCalibrationScreen({ navigation, route }) {
   const handleReconnect = useCallback(() => {
     dispatch(startScan());
     navigation.replace('DeviceScanScreen');
+  }, [dispatch, navigation]);
+
+  // ── Skip EC Entirely ───────────────────────────────────────────────────────
+  // Always confirm before discarding remaining EC points
+  const handleSkipAll = useCallback(() => {
+    Alert.alert(
+      'Skip EC Calibration?',
+      'Remaining EC calibration points will not be saved.\nAre you sure you want to finish without completing EC calibration?',
+      [
+        {
+          text: 'Skip & Finish',
+          style: 'destructive',
+          onPress: () => {
+            dispatch(persistCalibration());
+            navigation.replace('CalibrationSummaryScreen');
+          },
+        },
+        {
+          text: 'Continue Calibrating',
+          style: 'cancel',
+        },
+      ],
+    );
   }, [dispatch, navigation]);
 
   const allDone = step === EC_POINTS.length - 1 && phase === 'done';
@@ -668,12 +689,9 @@ export default function ECCalibrationScreen({ navigation, route }) {
           </View>
         )}
 
-        {/* Skip all */}
+        {/* Skip EC Calibration Entirely — hidden on final done screen */}
         {phase !== 'done' && (
-          <TouchableOpacity
-            style={s.skipAll}
-            onPress={() => navigation.replace('CalibrationSummaryScreen')}
-          >
+          <TouchableOpacity style={s.skipAll} onPress={handleSkipAll}>
             <Text style={[s.skipAllText, { color: T.muted }]}>
               Skip EC Calibration Entirely
             </Text>

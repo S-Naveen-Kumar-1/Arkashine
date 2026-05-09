@@ -139,7 +139,8 @@ export const ac = {
   motorStatus: s => ({ type: BLE_MOTOR_STATUS, payload: s }),
   deviceError: e => ({ type: BLE_DEVICE_ERROR, payload: e }),
   calibrationStatus: s => ({ type: BLE_CALIBRATION_STATUS, payload: s }),
-  finalResult: r => ({ type: BLE_FINAL_RESULT, payload: r }),
+  finalResult: r => ({ type: "PH_FINAL_RESULT", payload: r }),
+
   log: (tag, message) => ({
     type: BLE_DEBUG_LOG,
     payload: {
@@ -291,7 +292,6 @@ function _buildReading(src, raw) {
   };
 }
 
-// ─── Notification parser ───────────────────────────────────────────────────────
 function parsePayload(jsonStr, dispatch) {
   const raw = jsonStr.trim();
   dispatch(ac.log('DATA', `← RECV: ${raw}`));
@@ -343,6 +343,7 @@ function parsePayload(jsonStr, dispatch) {
   }
 
   // 6. {"CALIBERATE":"PH"|"EC","STATUS":"DONE","value":"4.00","pHVoltage":...}
+  
   if (parsed.CALIBERATE && parsed.STATUS === 'DONE') {
     const type = parsed.CALIBERATE;
     const value = parseFloat(parsed.value);
@@ -461,7 +462,6 @@ function parsePayload(jsonStr, dispatch) {
   return null;
 }
 
-// ─── Notification handler — chunk buffering + full raw debug logging ──────────
 function startNotifications(device, cfg, dispatch) {
   _notifySub?.remove();
   _chunkBuffer = '';
@@ -541,7 +541,6 @@ function startNotifications(device, cfg, dispatch) {
   dispatch(ac.log('NOTIFY', 'Subscribed ✅'));
 }
 
-// ─── connectDevice ────────────────────────────────────────────────────────────
 export const connectDevice = rawDevice => async dispatch => {
   dispatch(ac.connectRequest(rawDevice.id));
   dispatch(ac.log('CONNECT', `→ ${rawDevice.name || rawDevice.id}`));
@@ -646,50 +645,24 @@ export const disconnectDevice = () => dispatch => {
   dispatch(ac.disconnect());
 };
 
-// ═════════════════════════════════════════════════════════════════════════════
-//  PUBLIC COMMAND THUNKS
-// ═════════════════════════════════════════════════════════════════════════════
+// ph test ble commands
 
-// 1. Start Test
-// →  {"PHTEST":"START"}
-// ←  {"PHTEST":"STARTED"}  (immediate)
-// ←  {pH,TDS,temperature,temperatureFallback,pHVoltage,ECVoltage}  (~60 s later)
-export const cmdStartTest = () => dispatch =>
+export const cmdStartPhTestMotor = () => dispatch =>
   _sendJSON({ PHTEST: 'START' }, dispatch);
-
-// 2. Stop Test
-// →  {"PHTEST":"STOP"}
-// ←  {"PHTEST":"STOPPED"}
-export const cmdStopTest = () => dispatch =>
+export const cmdStopPhTestMotor = () => dispatch =>
   _sendJSON({ PHTEST: 'STOP' }, dispatch);
-
-// 3. Check Motor Status
-// →  {"CHECKMOTORSTATUS":"CHECKMOTORSTATUS"}
-// ←  {"MOTORSTATUS":"RUNNING"} or {"MOTORSTATUS":"STOPPED"}
 export const cmdCheckMotorStatus = () => dispatch =>
   _sendJSON({ CHECKMOTORSTATUS: 'CHECKMOTORSTATUS' }, dispatch);
 
-// 4. Calibrate pH Point
-// →  {"CALIBERATE":"PH","value":4}   (4 | 7 | 9)
-// ←  {"CALIBERATE":"PH","STATUS":"DONE","value":"4.00","pHVoltage":...}
 export const cmdCalibratePhPoint = standardPH => dispatch =>
   _sendJSON({ CALIBERATE: 'PH', value: Number(standardPH) }, dispatch);
 
-// 5. Calibrate EC Point
-// →  {"CALIBERATE":"EC","value":1.413}   (0.0 | 1.413 | 12.88)
-// ←  {"CALIBERATE":"EC","STATUS":"DONE","value":"1.41","ECVoltage":...}
 export const cmdCalibrateEcPoint = standardEC => dispatch =>
   _sendJSON({ CALIBERATE: 'EC', value: Number(standardEC) }, dispatch);
 
-// 6. Check Calibration Status
-// →  {"CALIBRATION_STATUS":true}
-// ←  {"CALIBRATION_STATUS":"PH_4_DONE"|...|"ALL_DONE"|"NOT_CALIBRATED"}
 export const cmdCheckCalibrationStatus = () => dispatch =>
   _sendJSON({ CALIBRATION_STATUS: true }, dispatch);
 
-// 7. Get Final Result
-// →  {"FINAL_RESULT":"RESULT"}
-// ←  {"FINAL_RESULT":{pH,TDS,temperature,pHVoltage,ECVoltage}}
 export const cmdGetFinalResult = () => dispatch =>
   _sendJSON({ FINAL_RESULT: 'FINAL_RESULT' }, dispatch);
 

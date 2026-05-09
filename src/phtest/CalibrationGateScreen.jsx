@@ -1,6 +1,6 @@
 // src/screens/phtest/CalibrationGateScreen.jsx
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,7 @@ import { Radius, Spacing } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import ConnectionFailedModal from '../components/ConnectionFailedModal';
 
 export default function CalibrationGateScreen({ navigation }) {
   const theme = useTheme();
@@ -22,9 +23,14 @@ export default function CalibrationGateScreen({ navigation }) {
 
   const testCount = useSelector(s => s.phtest.testCount);
   const { connected, device } = useSelector(s => s.ble);
-
+  const [showConnectionModal, setShowConnectionModal] = useState(false);
   const needsCalibration = testCount > 0 && testCount % 100 === 0;
 
+  useEffect(() => {
+    if (!connected) {
+      setShowConnectionModal(true);
+    }
+  }, [connected]);
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
@@ -147,6 +153,22 @@ export default function CalibrationGateScreen({ navigation }) {
           </Text>
         )}
       </View>
+      <ConnectionFailedModal
+        visible={showConnectionModal}
+        message={'Connection to device was lost.'}
+        onPress={() => {
+          setShowConnectionModal(false);
+
+          navigation.reset({
+            index: 0,
+            routes: [
+              {
+                name: 'DeviceScanScreen',
+              },
+            ],
+          });
+        }}
+      />
     </SafeAreaView>
   );
 }
