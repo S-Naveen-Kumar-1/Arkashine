@@ -22,6 +22,9 @@ import {
 } from '../redux/actions/bleActions';
 
 export function SensorScreen({ navigation }) {
+  const { connected, device, motorStatus, lastDeviceError } = useSelector(
+    s => s.ble,
+  );
   const theme = useTheme();
   const dispatch = useDispatch();
   const T = theme.colors;
@@ -102,21 +105,25 @@ export function SensorScreen({ navigation }) {
 
       <View style={s.center}>
         {/* BLE UI (static) */}
-        <View
-          style={[
-            s.bleChip,
-            {
-              backgroundColor: T.cardAlt,
-              borderColor: T.border,
-            },
-          ]}
-        >
-          <Icon name="bluetooth-off" size={13} color={T.muted} />
-          <Text style={[s.bleChipText, { color: T.muted }]}>
-            Device not connected
-          </Text>
-        </View>
 
+        {connected && (
+          <View
+            style={[
+              s.chip,
+              {
+                backgroundColor: T.primaryGlow,
+
+                borderColor: T.primary,
+              },
+            ]}
+          >
+            <Icon name="bluetooth-connect" size={13} color={T.primary} />
+
+            <Text style={[s.chipText, { color: T.primary }]}>
+              {device?.name}
+            </Text>
+          </View>
+        )}
         <Text style={[Typography.h3, { color: T.text }]}>Sensor Operation</Text>
 
         {!soilSathiData?.sensorStateFromBle && (
