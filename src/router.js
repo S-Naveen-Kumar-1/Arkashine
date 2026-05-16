@@ -23,6 +23,9 @@ import CalibrationSummaryScreen from './phtest/CalibrationSummaryScreen';
 import MixerScreen from './phtest/MixerScreen';
 import Phecresultscreen from './phtest/Phecresultscreen';
 import BLEScanScreen from './screens/ble/DeviceScanScreen';
+import FarmMapScreen from './soilmap/Farmmapscreen';
+import SoilPartnerDashboardScreen from './soilpartner/SoilPartnerDashboardScreen';
+import SoilPartnerOnboardingScreen from './soilpartner/Soilpartneronboardingscreen';
 export const AppStack = () => {
   return (
     <NavigationContainer>
@@ -198,6 +201,23 @@ export const AppStack = () => {
         <Stack.Screen
           name="BLEScanScreen"
           component={BLEScanScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="FarmMapScreen"
+          component={FarmMapScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="SoilPartnerDashboard"
+          component={SoilPartnerDashboardScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Soilpartneronboardingscreen"
+          component={SoilPartnerOnboardingScreen}
           options={{ headerShown: false }}
         />
       </Stack.Navigator>

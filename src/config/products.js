@@ -12,7 +12,7 @@ export const PRODUCTS = [
     category: 'Mapping',
     tag: 'Precision Agriculture',
     active: true,
-    route: 'SoilMaps',
+    route: 'Soilpartneronboardingscreen',
     stats: { tests: 142, lastUsed: '2d ago' },
   },
   {

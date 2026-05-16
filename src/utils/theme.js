@@ -1,45 +1,47 @@
 export const C = {
   // Backgrounds
-  bg:        '#0A1628',
-  bgAlt:     '#0F1F3D',
-  card:      '#132038',
-  cardAlt:   '#1A2B48',
-  border:    '#1E3050',
+  bg: '#0A1628',
+  bgAlt: '#0F1F3D',
+  card: '#132038',
+  cardAlt: '#1A2B48',
+  border: '#1E3050',
   borderLight: '#2A3F60',
 
   // Brand
-  primary:   '#22C55E',
+  primary: '#22C55E',
   primaryDark: '#16A34A',
   primaryLight: '#4ADE80',
   primaryGlow: 'rgba(34, 197, 94, 0.15)',
 
   // Text
-  white:     '#F0F6FF',
-  text:      '#CBD5E1',
-  muted:     '#64748B',
+  white: '#F0F6FF',
+  text: '#CBD5E1',
+  muted: '#64748B',
   placeholder: '#475569',
 
   // Status
-  online:    '#22C55E',
-  offline:   '#EF4444',
-  warning:   '#F59E0B',
-  info:      '#3B82F6',
+  online: '#22C55E',
+  offline: '#EF4444',
+  warning: '#F59E0B',
+  info: '#3B82F6',
 
   // Nutrients
-  nitrogen:  '#22C55E',
-  phosphorus:'#F59E0B',
+  nitrogen: '#22C55E',
+  phosphorus: '#F59E0B',
   potassium: '#3B82F6',
 
   // Levels
-  low:       '#EF4444',
-  medium:    '#F59E0B',
-  high:      '#22C55E',
+  low: '#EF4444',
+  medium: '#F59E0B',
+  high: '#22C55E',
 
   // Misc
-  blue:      '#3B82F6',
-  purple:    '#8B5CF6',
-  accent:    '#22C55E',
-  shadow:    'rgba(0,0,0,0.4)',
+  blue: '#3B82F6',
+  purple: '#8B5CF6',
+  accent: '#22C55E',
+  shadow: 'rgba(0,0,0,0.4)',
+  danger: '#EF4444',
+  warning: '#F59E0B',
 };
 
 export const FONTS = {
