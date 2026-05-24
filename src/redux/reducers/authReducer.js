@@ -1,14 +1,4 @@
-import {
-  LOGIN_FAILED,
-  LOGIN_REQUEST,
-  LOGIN_SUCCESS,
-  LOGOUT_REQUEST,
-  REGISTER_FAILED,
-  REGISTER_REQUEST,
-  REGISTER_SUCCESS,
-} from '../../config/actionTypes';
-
-const initialState = {
+const init = {
   loading: false,
   user: null,
   token: null,
@@ -18,7 +8,7 @@ const initialState = {
   isLoggedIn: false,
 };
 
-export default function authReducer(state = initialState, action) {
+export default function authReducer(state = init, action) {
   switch (action.type) {
     case 'LOGIN_USER':
       return {
@@ -27,27 +17,45 @@ export default function authReducer(state = initialState, action) {
         error: null,
       };
 
-    case 'LOGIN_USER_SUCCESS':
+    case 'LOGIN_USER_SUCCESS': {
+      const data = action.payload?.data ?? action.payload;
+
       return {
         ...state,
         loading: false,
-        user: action.payload?.data?.user ?? null,
-        token: action.payload?.data?.access ?? null,
-        refreshToken: action.payload?.data?.refresh ?? null,
         isLoggedIn: true,
+        token: data?.access ?? null,
+        refreshToken: data?.refresh ?? null,
+        user: data?.user ?? null,
         error: null,
       };
+    }
 
     case 'LOGIN_USER_FAIL':
       return {
         ...state,
         loading: false,
+        isLoggedIn: false,
+        token: null,
+        refreshToken: null,
         error:
-          action.payload?.error?.response?.data?.detail ||
-          action.error?.response?.data?.detail ||
-          action.payload?.error?.message ||
+          action.error?.response?.data?.detail ??
+          action.error?.message ??
           'Login failed',
       };
+
+    // RESTORE LOGIN FROM ASYNCSTORAGE
+    case 'RESTORE_LOGIN':
+      return {
+        ...state,
+        isLoggedIn: true,
+        token: action.payload?.token ?? null,
+        refreshToken: action.payload?.refreshToken ?? null,
+        user: action.payload?.user ?? null,
+        loading: false,
+        error: null,
+      };
+
     case 'REGISTER_USER':
       return {
         ...state,
@@ -56,34 +64,42 @@ export default function authReducer(state = initialState, action) {
       };
 
     case 'REGISTER_USER_SUCCESS':
+      const data = action.payload?.data ?? action.payload;
       return {
         ...state,
         loading: false,
-        user: action.payload?.data?.user ?? null,
-        token: action.payload?.data?.access ?? null,
-        refreshToken: action.payload?.data?.refresh ?? null,
-        isLoggedIn: !!action.payload?.data?.access,
+        isLoggedIn: true,
+        token: data?.access ?? null,
+        refreshToken: data?.refresh ?? null,
+        user: data?.user ?? null,
         error: null,
-        status: 'registered',
       };
 
     case 'REGISTER_USER_FAIL':
-      console.log('Registration error payload:', action);
-
       return {
         ...state,
         loading: false,
         error:
-          action.payload?.error?.response?.data?.detail ||
-          action.error?.response?.data?.detail ||
-          action.payload?.error?.message ||
+          action.error?.response?.data?.detail ??
+          action.error?.message ??
           'Registration failed',
       };
+
+    case 'AUTH_TOKEN_REFRESHED':
+      return {
+        ...state,
+        token: action.payload?.token ?? state.token,
+      };
+
+    case 'LOGOUT_REQUEST':
+      return { ...init };
+
     case 'CLEAR_AUTH_ERROR':
       return {
         ...state,
         error: null,
       };
+
     default:
       return state;
   }

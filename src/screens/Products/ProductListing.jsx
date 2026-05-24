@@ -47,10 +47,7 @@ function logSubscription(product) {
     timestamp: new Date().toISOString(),
     allSubscriptions: Array.from(subscriptionStore),
   };
-  console.log(
-    '[ProductsListing] Subscription event:',
-    JSON.stringify(record, null, 2),
-  );
+
   return { alreadySubscribed, record };
 }
 
@@ -67,6 +64,7 @@ export function ProductsListingScreen({ navigation }) {
   // Track which products the user has subscribed to (for UI feedback)
   const [subscribedIds, setSubscribedIds] = useState(new Set());
 
+  console.log(devices,"check user devices..")
   // -------------------------------------------------------------------------
   // Derived data
   // -------------------------------------------------------------------------

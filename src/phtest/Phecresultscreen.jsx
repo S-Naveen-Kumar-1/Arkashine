@@ -7,7 +7,7 @@
 // • BLE status strip
 // • Share-friendly summary card
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import {
   cmdGetFinalResult,
   cmdCheckMotorStatus,
 } from '../redux/actions/bleActions';
+import { createPHBottleReading } from '../redux/actions/phTestActions';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const toNum = v => {
@@ -359,13 +360,20 @@ export default function PHECResultScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
+  const devices = useSelector(s => s.userDevices?.devices || []);
+
+  const phBottleDevice = devices.find(d => d.devise_type === 'ph_bottle');
+
+  const phBottleDeviceId = phBottleDevice?.id;
+
+  console.log(phBottleDeviceId, 'PH Bottle Device ID');
 
   const { connected } = useSelector(s => s.ble);
   const { finalPhResult } = useSelector(s => s.phtest);
 
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState(null);
-
+  const hasSavedRef = useRef(false);
   const data = finalPhResult;
   const ph = toNum(data?.ph ?? data?.pH);
   const ec = toNum(data?.ec ?? data?.TDS);
@@ -378,20 +386,65 @@ export default function PHECResultScreen({ navigation }) {
   const phStatus = getPhStatus(ph);
   const ecStatus = getEcStatus(ec);
   const recs = getRecommendations(ph, ec);
+  useEffect(() => {
+    if (
+      hasSavedRef.current ||
+      !phBottleDeviceId ||
+      ph === null ||
+      ec === null
+    ) {
+      return;
+    }
 
+    hasSavedRef.current = true;
+
+    dispatch(
+      createPHBottleReading({
+        device_id: phBottleDeviceId,
+
+        field1: ph,
+        field2: phVoltage,
+
+        field3: ec,
+        field4: ecVoltage,
+
+        tag: 'PH Test',
+      }),
+    )
+      .then(() => {
+        console.log('PH Reading Saved');
+      })
+      .catch(err => {
+        console.log('SAVE ERROR', err);
+      });
+  }, [phBottleDeviceId, ph, ec, phVoltage, ecVoltage, dispatch]);
   const handleRetry = useCallback(async () => {
     if (fetching || !connected) return;
-    setFetching(true);
-    setFetchError(null);
-    try {
-      await dispatch(cmdGetFinalResult());
-    } catch (e) {
-      setFetchError('Failed to fetch results. Check device connection.');
-    } finally {
-      setTimeout(() => setFetching(false), 1500);
-    }
-  }, [fetching, connected, dispatch]);
 
+    setFetching(true);
+
+    try {
+      const res = await dispatch(cmdGetFinalResult());
+
+      await dispatch(
+        createPHBottleReading({
+          device_id: phBottleDeviceId,
+
+          field1: ph,
+          field2: phVoltage,
+
+          field3: ec,
+          field4: ecVoltage,
+
+          tag: 'PH Test',
+        }),
+      );
+    } catch (e) {
+      console.log(e);
+    } finally {
+      setFetching(false);
+    }
+  }, [fetching, connected]);
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />

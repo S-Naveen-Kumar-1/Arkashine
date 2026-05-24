@@ -19,6 +19,7 @@ import { registerUser, toggleTheme, clearAuthError } from '../redux/actions';
 import useTheme from '../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../theme';
 import { showMessage } from 'react-native-flash-message';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function RegisterScreen({ navigation }) {
   const dispatch = useDispatch();
@@ -151,6 +152,9 @@ export default function RegisterScreen({ navigation }) {
       }),
     );
     if (regiRes.payload?.data?.access) {
+      await AsyncStorage.setItem('token', regiRes.payload?.data.access);
+      await AsyncStorage.setItem('user', JSON.stringify(regiRes.payload?.data));
+
       showMessage({
         message: 'Account Created Successfully',
         type: 'success',
@@ -420,7 +424,7 @@ export default function RegisterScreen({ navigation }) {
                       field: 'firstName',
                       value: firstName,
                       onChange: makeHandler('firstName', setFirstName),
-                      placeholder: 'Jane',
+                      placeholder: 'Your First Name',
                       inputRef: firstNameRef,
                       scrollY: 50,
                       onSubmitEditing: () => lastNameRef.current?.focus(),
@@ -433,7 +437,7 @@ export default function RegisterScreen({ navigation }) {
                       field: 'lastName',
                       value: lastName,
                       onChange: makeHandler('lastName', setLastName),
-                      placeholder: 'Doe',
+                      placeholder: 'Your Last Name',
                       inputRef: lastNameRef,
                       scrollY: 50,
                       onSubmitEditing: () => phoneRef.current?.focus(),
@@ -498,7 +502,7 @@ export default function RegisterScreen({ navigation }) {
                   field: 'email',
                   value: email,
                   onChange: makeHandler('email', setEmail),
-                  placeholder: 'jane@example.com',
+                  placeholder: 'xyz@gmail.com',
                   keyboardType: 'email-address',
                   inputRef: emailRef,
                   scrollY: 50,
@@ -645,7 +649,7 @@ export default function RegisterScreen({ navigation }) {
                   field: 'username',
                   value: username,
                   onChange: makeHandler('username', setUsername),
-                  placeholder: 'janedoe',
+                  placeholder: 'username',
                   inputRef: usernameRef,
                   scrollY: 160,
                   returnKeyType: 'done',

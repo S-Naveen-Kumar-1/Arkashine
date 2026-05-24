@@ -8,6 +8,9 @@ const initialState = {
 
 const deviceReducer = (state = initialState, action) => {
   switch (action.type) {
+    case 'LOGOUT_REQUEST':
+      return { ...initialState };
+
     case 'GET_USER_DEVICES':
       return { ...state, loadingDevices: true };
 

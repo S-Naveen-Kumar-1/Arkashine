@@ -986,9 +986,11 @@ export function SoilResultsScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors; // ← same pattern as your original
   const dispatch = useDispatch();
-
+  const devices = useSelector(s => s.userDevices?.devices || []);
+  const soilLenzDevice = devices.find(d => d.devise_type === 'soilsaathi');
   const soilData = useSelector(s => s.soilsaathi?.bleResultData);
-  const deviceId = 1
+  const deviceId = soilLenzDevice?.id;
+  console.log(deviceId, 'SOILLENZ DEVICE ID');
 
   const [phase, setPhase] = useState('idle');
   const [callId, setCallId] = useState(null);

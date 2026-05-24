@@ -40,6 +40,32 @@ export const persistCalibration = () => dispatch => {
 
 export const resetCalibration = () => ({ type: CAL_RESET });
 export const finalPhResult = r => ({
-  type: "PH_FINAL_RESULT",
+  type: 'PH_FINAL_RESULT',
   payload: r,
 });
+
+export function createPHBottleReading({
+  device_id,
+  field1, // pH Value
+  field2, // pH Voltage (mV)
+  field3, // EC Value (mS/cm)
+  field4, // EC Voltage (mV)
+  tag = '',
+}) {
+  return {
+    type: 'CREATE_PH_BOTTLE_READING',
+    payload: {
+      request: {
+        url: `/api/mobile/devices/${device_id}/ph-bottle/create/`,
+        method: 'POST',
+        data: {
+          field1,
+          field2,
+          field3,
+          field4,
+          tag,
+        },
+      },
+    },
+  };
+}

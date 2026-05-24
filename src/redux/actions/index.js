@@ -30,6 +30,7 @@ import {
   REPORT_SAVE,
   REPORT_LANGUAGE_SET,
 } from '../../config/actionTypes';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import axios from 'axios';
 
@@ -48,6 +49,23 @@ export function loginUser({ username, password }) {
     },
   };
 }
+export const logoutUser = () => {
+  return async dispatch => {
+    try {
+      console.log('logout..');
+
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('refreshToken');
+      await AsyncStorage.removeItem('user');
+
+      dispatch({
+        type: 'LOGOUT_REQUEST',
+      });
+    } catch (e) {
+      console.log('Logout Error:', e);
+    }
+  };
+};
 export function registerUser({
   username,
   password,
@@ -78,7 +96,6 @@ export function registerUser({
 export const clearAuthError = () => ({
   type: 'CLEAR_AUTH_ERROR',
 });
-export const logoutUser = () => ({ type: LOGOUT_REQUEST });
 
 // ── THEME ────────────────────────────────────────────────────
 export const toggleTheme = () => ({ type: THEME_TOGGLE });
@@ -133,3 +150,20 @@ export const setLanguage = lang => ({
   type: REPORT_LANGUAGE_SET,
   payload: lang,
 });
+
+
+//fetch device report schema
+export function fetchDeviceFieldSchema(type_key) {
+  return {
+    type: 'FETCH_DEVICE_FIELD_SCHEMA',
+    payload: {
+      request: {
+        url: `/api/mobile/device-types/${type_key}/field-schema/`,
+        method: 'GET',
+      },
+    },
+    meta: {
+      type_key,
+    },
+  };
+}

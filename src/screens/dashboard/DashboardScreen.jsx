@@ -33,13 +33,10 @@ export function DashboardScreen({ navigation }) {
   const scrollViewRef = useRef(null);
   const sliderRef = useRef(null);
   const devices = useSelector(s => s.userDevices?.devices);
-  console.log(devices, 'check devices in dashboard');
-  console.log('Devices from Redux:/', devices);
   useEffect(() => {
     const fetchDevices = async () => {
       if (token) {
         const res = await dispatch(getUserDevices(token));
-        console.log(res.payload.data, 'device res');
       }
     };
 

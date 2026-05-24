@@ -1,3 +1,5 @@
+// src/screens/LoginScreen.jsx
+
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -12,15 +14,13 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
 import { useDispatch, useSelector } from 'react-redux';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { loginUser, toggleTheme, clearAuthError } from '../redux/actions/index';
-import { AppButton } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../theme';
 import { showMessage } from 'react-native-flash-message';
-
+import AsyncStorage from '@react-native-async-storage/async-storage';
 export default function LoginScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
@@ -37,82 +37,80 @@ export default function LoginScreen({ navigation }) {
   const passwordRef = useRef(null);
   const scrollViewRef = useRef(null);
 
+  useEffect(() => {
+    dispatch(clearAuthError());
+  }, []);
+
   const validate = () => {
     const e = {};
-
-    if (!username.trim()) {
-      e.username = 'Please enter username';
-    }
-
-    if (!password) {
-      e.password = 'Please enter password';
-    } else if (password.length < 6) {
+    if (!username.trim()) e.username = 'Please enter username';
+    if (!password) e.password = 'Please enter password';
+    else if (password.length < 6)
       e.password = 'Password must be at least 6 characters';
-    }
-
     setErrors(e);
     return Object.keys(e).length === 0;
   };
+
   const resetForm = () => {
     setUsername('');
     setPassword('');
     setErrors({});
     setFocusedInput(null);
     setShowPass(false);
-
-    // clear redux error
     dispatch(clearAuthError());
-
-    // remove focus
     usernameRef.current?.blur();
     passwordRef.current?.blur();
   };
+
+  // FIX: removed the erroneous navigation.navigate('AppTabs') before validation.
+  // Now only navigates on confirmed successful login (access token present).
   const handleLogin = async () => {
-         navigation.navigate('AppTabs');
     if (!validate()) return;
-    const loginres = await dispatch(loginUser({ username, password }));
-    console.log('Login Response:', loginres.payload.data);
-    if (loginres.payload?.data?.access) {
+
+    try {
+      const result = await dispatch(loginUser({ username, password }));
+      const data = result?.payload?.data ?? result?.payload;
+
+      if (data?.access) {
+        // SAVE LOGIN DATA
+        await AsyncStorage.setItem('token', data.access);
+        await AsyncStorage.setItem('user', JSON.stringify(data));
+
+        showMessage({
+          message: 'Welcome back!',
+          type: 'success',
+        });
+
+        const role = data?.user?.role ?? data?.user?.user_type ?? '';
+        if (role === 'soil_partner' ) {
+          navigation.navigate('SoilPartnerTabs'); // your soil partner tab navigator
+        } else {
+          navigation.navigate('AppTabs');
+        }
+      } else {
+        const msg =
+          data?.detail ??
+          data?.error ??
+          result?.error?.message ??
+          'Login failed';
+
+        showMessage({
+          message: msg,
+          type: 'danger',
+        });
+      }
+    } catch (err) {
+      console.log('Login error:', err);
       showMessage({
-        message: 'Login Successful',
-        type: 'success',
-      });
-      navigation.navigate('AppTabs');
-    } else {
-      showMessage({
-        message: loginres.payload?.error || 'Login Failed',
+        message: 'Login failed',
         type: 'danger',
       });
-      console.log(
-        'Login failed, error:',
-        loginres.payload?.error || loginres.error,
-      );
     }
   };
-  useEffect(() => {
-    dispatch(clearAuthError());
-  }, []);
-
-  const handleUsernameDone = () => {
-    if (username.trim()) {
-      passwordRef.current?.focus();
-    }
-  };
-
-  const handlePasswordDone = () => {
-    if (password.length >= 6) {
-      handleLogin();
-    }
-  };
-
   const handleInputFocus = (inputName, scrollY) => {
     setFocusedInput(inputName);
-    // Scroll with small delay to ensure keyboard opens first
     setTimeout(() => {
-      scrollViewRef.current?.scrollTo({
-        y: scrollY,
-        animated: true,
-      });
+      scrollViewRef.current?.scrollTo({ y: scrollY, animated: true });
     }, 200);
   };
 
@@ -128,7 +126,6 @@ export default function LoginScreen({ navigation }) {
           contentContainerStyle={s.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          scrollEnabled={true}
           bounces={false}
         >
           {/* Theme toggle */}
@@ -146,7 +143,7 @@ export default function LoginScreen({ navigation }) {
             />
           </TouchableOpacity>
 
-          {/* Logo Section */}
+          {/* Logo */}
           <View style={s.logoWrap}>
             <View
               style={[
@@ -169,7 +166,7 @@ export default function LoginScreen({ navigation }) {
             </Text>
           </View>
 
-          {/* Login Card */}
+          {/* Card */}
           <View
             style={[
               s.card,
@@ -182,13 +179,14 @@ export default function LoginScreen({ navigation }) {
               Sign in to your account
             </Text>
 
+            {/* API error banner */}
             {error ? (
               <View
                 style={[
                   s.errorBanner,
                   {
                     borderColor: T.error || '#EF4444',
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    backgroundColor: 'rgba(239,68,68,0.1)',
                   },
                 ]}
               >
@@ -208,7 +206,7 @@ export default function LoginScreen({ navigation }) {
               </View>
             ) : null}
 
-            {/* Username Input */}
+            {/* Username */}
             <View style={s.inputGroup}>
               <View style={s.inputLabelRow}>
                 <MaterialCommunityIcons
@@ -253,7 +251,9 @@ export default function LoginScreen({ navigation }) {
                   onFocus={() => handleInputFocus('username', 80)}
                   onBlur={() => setFocusedInput(null)}
                   returnKeyType="next"
-                  onSubmitEditing={handleUsernameDone}
+                  onSubmitEditing={() =>
+                    username.trim() && passwordRef.current?.focus()
+                  }
                   blurOnSubmit={false}
                 />
               </View>
@@ -269,7 +269,7 @@ export default function LoginScreen({ navigation }) {
               )}
             </View>
 
-            {/* Password Input */}
+            {/* Password */}
             <View style={[s.inputGroup, { marginTop: Spacing.lg }]}>
               <View style={s.inputLabelRow}>
                 <MaterialCommunityIcons
@@ -313,7 +313,7 @@ export default function LoginScreen({ navigation }) {
                   onFocus={() => handleInputFocus('password', 150)}
                   onBlur={() => setFocusedInput(null)}
                   returnKeyType="done"
-                  onSubmitEditing={handlePasswordDone}
+                  onSubmitEditing={() => password.length >= 6 && handleLogin()}
                   blurOnSubmit={false}
                 />
                 <TouchableOpacity
@@ -340,14 +340,7 @@ export default function LoginScreen({ navigation }) {
               )}
             </View>
 
-            {/* Forgot Password Link */}
-            {/* <TouchableOpacity style={s.forgotBtn}>
-              <Text style={[s.forgotText, { color: T.primary }]}>
-                Forgot Password?
-              </Text>
-            </TouchableOpacity> */}
-
-            {/* Sign In Button */}
+            {/* Sign in button */}
             <TouchableOpacity
               style={[
                 s.signInBtn,
@@ -372,10 +365,8 @@ export default function LoginScreen({ navigation }) {
               )}
             </TouchableOpacity>
 
-            {/* Divider */}
             <View style={[s.divider, { backgroundColor: T.cardBorder }]} />
 
-            {/* Register Link */}
             <TouchableOpacity
               style={s.registerLinkRow}
               onPress={() => {
@@ -392,14 +383,6 @@ export default function LoginScreen({ navigation }) {
               </Text>
             </TouchableOpacity>
           </View>
-
-          {/* Footer */}
-          {/* <View style={s.footer}>
-            <Text style={[s.version, { color: T.muted }]}>SOILENZ v1.0</Text>
-            <Text style={[s.footerSub, { color: T.muted }]}>
-              Agricultural Intelligence Platform
-            </Text>
-          </View> */}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -408,19 +391,14 @@ export default function LoginScreen({ navigation }) {
 
 const s = StyleSheet.create({
   bg: { flex: 1 },
-
-  scroll: {
-    flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 12, // ↓ reduced
-  },
+  scroll: { flexGrow: 1, paddingHorizontal: 16, paddingVertical: 12 },
 
   themeBtn: {
     position: 'absolute',
     top: 12,
     right: 12,
     zIndex: 10,
-    width: 42, // ↓ reduced
+    width: 42,
     height: 42,
     borderRadius: Radius.md,
     alignItems: 'center',
@@ -429,41 +407,25 @@ const s = StyleSheet.create({
     ...Shadow.sm,
   },
 
-  /* 🔽 LOGO SECTION */
-  logoWrap: {
-    alignItems: 'center',
-    marginBottom: 18, // ↓ reduced from xl*1.5
-  },
-
+  logoWrap: { alignItems: 'center', marginBottom: 18 },
   logoCircle: {
-    width: 90, // ↓ reduced
+    width: 90,
     height: 90,
     borderRadius: 26,
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  tagline: { fontSize: 13, marginTop: 6, letterSpacing: 0.2 },
 
-  tagline: {
-    fontSize: 13,
-    marginTop: 6, // ↓ reduced
-    letterSpacing: 0.2,
-  },
-
-  /* 🔽 CARD */
   card: {
     borderRadius: Radius.xl,
     borderWidth: 1,
-    padding: 14, // ↓ reduced from lg
+    padding: 14,
     marginBottom: 12,
   },
+  cardSub: { fontSize: 13, marginBottom: 10 },
 
-  cardSub: {
-    fontSize: 13,
-    marginBottom: 10, // ↓ reduced
-  },
-
-  /* 🔽 ERROR */
   errorBanner: {
     borderRadius: Radius.md,
     paddingVertical: 8,
@@ -473,106 +435,43 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  errorText: { fontSize: 13, flex: 1 },
 
-  /* 🔽 INPUTS */
-  inputGroup: {
-    marginBottom: 10, // ↓ reduced
-  },
-
+  inputGroup: { marginBottom: 10 },
   inputLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6, // ↓ reduced
+    marginBottom: 6,
   },
-
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-
+  label: { fontSize: 12, fontWeight: '600' },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: Radius.md,
     paddingHorizontal: 12,
-    height: 46, // ↓ reduced from 52
+    height: 46,
   },
+  textInput: { flex: 1, fontSize: 14 },
+  eyeBtn: { padding: 6, marginRight: -6 },
+  errorMsg: { fontSize: 11 },
 
-  textInput: {
-    flex: 1,
-    fontSize: 14, // ↓ reduced
-  },
-
-  eyeBtn: {
-    padding: 6,
-    marginRight: -6,
-  },
-
-  errorMsg: {
-    fontSize: 11,
-  },
-
-  /* 🔽 FORGOT */
-  forgotBtn: {
-    alignSelf: 'flex-end',
-    marginTop: 6,
-    marginBottom: 10,
-  },
-
-  forgotText: {
-    fontSize: 12,
-  },
-
-  /* 🔽 BUTTON */
   signInBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: Radius.md,
-    paddingVertical: 12, // ↓ reduced
+    paddingVertical: 12,
+    marginTop: Spacing.lg,
     marginBottom: 10,
   },
+  signInText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
-  signInText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-
-  /* 🔽 DIVIDER */
-  divider: {
-    height: 1,
-    marginVertical: 10, // ↓ reduced
-  },
-
+  divider: { height: 1, marginVertical: 10 },
   registerLinkRow: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-  registerText: {
-    fontSize: 12,
-  },
-
-  registerAction: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-  /* 🔽 FOOTER */
-  footer: {
-    alignItems: 'center',
-    marginTop: 10,
-    paddingBottom: 20,
-  },
-
-  version: {
-    fontSize: 11,
-  },
-
-  footerSub: {
-    fontSize: 10,
-    marginTop: 2,
-  },
+  registerText: { fontSize: 12 },
+  registerAction: { fontSize: 12, fontWeight: '700' },
 });

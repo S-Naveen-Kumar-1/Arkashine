@@ -23,6 +23,15 @@ import CalibrationSummaryScreen from './phtest/CalibrationSummaryScreen';
 import MixerScreen from './phtest/MixerScreen';
 import Phecresultscreen from './phtest/Phecresultscreen';
 import BLEScanScreen from './screens/ble/DeviceScanScreen';
+import ReportsScreen from './reports/ReportsScreen';
+import DeviceReadingsScreen from './reports/DeviceReadingsScreen';
+import ReadingDetailScreen from './reports/ReadingDetailScreen';
+import SoilPartnerTabs from './components/SoilPartnerTabs';
+import AddFarmerScreen from './soilpartner/AddFarmerScreen';
+import FarmersListScreen from './soilpartner/FarmersListScreen';
+import FarmerDetailScreen from './soilpartner/FarmerDetailScreen';
+import PaymentHistoryScreen from './soilpartner/ PaymentHistoryScreen';
+import { MapScreen } from './SoilMaps/SoilMap';
 export const AppStack = () => {
   return (
     <NavigationContainer>
@@ -199,6 +208,79 @@ export const AppStack = () => {
           name="BLEScanScreen"
           component={BLEScanScreen}
           options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="ReportsScreen"
+          component={ReportsScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="DeviceReadingsScreen"
+          component={DeviceReadingsScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="ReadingDetailScreen"
+          component={ReadingDetailScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="SoilPartnerTabs"
+          component={SoilPartnerTabs}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="FarmersListScreen"
+          component={FarmersListScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="AddFarmerScreen"
+          component={AddFarmerScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="FarmerDetailScreen"
+          component={FarmerDetailScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="PaymentHistoryScreen"
+          component={PaymentHistoryScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+           <Stack.Screen
+          name="SoilMaps"
+          component={MapScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
         />
       </Stack.Navigator>
     </NavigationContainer>

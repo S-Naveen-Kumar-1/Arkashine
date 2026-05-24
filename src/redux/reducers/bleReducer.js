@@ -113,6 +113,9 @@ const init = {
 
 export default function bleReducer(state = init, action) {
   switch (action.type) {
+    case 'LOGOUT_REQUEST':
+      return { ...init };
+
     case BLE_STATE_CHANGED:
       return { ...state, bleAdapterState: action.payload };
 

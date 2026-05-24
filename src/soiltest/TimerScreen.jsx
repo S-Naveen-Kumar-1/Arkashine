@@ -20,7 +20,6 @@ export function TimerScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
   const soilSathiData = useSelector(s => s.soilsaathi);
-  console.log(soilSathiData, 'check ,,,');
 
   const [timeLeft, setTimeLeft] = useState(MOTOR_DURATION);
   const intervalRef = useRef(null);
@@ -87,9 +86,9 @@ export function TimerScreen({ navigation }) {
             {`Motor State from ble :${soilSathiData?.motorStateFromBle}`}
           </Text>
         )}
-          {!soilSathiData?.motorStateFromBle && (
+        {!soilSathiData?.motorStateFromBle && (
           <Text style={[Typography.h3, { color: T.text, marginBottom: 8 }]}>
-            {"No Response from device"}
+            {'No Response from device'}
           </Text>
         )}
 

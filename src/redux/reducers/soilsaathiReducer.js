@@ -60,6 +60,8 @@ export default function soilsaathiReducer(state = init, action) {
       return {
         ...init,
       };
+    case 'LOGOUT_REQUEST':
+      return { ...init };
 
     case 'SOIL_MOTOR_STATE': {
       return {

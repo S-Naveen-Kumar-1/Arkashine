@@ -117,3 +117,21 @@ export function buildSoilPayload(results, meta = {}) {
     longitude: meta.longitude ?? 0,
   };
 }
+
+// soil map
+export function predictSoil({ lat, lon, polygon = [] }) {
+  return {
+    type: 'PREDICT_SOIL',
+    payload: {
+      request: {
+        url: '/api/predict/',
+        method: 'POST',
+        data: {
+          lat,
+          lon,
+          polygon,
+        },
+      },
+    },
+  };
+}
