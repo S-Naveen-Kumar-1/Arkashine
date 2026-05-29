@@ -51,49 +51,44 @@ const ACCOUNT_ITEMS = [
   },
 ];
 
-// ─── SoilPartnerBadge ─────────────────────────────────────────────────────────
+// ─── SoilPartnerBadge  (Option B — left accent card) ─────────────────────────
 // Shown in the profile hero when user.user_type === 'soil_partner'
 
 function SoilPartnerBadge({ T }) {
   return (
     <View
-      style={[spb.wrap, { backgroundColor: T.card, borderColor: '#22C55E30' }]}
+      style={[
+        spb.wrap,
+        {
+          backgroundColor: T.card,
+          borderColor: T.cardBorder,
+          borderLeftColor: '#22C55E',
+        },
+      ]}
     >
-      {/* Accent strip */}
-      <View style={spb.accent} />
+      {/* Shield icon */}
+      <View style={[spb.iconWrap, { backgroundColor: '#22C55E14' }]}>
+        <MaterialCommunityIcons name="shield-check" size={22} color="#22C55E" />
+      </View>
 
-      <View style={spb.inner}>
-        {/* Shield icon */}
-        <View style={[spb.shieldWrap, { backgroundColor: '#22C55E14' }]}>
+      {/* Text */}
+      <View style={spb.textBlock}>
+        <View style={spb.titleRow}>
           <MaterialCommunityIcons
-            name="shield-check"
-            size={26}
+            name="check-decagram"
+            size={13}
             color="#22C55E"
           />
+          <Text style={spb.title}>Verified Soil Partner</Text>
         </View>
+        <Text style={[spb.sub, { color: T.muted }]}>
+          Authorised Arkashine distributor · Active
+        </Text>
+      </View>
 
-        {/* Text */}
-        <View style={spb.textBlock}>
-          <View style={spb.titleRow}>
-            <MaterialCommunityIcons
-              name="check-decagram"
-              size={13}
-              color="#22C55E"
-            />
-            <Text style={spb.title}>Verified Soil Partner</Text>
-          </View>
-          <Text style={[spb.sub, { color: T.muted }]}>
-            Authorised Arkashine distributor
-          </Text>
-        </View>
-
-        {/* Active indicator */}
-        <View style={spb.rightCol}>
-          <View style={[spb.dotOuter, { backgroundColor: '#22C55E20' }]}>
-            <View style={[spb.dotInner, { backgroundColor: '#22C55E' }]} />
-          </View>
-          <Text style={[spb.activeLabel, { color: '#22C55E' }]}>Active</Text>
-        </View>
+      {/* VERIFIED chip */}
+      <View style={spb.chip}>
+        <Text style={spb.chipText}>VERIFIED</Text>
       </View>
     </View>
   );
@@ -102,25 +97,22 @@ function SoilPartnerBadge({ T }) {
 const spb = StyleSheet.create({
   wrap: {
     width: '100%',
-    borderRadius: 14,
-    borderWidth: 1,
-    overflow: 'hidden',
-    marginTop: 12,
-    marginBottom: 4,
-    ...Shadow.sm,
-  },
-  accent: { height: 3, backgroundColor: '#22C55E' },
-  inner: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 11,
     gap: 12,
+    borderWidth: 1,
+    borderLeftWidth: 3,
+    borderRadius: Radius.md,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    marginTop: 12,
+    marginBottom: 2,
+    ...Shadow.sm,
   },
-  shieldWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
+  iconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -136,19 +128,22 @@ const spb = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: '#22C55E',
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
   },
   sub: { fontSize: 11 },
-  rightCol: { alignItems: 'center', gap: 3, flexShrink: 0 },
-  dotOuter: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
+  chip: {
+    backgroundColor: '#22C55E',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexShrink: 0,
   },
-  dotInner: { width: 10, height: 10, borderRadius: 5 },
-  activeLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 0.3 },
+  chipText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: 0.6,
+  },
 });
 
 // ─── SoilPartnerCard ──────────────────────────────────────────────────────────

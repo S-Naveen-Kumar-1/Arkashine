@@ -10,6 +10,7 @@ import {
   Dimensions,
   FlatList,
   ImageBackground,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -23,6 +24,40 @@ const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - Spacing.lg * 2;
 const CARD_MARGIN = Spacing.md;
 
+// Weather utility functions
+const getWeatherIcon = code => {
+  // WMO Weather interpretation codes
+  if (code === 0) return 'weather-sunny';
+  if (code === 1 || code === 2) return 'weather-partly-cloudy';
+  if (code === 3) return 'weather-cloudy';
+  if (code === 45 || code === 48) return 'weather-fog';
+  if (code === 51 || code === 53 || code === 55) return 'weather-rainy';
+  if (code === 61 || code === 63 || code === 65) return 'weather-rainy';
+  if (code === 71 || code === 73 || code === 75) return 'weather-snowy';
+  if (code === 80 || code === 81 || code === 82) return 'weather-rainy';
+  if (code === 85 || code === 86) return 'weather-snowy';
+  return 'weather-cloudy';
+};
+
+const getWeatherColor = code => {
+  if (code === 0) return '#F97316'; // sunny - orange
+  if (code <= 3) return '#3B82F6'; // cloudy - blue
+  if (code >= 51 && code <= 82) return '#6366F1'; // rainy - indigo
+  if (code >= 71 && code <= 86) return '#06B6D4'; // snow - cyan
+  return '#8B5CF6'; // default - purple
+};
+
+const getWeatherConditionText = code => {
+  if (code === 0) return 'Clear Sky';
+  if (code === 1 || code === 2) return 'Partly Cloudy';
+  if (code === 3) return 'Cloudy';
+  if (code === 45 || code === 48) return 'Foggy';
+  if (code >= 51 && code <= 65) return 'Rainy';
+  if (code >= 71 && code <= 86) return 'Snowy';
+  if (code >= 80 && code <= 82) return 'Showers';
+  return 'Cloudy';
+};
+
 export function DashboardScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
@@ -33,15 +68,102 @@ export function DashboardScreen({ navigation }) {
   const scrollViewRef = useRef(null);
   const sliderRef = useRef(null);
   const devices = useSelector(s => s.userDevices?.devices);
-  useEffect(() => {
-    const fetchDevices = async () => {
-      if (token) {
-        const res = await dispatch(getUserDevices(token));
-      }
-    };
 
+  // Refresh control state
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Weather state
+  const [weather, setWeather] = useState({
+    temp: '--',
+    condition: 'Loading',
+    city: 'Bengaluru',
+    code: 0,
+  });
+  const [weatherLoading, setWeatherLoading] = useState(true);
+
+  // Fetch devices
+  const fetchDevices = async () => {
+    if (token) {
+      await dispatch(getUserDevices(token));
+    }
+  };
+
+  useEffect(() => {
     fetchDevices();
   }, [token]);
+
+  // Fetch weather data
+  const fetchWeatherData = async () => {
+    try {
+      setWeatherLoading(true);
+
+      // Default fallback for testing (no actual geolocation needed for now)
+      // You can replace this with actual geolocation API call
+      const defaultWeather = {
+        temp: 28,
+        condition: 'Partly Cloudy',
+        city: 'Bengaluru, India',
+        code: 2,
+      };
+
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Try to fetch actual weather data
+      try {
+        // Using Open-Meteo free API for Bengaluru coordinates
+        const latitude = 12.9716;
+        const longitude = 77.5946;
+
+        // Get city name
+        const geoResponse = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
+        );
+        const geoData = await geoResponse.json();
+        const city =
+          geoData.address?.city || geoData.address?.town || 'Bengaluru, India';
+
+        // Get weather from Open-Meteo (free, no API key)
+        const weatherResponse = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weather_code&temperature_unit=celsius`,
+        );
+        const weatherData = await weatherResponse.json();
+        const current = weatherData.current;
+
+        setWeather({
+          temp: Math.round(current.temperature_2m),
+          condition: getWeatherConditionText(current.weather_code),
+          city,
+          code: current.weather_code,
+        });
+      } catch (apiError) {
+        console.log('Weather API error:', apiError);
+        // Use default fallback
+        setWeather(defaultWeather);
+      }
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
+
+  // Initial weather fetch
+  useEffect(() => {
+    fetchWeatherData();
+  }, []);
+
+  // Handle pull-to-refresh
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Fetch both devices and weather in parallel
+      await Promise.all([fetchDevices(), fetchWeatherData()]);
+    } catch (error) {
+      console.log('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const bannerSlides = [
     {
       id: 1,
@@ -68,6 +190,7 @@ export function DashboardScreen({ navigation }) {
   const quickAccessProducts = useMemo(() => {
     return updatedProducts.slice(0, 4);
   }, [updatedProducts]);
+
   const handleScroll = event => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const currentSlide = Math.round(
@@ -109,6 +232,7 @@ export function DashboardScreen({ navigation }) {
       </View>
     </ImageBackground>
   );
+
   const renderProductCard = ({ item }) => (
     <TouchableOpacity
       style={[
@@ -163,16 +287,12 @@ export function DashboardScreen({ navigation }) {
         <Text style={[s.productTitle, { color: T.text }]} numberOfLines={1}>
           {item.name}
         </Text>
-        {/* 
-      <Text
-        style={[s.productSubtitle, { color: T.textSub }]}
-        numberOfLines={2}
-      >
-        {item.description}
-      </Text> */}
       </View>
     </TouchableOpacity>
   );
+
+  const weatherIconName = getWeatherIcon(weather.code);
+  const weatherColor = getWeatherColor(weather.code);
 
   return (
     <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
@@ -182,18 +302,22 @@ export function DashboardScreen({ navigation }) {
         ref={scrollViewRef}
         style={s.scroll}
         showsVerticalScrollIndicator={false}
-        bounces={false}
+        bounces={true}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={T.primary}
+            titleColor={T.text}
+            colors={[T.primary]}
+            progressBackgroundColor={T.card}
+          />
+        }
       >
         {/* Header */}
         <View style={[s.header, { paddingHorizontal: Spacing.lg }]}>
           <View style={s.headerLeft}>
-            {/* <Image
-              source={{
-                uri: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d',
-              }}
-              style={s.avatar}
-            /> */}
             <View style={s.avatar}>
               <MaterialCommunityIcons name="account" size={42} color={T.text} />
             </View>
@@ -207,17 +331,6 @@ export function DashboardScreen({ navigation }) {
               </Text>
             </View>
           </View>
-          {/* <TouchableOpacity
-            style={[
-              s.notificationBell,
-              { backgroundColor: T.primary, borderColor: T.primary },
-            ]}
-          >
-            <MaterialCommunityIcons name="bell" size={20} color="#fff" />
-            <View style={s.badge}>
-              <Text style={s.badgeText}>3</Text>
-            </View>
-          </TouchableOpacity> */}
         </View>
 
         {/* Banner Carousel */}
@@ -311,6 +424,7 @@ export function DashboardScreen({ navigation }) {
             </View>
           </View>
 
+          {/* Dynamic Weather Card */}
           <View
             style={[
               s.weatherCard,
@@ -323,17 +437,19 @@ export function DashboardScreen({ navigation }) {
           >
             <View style={s.weatherLeft}>
               <MaterialCommunityIcons
-                name="weather-partly-cloudy"
+                name={weatherIconName}
                 size={44}
-                color="#F97316"
+                color={weatherColor}
               />
               <View style={s.weatherInfo}>
-                <Text style={[s.weatherTemp, { color: T.text }]}>28°C</Text>
+                <Text style={[s.weatherTemp, { color: T.text }]}>
+                  {weather.temp}°C
+                </Text>
                 <Text
                   style={[s.weatherCondition, { color: T.textSub }]}
                   numberOfLines={1}
                 >
-                  Partly Cloudy
+                  {weather.condition}
                 </Text>
               </View>
             </View>
@@ -347,7 +463,7 @@ export function DashboardScreen({ navigation }) {
                 style={[s.weatherLocation, { color: T.textSub }]}
                 numberOfLines={1}
               >
-                Bengaluru, India
+                {weather.city}
               </Text>
             </View>
           </View>
@@ -432,7 +548,6 @@ const s = StyleSheet.create({
 
   // Carousel Styles
   carouselContainer: {
-    // marginHorizontal: -Spacing.lg,
     marginBottom: Spacing.xl,
   },
   bannerCard: {

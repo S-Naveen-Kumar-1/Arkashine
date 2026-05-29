@@ -1,147 +1,161 @@
+// src/screens/RegisterScreen.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   StatusBar,
-  ScrollView,
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
-  Animated,
   KeyboardAvoidingView,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { registerUser, toggleTheme, clearAuthError } from '../redux/actions';
 import useTheme from '../hooks/useTheme';
-import { Typography, Spacing, Radius, Shadow } from '../theme';
+import { Spacing, Radius, Shadow } from '../theme';
 import { showMessage } from 'react-native-flash-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const { width, height } = Dimensions.get('window');
+
+// ─── Reusable compact input ─────────────────────────────────────────────────
+function Field({
+  label,
+  icon,
+  value,
+  onChange,
+  placeholder,
+  error,
+  isFocused,
+  onFocus,
+  onBlur,
+  secureTextEntry,
+  rightEl,
+  inputRef,
+  returnKeyType = 'next',
+  onSubmitEditing,
+  keyboardType = 'default',
+  T,
+}) {
+  return (
+    <View style={f.wrap}>
+      <Text style={[f.label, { color: T.textSub }]}>{label}</Text>
+      <View
+        style={[
+          f.row,
+          {
+            borderColor: error
+              ? T.red || '#EF4444'
+              : isFocused
+              ? T.primary
+              : T.cardBorder,
+            backgroundColor: T.inputBg || T.surface,
+            borderWidth: isFocused ? 1.5 : 1,
+          },
+        ]}
+      >
+        <MaterialCommunityIcons
+          name={icon}
+          size={16}
+          color={isFocused ? T.primary : T.muted}
+          style={f.icon}
+        />
+        <TextInput
+          ref={inputRef}
+          style={[f.input, { color: T.text }]}
+          placeholder={placeholder}
+          placeholderTextColor={T.muted}
+          value={value}
+          onChangeText={onChange}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          secureTextEntry={secureTextEntry}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={false}
+          keyboardType={keyboardType}
+          autoCapitalize="none"
+          autoCorrect={false}
+          importantForAutofill="no"
+        />
+        {rightEl}
+      </View>
+      {error ? (
+        <Text style={[f.err, { color: T.red || '#EF4444' }]}>{error}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+const f = StyleSheet.create({
+  wrap: { gap: 4 },
+  label: { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: Radius.md,
+    height: 42,
+    paddingHorizontal: 10,
+  },
+  icon: { marginRight: 8 },
+  input: { flex: 1, fontSize: 13, height: '100%' },
+  err: { fontSize: 10, marginTop: 2 },
+});
+
+// ─── Main screen ────────────────────────────────────────────────────────────
 export default function RegisterScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
   const { loading, error } = useSelector(s => s.auth);
 
-  // ── Fields ──────────────────────────────────────────────
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [username, setUsername] = useState('');
-
   const [showPass, setShowPass] = useState(false);
   const [errors, setErrors] = useState({});
-  const [touched, setTouched] = useState({});
-  const [focusedInput, setFocusedInput] = useState(null);
-  const [step, setStep] = useState(1);
+  const [focused, setFocused] = useState(null);
 
-  // ── Refs ─────────────────────────────────────────────────
   const firstNameRef = useRef(null);
   const lastNameRef = useRef(null);
   const phoneRef = useRef(null);
   const emailRef = useRef(null);
+  const usernameRef = useRef(null);
   const passRef = useRef(null);
   const confirmRef = useRef(null);
-  const usernameRef = useRef(null);
-  const scrollViewRef = useRef(null);
 
-  // ── Validation ───────────────────────────────────────────
-  const validateField = (field, value) => {
-    switch (field) {
-      case 'firstName':
-        return value.trim() ? null : 'First name is required';
-      case 'lastName':
-        return value.trim() ? null : 'Last name is required';
-      case 'phone': {
-        const r =
-          /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/;
-        return r.test(value.replace(/\s/g, ''))
-          ? null
-          : 'Valid phone number required';
-      }
-      case 'email':
-        return /\S+@\S+\.\S+/.test(value) ? null : 'Valid email required';
-      case 'pass':
-        return value.length >= 6 ? null : 'At least 6 characters';
-      case 'confirm':
-        return value === pass ? null : 'Passwords do not match';
-      case 'username':
-        if (!value.trim()) return 'Username is required';
-        if (value.length < 3) return 'At least 3 characters';
-        return null;
-      default:
-        return null;
-    }
-  };
+  useEffect(() => {
+    dispatch(clearAuthError());
+  }, []);
 
-  const makeHandler = (field, setter) => value => {
-    setter(value);
-    if (touched[field]) {
-      setErrors(prev => ({ ...prev, [field]: validateField(field, value) }));
-    }
-  };
-
-  const handleInputBlur = (field, currentValue) => {
-    setTouched(prev => ({ ...prev, [field]: true }));
-    setErrors(prev => ({
-      ...prev,
-      [field]: validateField(field, currentValue),
-    }));
-    setFocusedInput(null);
-  };
-
-  const validateStep = n => {
+  const validateAll = () => {
     const e = {};
-    if (n === 1) {
-      if (!firstName.trim()) e.firstName = 'First name is required';
-      if (!lastName.trim()) e.lastName = 'Last name is required';
-      const r =
-        /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/;
-      if (!r.test(phone.replace(/\s/g, '')))
-        e.phone = 'Valid phone number required';
-    }
-    if (n === 2) {
-      if (!/\S+@\S+\.\S+/.test(email)) e.email = 'Valid email required';
-      if (pass.length < 6) e.pass = 'At least 6 characters';
-    }
-    if (n === 3) {
-      if (pass !== confirm) e.confirm = 'Passwords do not match';
-      if (!username.trim()) e.username = 'Username is required';
-      else if (username.length < 3) e.username = 'At least 3 characters';
-    }
-    return e;
-  };
-
-  const goStep = (n, prevStep) => {
-    const e = validateStep(prevStep);
-    if (Object.keys(e).length) {
-      setErrors(e);
-      return;
-    }
-    setErrors({});
-    setTouched({});
-    setStep(n);
-    setTimeout(
-      () => scrollViewRef.current?.scrollTo({ y: 0, animated: true }),
-      300,
-    );
+    if (!firstName.trim()) e.firstName = 'Required';
+    if (!lastName.trim()) e.lastName = 'Required';
+    const phoneRe =
+      /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/;
+    if (!phoneRe.test(phone.replace(/\s/g, ''))) e.phone = 'Invalid phone';
+    if (!/\S+@\S+\.\S+/.test(email)) e.email = 'Invalid email';
+    if (!username.trim()) e.username = 'Required';
+    else if (username.length < 3) e.username = 'Min 3 chars';
+    if (pass.length < 6) e.pass = 'Min 6 chars';
+    if (pass !== confirm) e.confirm = 'Passwords mismatch';
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
   const handleRegister = async () => {
-    const e = validateStep(3);
-    if (Object.keys(e).length) {
-      setErrors(e);
-      setTouched({ confirm: true, username: true });
-      return;
-    }
-    const regiRes = await dispatch(
+    if (!validateAll()) return;
+    const res = await dispatch(
       registerUser({
         username,
         password: pass,
@@ -151,754 +165,511 @@ export default function RegisterScreen({ navigation }) {
         phone,
       }),
     );
-    if (regiRes.payload?.data?.access) {
-      await AsyncStorage.setItem('token', regiRes.payload?.data.access);
-      await AsyncStorage.setItem('user', JSON.stringify(regiRes.payload?.data));
-
-      showMessage({
-        message: 'Account Created Successfully',
-        type: 'success',
-      });
+    if (res.payload?.data?.access) {
+      await AsyncStorage.setItem('token', res.payload.data.access);
+      await AsyncStorage.setItem('user', JSON.stringify(res.payload.data));
+      showMessage({ message: 'Account created!', type: 'success' });
       navigation.navigate('AppTabs');
     } else {
       showMessage({
-        message: regiRes.payload?.error || 'Registration Failed',
+        message: res.payload?.error || 'Registration failed',
         type: 'danger',
       });
-      console.log(
-        'Registration failed, error:',
-        regiRes.payload?.error || regiRes.error,
-      );
     }
-
-    console.log('Registration response:', regiRes);
   };
 
-  const handleInputFocus = (inputName, scrollY) => {
-    setFocusedInput(inputName);
-    setTimeout(
-      () => scrollViewRef.current?.scrollTo({ y: scrollY, animated: true }),
-      200,
-    );
-  };
-
-  const progressPercentage = (step / 3) * 100;
-
-  // ── Shared input renderer ────────────────────────────────
-  const renderInput = ({
-    label,
-    icon,
-    value,
-    onChange,
-    field,
-    placeholder,
-    keyboardType = 'default',
-    isPassword = false,
-    returnKeyType = 'next',
-    onSubmitEditing,
-    scrollY,
-    inputRef,
-  }) => {
-    const err = errors[field];
-    const isValid = value.length > 0 && !err;
-    return (
-      <View style={s.inputGroup}>
-        <View style={s.inputHeader}>
-          <View style={[s.iconBox, { backgroundColor: `${T.primary}15` }]}>
-            <MaterialCommunityIcons name={icon} size={20} color={T.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[s.inputLabel, { color: T.text }]}>{label}</Text>
-            {err ? (
-              <Text style={[s.inputHint, { color: T.error || '#EF4444' }]}>
-                {err}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-        <View
-          style={[
-            s.modernInput,
-            {
-              borderColor: err
-                ? T.error || '#EF4444'
-                : isValid
-                ? T.success || '#10B981'
-                : focusedInput === field
-                ? T.primary
-                : T.cardBorder,
-              backgroundColor:
-                focusedInput === field ? `${T.primary}08` : T.inputBg || T.card,
-              borderWidth: err || focusedInput === field ? 2 : 1,
-            },
-          ]}
-        >
-          <TextInput
-            ref={inputRef}
-            style={[s.modernTextInput, { color: T.text }]}
-            placeholder={placeholder}
-            placeholderTextColor={`${T.textSub}80`}
-            value={value}
-            onChangeText={onChange}
-            onFocus={() => handleInputFocus(field, scrollY)}
-            onBlur={() => handleInputBlur(field, value)}
-            keyboardType={keyboardType}
-            secureTextEntry={isPassword && !showPass}
-            returnKeyType={returnKeyType}
-            onSubmitEditing={onSubmitEditing}
-            blurOnSubmit={false}
-            importantForAutofill="no"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {isValid && (
-            <MaterialCommunityIcons
-              name="check-circle"
-              size={20}
-              color={T.success || '#10B981'}
-            />
-          )}
-        </View>
-      </View>
-    );
-  };
-  const resetForm = async () => {
+  const resetAndGoBack = () => {
     setFirstName('');
     setLastName('');
     setPhone('');
     setEmail('');
+    setUsername('');
     setPass('');
     setConfirm('');
-    setUsername('');
-
     setErrors({});
-    setTouched({});
-    setFocusedInput(null);
+    setFocused(null);
     setShowPass(false);
-    setStep(1);
     dispatch(clearAuthError());
-  };
-  useEffect(() => {
-    dispatch(clearAuthError());
-  }, []);
-  const handleGoBackToLogin = async () => {
-    await resetForm();
     navigation.goBack();
   };
-  // ── Render ───────────────────────────────────────────────
+
+  const eyeToggle = (
+    <TouchableOpacity
+      onPress={() => setShowPass(!showPass)}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    >
+      <MaterialCommunityIcons
+        name={showPass ? 'eye-off-outline' : 'eye-outline'}
+        size={16}
+        color={T.muted}
+      />
+    </TouchableOpacity>
+  );
+
+  const strengthColor =
+    pass.length === 0
+      ? T.cardBorder
+      : pass.length < 6
+      ? T.red || '#EF4444'
+      : pass.length < 10
+      ? T.warning || '#F59E0B'
+      : T.primary;
+
+  const strengthWidth =
+    pass.length === 0 ? 0 : pass.length < 6 ? 30 : pass.length < 10 ? 65 : 100;
+
   return (
-    <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
+    <SafeAreaView
+      style={[s.root, { backgroundColor: T.bg }]}
+      edges={['top', 'bottom']}
+    >
       <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
+
+      {/* Decorative blob */}
+      <View style={[s.blob, { backgroundColor: T.primaryDim }]} />
+
+      {/* Header */}
+      <View style={[s.header, { borderBottomColor: T.cardBorder }]}>
+        <TouchableOpacity
+          style={[
+            s.headerIconBtn,
+            { backgroundColor: T.card, borderColor: T.cardBorder },
+          ]}
+          onPress={resetAndGoBack}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <MaterialCommunityIcons
+            name="arrow-left"
+            size={20}
+            color={T.primary}
+          />
+        </TouchableOpacity>
+
+        <View style={s.headerCenter}>
+          <MaterialCommunityIcons name="sprout" size={18} color={T.primary} />
+          <Text style={[s.headerTitle, { color: T.text }]}>Create Account</Text>
+        </View>
+
+        <TouchableOpacity
+          style={[
+            s.headerIconBtn,
+            { backgroundColor: T.card, borderColor: T.cardBorder },
+          ]}
+          onPress={() => dispatch(toggleTheme())}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <MaterialCommunityIcons
+            name={theme.dark ? 'white-balance-sunny' : 'moon-waning-crescent'}
+            size={18}
+            color={T.primary}
+          />
+        </TouchableOpacity>
+      </View>
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
+        style={s.kav}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -10}
       >
-        {/* Header */}
-        <View style={[s.header, { borderBottomColor: T.cardBorder }]}>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            style={s.headerBtn}
-          >
-            <MaterialCommunityIcons
-              name="arrow-left"
-              size={24}
-              color={T.primary}
-            />
-          </TouchableOpacity>
-          <Text style={[s.headerTitle, { color: T.text }]}>Create Account</Text>
-          <TouchableOpacity
-            style={[
-              s.headerBtn,
-              { backgroundColor: T.card, borderColor: T.cardBorder },
-            ]}
-            onPress={() => dispatch(toggleTheme())}
-          >
-            <MaterialCommunityIcons
-              name={theme.dark ? 'white-balance-sunny' : 'moon-waning-crescent'}
-              size={18}
-              color={T.primary}
-            />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView
-          ref={scrollViewRef}
-          contentContainerStyle={s.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          {/* Progress */}
-          <View style={s.progressSection}>
-            <View style={s.progressInfo}>
-              <Text style={[s.progressLabel, { color: T.textSub }]}>
-                Step {step} of 3
-              </Text>
-              <Text style={[s.progressTitle, { color: T.text }]}>
-                {step === 1 && 'Personal Information'}
-                {step === 2 && 'Email & Credentials'}
-                {step === 3 && 'Confirm Details'}
-              </Text>
-            </View>
+        <View style={s.body}>
+          {/* API error banner */}
+          {error ? (
             <View
               style={[
-                s.progressBar,
-                { backgroundColor: `${T.primary}20`, overflow: 'hidden' },
+                s.alertBox,
+                {
+                  backgroundColor: 'rgba(239,68,68,0.08)',
+                  borderColor: T.red || '#EF4444',
+                },
               ]}
             >
-              <Animated.View
-                style={[
-                  s.progressFill,
-                  {
-                    backgroundColor: T.primary,
-                    width: `${progressPercentage}%`,
-                  },
-                ]}
+              <MaterialCommunityIcons
+                name="alert-circle-outline"
+                size={14}
+                color={T.red || '#EF4444'}
               />
+              <Text style={[s.alertText, { color: T.red || '#EF4444' }]}>
+                {error}
+              </Text>
             </View>
-          </View>
+          ) : null}
 
           {/* Card */}
           <View
             style={[
-              s.contentCard,
+              s.card,
               { backgroundColor: T.card, borderColor: T.cardBorder },
-              Shadow.lg,
+              Shadow.md,
             ]}
           >
-            {/* Error banner */}
-            {error ? (
-              <View
-                style={[
-                  s.errorBanner,
-                  {
-                    borderColor: T.error || '#EF4444',
-                    backgroundColor: `${T.error || '#EF4444'}15`,
-                  },
-                ]}
-              >
-                <MaterialCommunityIcons
-                  name="alert-circle-outline"
-                  size={20}
-                  color={T.error || '#EF4444'}
+            {/* Row 1: First + Last name */}
+            <View style={s.row}>
+              <View style={{ flex: 1 }}>
+                <Field
+                  label="FIRST NAME"
+                  icon="account-outline"
+                  value={firstName}
+                  onChange={v => {
+                    setFirstName(v);
+                    if (errors.firstName)
+                      setErrors(p => ({ ...p, firstName: null }));
+                  }}
+                  placeholder="First"
+                  error={errors.firstName}
+                  isFocused={focused === 'firstName'}
+                  onFocus={() => setFocused('firstName')}
+                  onBlur={() => setFocused(null)}
+                  inputRef={firstNameRef}
+                  onSubmitEditing={() => lastNameRef.current?.focus()}
+                  T={T}
                 />
-                <Text
-                  style={[
-                    s.errorBannerText,
-                    { color: T.error || '#EF4444', marginLeft: 12 },
-                  ]}
-                >
-                  {error}
-                </Text>
               </View>
-            ) : null}
-
-            {/* ── STEP 1: Personal Info ── */}
-            {step === 1 && (
-              <View style={s.stepContent}>
-                <View style={s.stepHeader}>
-                  <View
-                    style={[s.stepIcon, { backgroundColor: `${T.primary}20` }]}
-                  >
-                    <MaterialCommunityIcons
-                      name="account-details"
-                      size={32}
-                      color={T.primary}
-                    />
-                  </View>
-                  <Text style={[s.stepTitle, { color: T.text }]}>
-                    Tell us about yourself
-                  </Text>
-                  <Text style={[s.stepSubtitle, { color: T.textSub }]}>
-                    We'll use this to personalise your experience
-                  </Text>
-                </View>
-
-                {/* First + Last name side by side */}
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <View style={{ flex: 1 }}>
-                    {renderInput({
-                      label: 'First Name',
-                      icon: 'account',
-                      field: 'firstName',
-                      value: firstName,
-                      onChange: makeHandler('firstName', setFirstName),
-                      placeholder: 'Your First Name',
-                      inputRef: firstNameRef,
-                      scrollY: 50,
-                      onSubmitEditing: () => lastNameRef.current?.focus(),
-                    })}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    {renderInput({
-                      label: 'Last Name',
-                      icon: 'account-outline',
-                      field: 'lastName',
-                      value: lastName,
-                      onChange: makeHandler('lastName', setLastName),
-                      placeholder: 'Your Last Name',
-                      inputRef: lastNameRef,
-                      scrollY: 50,
-                      onSubmitEditing: () => phoneRef.current?.focus(),
-                    })}
-                  </View>
-                </View>
-
-                {renderInput({
-                  label: 'Phone Number',
-                  icon: 'phone',
-                  field: 'phone',
-                  value: phone,
-                  onChange: makeHandler('phone', setPhone),
-                  placeholder: '+91 98765 43210',
-                  keyboardType: 'phone-pad',
-                  returnKeyType: 'done',
-                  inputRef: phoneRef,
-                  scrollY: 100,
-                  onSubmitEditing: () => goStep(2, 1),
-                })}
-
-                <TouchableOpacity
-                  style={[s.nextBtn, { backgroundColor: T.primary }]}
-                  onPress={() => goStep(2, 1)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={s.nextBtnText}>Continue</Text>
-                  <MaterialCommunityIcons
-                    name="arrow-right"
-                    size={18}
-                    color="#fff"
-                    style={{ marginLeft: 8 }}
-                  />
-                </TouchableOpacity>
+              <View style={{ flex: 1 }}>
+                <Field
+                  label="LAST NAME"
+                  icon="account-outline"
+                  value={lastName}
+                  onChange={v => {
+                    setLastName(v);
+                    if (errors.lastName)
+                      setErrors(p => ({ ...p, lastName: null }));
+                  }}
+                  placeholder="Last"
+                  error={errors.lastName}
+                  isFocused={focused === 'lastName'}
+                  onFocus={() => setFocused('lastName')}
+                  onBlur={() => setFocused(null)}
+                  inputRef={lastNameRef}
+                  onSubmitEditing={() => phoneRef.current?.focus()}
+                  T={T}
+                />
               </View>
-            )}
+            </View>
 
-            {/* ── STEP 2: Email & Password ── */}
-            {step === 2 && (
-              <View style={s.stepContent}>
-                <View style={s.stepHeader}>
-                  <View
-                    style={[s.stepIcon, { backgroundColor: `${T.primary}20` }]}
-                  >
-                    <MaterialCommunityIcons
-                      name="shield-lock"
-                      size={32}
-                      color={T.primary}
-                    />
-                  </View>
-                  <Text style={[s.stepTitle, { color: T.text }]}>
-                    Secure your account
-                  </Text>
-                  <Text style={[s.stepSubtitle, { color: T.textSub }]}>
-                    Create a unique email and strong password
-                  </Text>
-                </View>
-
-                {renderInput({
-                  label: 'Email Address',
-                  icon: 'email-outline',
-                  field: 'email',
-                  value: email,
-                  onChange: makeHandler('email', setEmail),
-                  placeholder: 'xyz@gmail.com',
-                  keyboardType: 'email-address',
-                  inputRef: emailRef,
-                  scrollY: 50,
-                  onSubmitEditing: () => passRef.current?.focus(),
-                })}
-
-                {renderInput({
-                  label: 'Password',
-                  icon: 'lock-outline',
-                  field: 'pass',
-                  value: pass,
-                  onChange: makeHandler('pass', setPass),
-                  placeholder: 'Min 6 characters',
-                  isPassword: true,
-                  inputRef: passRef,
-                  scrollY: 110,
-                  returnKeyType: 'done',
-                  onSubmitEditing: () => goStep(3, 2),
-                })}
-
-                <View style={s.passwordRequirements}>
-                  <View
-                    style={[
-                      s.requirement,
-                      { opacity: pass.length >= 6 ? 1 : 0.5 },
-                    ]}
-                  >
-                    <MaterialCommunityIcons
-                      name={
-                        pass.length >= 6 ? 'check-circle' : 'circle-outline'
-                      }
-                      size={16}
-                      color={
-                        pass.length >= 6 ? T.success || '#10B981' : T.muted
-                      }
-                    />
-                    <Text
-                      style={[
-                        s.requirementText,
-                        {
-                          color:
-                            pass.length >= 6 ? T.success || '#10B981' : T.muted,
-                        },
-                      ]}
-                    >
-                      At least 6 characters
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={s.stepNavigation}>
-                  <TouchableOpacity
-                    style={[s.backBtn, { borderColor: T.cardBorder }]}
-                    onPress={() => {
-                      setStep(1);
-                      setErrors({});
-                      setTouched({});
-                    }}
-                  >
-                    <MaterialCommunityIcons
-                      name="arrow-left"
-                      size={18}
-                      color={T.primary}
-                    />
-                    <Text style={[s.backBtnText, { color: T.primary }]}>
-                      Back
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[s.nextBtn, { backgroundColor: T.primary }]}
-                    onPress={() => goStep(3, 2)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={s.nextBtnText}>Continue</Text>
-                    <MaterialCommunityIcons
-                      name="arrow-right"
-                      size={18}
-                      color="#fff"
-                      style={{ marginLeft: 8 }}
-                    />
-                  </TouchableOpacity>
-                </View>
+            {/* Row 2: Phone + Email */}
+            <View style={s.row}>
+              <View style={{ flex: 1 }}>
+                <Field
+                  label="PHONE"
+                  icon="phone-outline"
+                  value={phone}
+                  onChange={v => {
+                    setPhone(v);
+                    if (errors.phone) setErrors(p => ({ ...p, phone: null }));
+                  }}
+                  placeholder="+91 98765..."
+                  error={errors.phone}
+                  isFocused={focused === 'phone'}
+                  onFocus={() => setFocused('phone')}
+                  onBlur={() => setFocused(null)}
+                  inputRef={phoneRef}
+                  keyboardType="phone-pad"
+                  returnKeyType="done"
+                  onSubmitEditing={() => emailRef.current?.focus()}
+                  T={T}
+                />
               </View>
-            )}
+              <View style={{ flex: 1 }}>
+                <Field
+                  label="EMAIL"
+                  icon="email-outline"
+                  value={email}
+                  onChange={v => {
+                    setEmail(v);
+                    if (errors.email) setErrors(p => ({ ...p, email: null }));
+                  }}
+                  placeholder="you@example.com"
+                  error={errors.email}
+                  isFocused={focused === 'email'}
+                  onFocus={() => setFocused('email')}
+                  onBlur={() => setFocused(null)}
+                  inputRef={emailRef}
+                  keyboardType="email-address"
+                  onSubmitEditing={() => usernameRef.current?.focus()}
+                  T={T}
+                />
+              </View>
+            </View>
 
-            {/* ── STEP 3: Confirm + Username ── */}
-            {step === 3 && (
-              <View style={s.stepContent}>
-                <View style={s.stepHeader}>
-                  <View
-                    style={[s.stepIcon, { backgroundColor: `${T.primary}20` }]}
-                  >
-                    <MaterialCommunityIcons
-                      name="check-circle-outline"
-                      size={32}
-                      color={T.primary}
-                    />
-                  </View>
-                  <Text style={[s.stepTitle, { color: T.text }]}>
-                    Almost there!
-                  </Text>
-                  <Text style={[s.stepSubtitle, { color: T.textSub }]}>
-                    Confirm your password and pick a username
-                  </Text>
-                </View>
+            {/* Username */}
+            <Field
+              label="USERNAME"
+              icon="at"
+              value={username}
+              onChange={v => {
+                setUsername(v);
+                if (errors.username) setErrors(p => ({ ...p, username: null }));
+              }}
+              placeholder="your_username"
+              error={errors.username}
+              isFocused={focused === 'username'}
+              onFocus={() => setFocused('username')}
+              onBlur={() => setFocused(null)}
+              inputRef={usernameRef}
+              onSubmitEditing={() => passRef.current?.focus()}
+              T={T}
+            />
 
-                {renderInput({
-                  label: 'Confirm Password',
-                  icon: 'lock-check-outline',
-                  field: 'confirm',
-                  value: confirm,
-                  onChange: makeHandler('confirm', setConfirm),
-                  placeholder: 'Re-enter your password',
-                  isPassword: true,
-                  inputRef: confirmRef,
-                  scrollY: 50,
-                  onSubmitEditing: () => usernameRef.current?.focus(),
-                })}
+            {/* Divider */}
+            <View style={[s.divider, { backgroundColor: T.cardBorder }]} />
 
-                <TouchableOpacity
-                  style={s.showPassRow}
-                  onPress={() => setShowPass(!showPass)}
-                  activeOpacity={0.6}
-                >
-                  <MaterialCommunityIcons
-                    name={showPass ? 'eye-off-outline' : 'eye-outline'}
-                    size={18}
-                    color={T.primary}
-                  />
-                  <Text
-                    style={[
-                      s.showPassText,
-                      { color: T.primary, marginLeft: 8 },
-                    ]}
-                  >
-                    {showPass ? 'Hide' : 'Show'} passwords
-                  </Text>
-                </TouchableOpacity>
-
-                {/* Username — very last input of all */}
-                {renderInput({
-                  label: 'Username',
-                  icon: 'at',
-                  field: 'username',
-                  value: username,
-                  onChange: makeHandler('username', setUsername),
-                  placeholder: 'username',
-                  inputRef: usernameRef,
-                  scrollY: 160,
-                  returnKeyType: 'done',
-                  onSubmitEditing: handleRegister,
-                })}
-
-                {/* Availability hint */}
-                {username.length >= 3 && !errors.username && (
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      marginTop: -6,
-                      marginBottom: 10,
-                      paddingHorizontal: 4,
-                    }}
-                  >
-                    <MaterialCommunityIcons
-                      name="clock-check-outline"
-                      size={13}
-                      color={T.textSub}
-                    />
-                    <Text
-                      style={{ fontSize: 11, color: T.textSub, marginLeft: 5 }}
-                    >
-                      Availability checked on submit
-                    </Text>
-                  </View>
-                )}
-
-                {/* Summary */}
-                <View
-                  style={[
-                    s.summaryBox,
-                    {
-                      backgroundColor: `${T.primary}10`,
-                      borderColor: `${T.primary}30`,
-                    },
-                  ]}
-                >
-                  {[
-                    { icon: 'account', text: `${firstName} ${lastName}` },
-                    { icon: 'phone', text: phone },
-                    { icon: 'email-outline', text: email },
-                  ].map(({ icon, text }) => (
-                    <View key={icon} style={s.summaryItem}>
+            {/* Row 3: Password + Confirm */}
+            <View style={s.row}>
+              <View style={{ flex: 1 }}>
+                <Field
+                  label="PASSWORD"
+                  icon="lock-outline"
+                  value={pass}
+                  onChange={v => {
+                    setPass(v);
+                    if (errors.pass) setErrors(p => ({ ...p, pass: null }));
+                  }}
+                  placeholder="Min 6 chars"
+                  error={errors.pass}
+                  isFocused={focused === 'pass'}
+                  onFocus={() => setFocused('pass')}
+                  onBlur={() => setFocused(null)}
+                  secureTextEntry={!showPass}
+                  rightEl={eyeToggle}
+                  inputRef={passRef}
+                  returnKeyType="next"
+                  onSubmitEditing={() => confirmRef.current?.focus()}
+                  T={T}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Field
+                  label="CONFIRM"
+                  icon="lock-check-outline"
+                  value={confirm}
+                  onChange={v => {
+                    setConfirm(v);
+                    if (errors.confirm)
+                      setErrors(p => ({ ...p, confirm: null }));
+                  }}
+                  placeholder="Re-enter"
+                  error={errors.confirm}
+                  isFocused={focused === 'confirm'}
+                  onFocus={() => setFocused('confirm')}
+                  onBlur={() => setFocused(null)}
+                  secureTextEntry={!showPass}
+                  rightEl={
+                    confirm.length > 0 ? (
                       <MaterialCommunityIcons
-                        name={icon}
-                        size={18}
-                        color={T.primary}
+                        name={
+                          pass === confirm
+                            ? 'check-circle-outline'
+                            : 'close-circle-outline'
+                        }
+                        size={16}
+                        color={
+                          pass === confirm ? T.primary : T.red || '#EF4444'
+                        }
                       />
-                      <Text style={[s.summaryLabel, { color: T.text }]}>
-                        {text}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
+                    ) : null
+                  }
+                  inputRef={confirmRef}
+                  returnKeyType="done"
+                  onSubmitEditing={handleRegister}
+                  T={T}
+                />
+              </View>
+            </View>
 
-                <View style={s.stepNavigation}>
-                  <TouchableOpacity
-                    style={[s.backBtn, { borderColor: T.cardBorder }]}
-                    onPress={() => {
-                      setStep(2);
-                      setErrors({});
-                      setTouched({});
-                    }}
-                  >
-                    <MaterialCommunityIcons
-                      name="arrow-left"
-                      size={18}
-                      color={T.primary}
-                    />
-                    <Text style={[s.backBtnText, { color: T.primary }]}>
-                      Back
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+            {/* Strength bar */}
+            {pass.length > 0 && (
+              <View style={s.strengthWrap}>
+                <View
+                  style={[s.strengthTrack, { backgroundColor: T.cardBorder }]}
+                >
+                  <View
                     style={[
-                      s.nextBtn,
+                      s.strengthFill,
                       {
-                        backgroundColor: T.primary,
-                        opacity: loading ? 0.7 : 1,
+                        width: `${strengthWidth}%`,
+                        backgroundColor: strengthColor,
                       },
                     ]}
-                    onPress={handleRegister}
-                    activeOpacity={0.8}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <>
-                        <Text style={s.nextBtnText}>Create Account</Text>
-                        <MaterialCommunityIcons
-                          name="check"
-                          size={18}
-                          color="#fff"
-                          style={{ marginLeft: 8 }}
-                        />
-                      </>
-                    )}
-                  </TouchableOpacity>
+                  />
                 </View>
+                <Text style={[s.strengthLabel, { color: strengthColor }]}>
+                  {pass.length < 6
+                    ? 'Weak'
+                    : pass.length < 10
+                    ? 'Good'
+                    : 'Strong'}
+                </Text>
               </View>
             )}
+
+            {/* Submit */}
+            <TouchableOpacity
+              style={[
+                s.submitBtn,
+                { backgroundColor: T.primary, opacity: loading ? 0.75 : 1 },
+              ]}
+              onPress={handleRegister}
+              disabled={loading}
+              activeOpacity={0.82}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <MaterialCommunityIcons
+                    name="account-plus-outline"
+                    size={18}
+                    color="#fff"
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text style={s.submitBtnText}>Create Account</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
 
           {/* Sign in footer */}
           <TouchableOpacity
-            style={s.signInFooter}
-            onPress={handleGoBackToLogin}
+            style={s.signinLink}
+            onPress={resetAndGoBack}
             activeOpacity={0.7}
           >
-            <Text style={[s.signInFooterText, { color: T.textSub }]}>
-              Already have an account?{' '}
+            <Text style={[s.signinText, { color: T.textSub }]}>
+              Already have an account?{'  '}
               <Text style={{ color: T.primary, fontWeight: '700' }}>
-                Sign In
+                Sign In →
               </Text>
             </Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  bg: { flex: 1 },
+  root: { flex: 1 },
+
+  blob: {
+    position: 'absolute',
+    bottom: -height * 0.1,
+    right: -width * 0.2,
+    width: width * 0.8,
+    height: width * 0.8,
+    borderRadius: width * 0.4,
+    opacity: 0.35,
+  },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingVertical: 10,
     borderBottomWidth: 0.5,
   },
-  headerBtn: {
-    width: 36,
-    height: 36,
+  headerIconBtn: {
+    width: 34,
+    height: 34,
     borderRadius: Radius.md,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 0.5,
   },
-  headerTitle: { fontSize: 15, fontWeight: '700' },
-  scroll: { paddingHorizontal: 16, paddingVertical: 12, paddingBottom: 40 },
-  progressSection: { marginBottom: 12 },
-  progressInfo: { marginBottom: 6 },
-  progressLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
+  headerCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
-  progressTitle: { fontSize: 15, fontWeight: '700' },
-  progressBar: { height: 3, borderRadius: 2 },
-  progressFill: { height: '100%', borderRadius: 2 },
-  contentCard: {
+  headerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.1,
+  },
+
+  kav: { flex: 1 },
+
+  body: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 10,
+    justifyContent: 'center',
+    gap: 12,
+  },
+
+  alertBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  alertText: { fontSize: 12, flex: 1 },
+
+  card: {
     borderRadius: Radius.xl,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 10,
   },
-  stepContent: {},
-  stepHeader: { alignItems: 'center', marginBottom: 10 },
-  stepIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: Radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  stepTitle: { fontSize: 18, fontWeight: '700', marginBottom: 2 },
-  stepSubtitle: { fontSize: 12 },
-  errorBanner: {
+
+  row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderRadius: Radius.md,
-    padding: 10,
-    marginBottom: 10,
-    borderWidth: 1,
+    gap: 10,
   },
-  errorBannerText: { fontSize: 12, flex: 1 },
-  inputGroup: { marginBottom: 10 },
-  inputHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  iconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
+
+  divider: {
+    height: 0.5,
+    marginVertical: 2,
   },
-  inputLabel: { fontSize: 12, fontWeight: '600' },
-  inputHint: { fontSize: 11 },
-  modernInput: {
+
+  // Strength bar
+  strengthWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: Radius.md,
-    paddingHorizontal: 12,
-    height: 46,
-  },
-  modernTextInput: { flex: 1, fontSize: 14 },
-  passwordRequirements: {
+    gap: 8,
     marginTop: -4,
-    marginBottom: 10,
-    paddingHorizontal: 12,
   },
-  requirement: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  requirementText: { fontSize: 11, marginLeft: 6 },
-  showPassRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    marginBottom: 10,
-  },
-  showPassText: { fontSize: 12, fontWeight: '600' },
-  summaryBox: {
-    borderRadius: Radius.lg,
-    padding: 12,
-    marginBottom: 10,
-    borderWidth: 1,
-  },
-  summaryItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  summaryLabel: { fontSize: 12, marginLeft: 8 },
-  stepNavigation: { flexDirection: 'row', gap: 10 },
-  backBtn: {
+  strengthTrack: {
     flex: 1,
+    height: 3,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  strengthFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  strengthLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    width: 38,
+    textAlign: 'right',
+  },
+
+  // Submit button
+  submitBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    height: 46,
     borderRadius: Radius.md,
-    paddingVertical: 10,
-    borderWidth: 1,
+    marginTop: 2,
   },
-  backBtnText: { fontSize: 13, fontWeight: '700' },
-  nextBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: Radius.md,
-    paddingVertical: 12,
+  submitBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
-  nextBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  signInFooter: { paddingVertical: 10, alignItems: 'center' },
-  signInFooterText: { fontSize: 12 },
+
+  // Sign in link
+  signinLink: { alignItems: 'center', paddingVertical: 4 },
+  signinText: { fontSize: 13 },
 });

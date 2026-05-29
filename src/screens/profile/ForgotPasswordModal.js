@@ -69,18 +69,19 @@ export default function ForgotPasswordScreen({ navigation }) {
       >
         <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
         <View style={s.successRoot}>
+          {/* Icon */}
           <View
             style={[
               s.successIconRing,
-              { borderColor: '#22C55E30', backgroundColor: '#22C55E12' },
+              { borderColor: '#22C55E30', backgroundColor: '#22C55E10' },
             ]}
           >
             <View
-              style={[s.successIconInner, { backgroundColor: '#22C55E20' }]}
+              style={[s.successIconInner, { backgroundColor: '#22C55E1A' }]}
             >
               <MaterialCommunityIcons
                 name="check-circle-outline"
-                size={52}
+                size={48}
                 color="#22C55E"
               />
             </View>
@@ -92,6 +93,7 @@ export default function ForgotPasswordScreen({ navigation }) {
             review it and reset your password shortly.
           </Text>
 
+          {/* Summary card */}
           <View
             style={[
               s.summaryCard,
@@ -108,7 +110,7 @@ export default function ForgotPasswordScreen({ navigation }) {
                 style={[
                   s.summaryRow,
                   i < arr.length - 1 && {
-                    borderBottomWidth: 1,
+                    borderBottomWidth: 0.5,
                     borderBottomColor: T.divider,
                   },
                 ]}
@@ -155,12 +157,17 @@ export default function ForgotPasswordScreen({ navigation }) {
     >
       <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
 
-      {/* Header — fixed, outside scroll */}
-      <View style={[s.header, { borderBottomColor: T.divider }]}>
+      {/* Header */}
+      <View
+        style={[
+          s.header,
+          { backgroundColor: T.card, borderBottomColor: T.divider },
+        ]}
+      >
         <TouchableOpacity
           style={[
             s.backIconBtn,
-            { backgroundColor: T.card, borderColor: T.cardBorder },
+            { backgroundColor: T.surface, borderColor: T.cardBorder },
           ]}
           onPress={() => navigation.goBack()}
         >
@@ -171,10 +178,6 @@ export default function ForgotPasswordScreen({ navigation }) {
       </View>
 
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        {/*
-          KeyboardAwareScrollView automatically scrolls the focused
-          input into view on both Android and iOS — no hacks needed.
-        */}
         <KeyboardAwareScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ padding: Spacing.lg, paddingBottom: 60 }}
@@ -184,7 +187,7 @@ export default function ForgotPasswordScreen({ navigation }) {
           extraScrollHeight={20}
           showsVerticalScrollIndicator={false}
         >
-          {/* Hero */}
+          {/* ── Compact hero ── */}
           <View
             style={[
               s.heroCard,
@@ -194,26 +197,27 @@ export default function ForgotPasswordScreen({ navigation }) {
             <View style={[s.heroIconWrap, { backgroundColor: T.primaryDim }]}>
               <MaterialCommunityIcons
                 name="lock-reset"
-                size={32}
+                size={22}
                 color={T.primary}
               />
             </View>
-            <Text style={[s.heroTitle, { color: T.text }]}>
-              Reset your password
-            </Text>
-            <Text style={[s.heroSub, { color: T.muted }]}>
-              Fill in the details below. Your username and email are
-              auto-filled. An admin will reset your password and notify you.
-            </Text>
+            <View style={s.heroText}>
+              <Text style={[s.heroTitle, { color: T.text }]}>
+                Reset your password
+              </Text>
+              <Text style={[s.heroSub, { color: T.muted }]}>
+                Fill in the details below — an admin will reset your password
+                within 24 hrs.
+              </Text>
+            </View>
           </View>
 
-          {/* Read-only fields */}
+          {/* ── Account info ── */}
           <Text style={[s.groupTitle, { color: T.muted }]}>Account info</Text>
           <View
             style={[
               s.fieldsCard,
               { backgroundColor: T.card, borderColor: T.cardBorder },
-              Shadow.sm,
             ]}
           >
             {[
@@ -225,7 +229,7 @@ export default function ForgotPasswordScreen({ navigation }) {
                 style={[
                   s.readonlyRow,
                   i === 0 && {
-                    borderBottomWidth: 1,
+                    borderBottomWidth: 0.5,
                     borderBottomColor: T.divider,
                   },
                 ]}
@@ -235,7 +239,7 @@ export default function ForgotPasswordScreen({ navigation }) {
                 >
                   <MaterialCommunityIcons
                     name={f.icon}
-                    size={17}
+                    size={16}
                     color={T.primary}
                   />
                 </View>
@@ -249,17 +253,12 @@ export default function ForgotPasswordScreen({ navigation }) {
                 </View>
                 <MaterialCommunityIcons
                   name="lock-outline"
-                  size={14}
+                  size={13}
                   color={T.muted}
                 />
               </View>
             ))}
           </View>
-
-          {/* Editable fields */}
-          <Text style={[s.groupTitle, { color: T.muted }]}>
-            Contact & message
-          </Text>
 
           <View style={s.inputGroup}>
             <Text style={[s.inputLabel, { color: T.muted }]}>
@@ -273,7 +272,7 @@ export default function ForgotPasswordScreen({ navigation }) {
             >
               <MaterialCommunityIcons
                 name="phone-outline"
-                size={18}
+                size={17}
                 color={T.primary}
               />
               <TextInput
@@ -317,16 +316,16 @@ export default function ForgotPasswordScreen({ navigation }) {
             </Text>
           </View>
 
-          {/* Info note */}
+          {/* ── Info note ── */}
           <View
             style={[
               s.note,
-              { backgroundColor: T.primaryDim, borderColor: T.primary + '30' },
+              { backgroundColor: T.primaryDim, borderColor: T.primary + '25' },
             ]}
           >
             <MaterialCommunityIcons
               name="information-outline"
-              size={15}
+              size={14}
               color={T.primary}
             />
             <Text style={[s.noteText, { color: T.primary }]}>
@@ -335,7 +334,7 @@ export default function ForgotPasswordScreen({ navigation }) {
             </Text>
           </View>
 
-          {/* Submit */}
+          {/* ── Submit ── */}
           <TouchableOpacity
             style={[
               s.submitBtn,
@@ -351,7 +350,7 @@ export default function ForgotPasswordScreen({ navigation }) {
               <>
                 <MaterialCommunityIcons
                   name="send-outline"
-                  size={19}
+                  size={18}
                   color="#fff"
                 />
                 <Text style={s.submitText}>Send reset request</Text>
@@ -367,79 +366,86 @@ export default function ForgotPasswordScreen({ navigation }) {
 const s = StyleSheet.create({
   bg: { flex: 1 },
 
+  // ── Header ──
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
     paddingVertical: 12,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.5,
   },
   backIconBtn: {
     width: 38,
     height: 38,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 11,
+    borderWidth: 0.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
+  // ── Compact hero ──
   heroCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: Spacing.lg,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    gap: 10,
+    gap: 12,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    padding: 14,
+    marginBottom: 20,
   },
   heroIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    flexShrink: 0,
   },
-  heroTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
-  heroSub: { fontSize: 13, textAlign: 'center', lineHeight: 19 },
+  heroText: { flex: 1 },
+  heroTitle: { fontSize: 14, fontWeight: '600', marginBottom: 3 },
+  heroSub: { fontSize: 12, lineHeight: 17 },
 
+  // ── Section label ──
   groupTitle: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 1.2,
-    marginBottom: 10,
+    letterSpacing: 1,
+    marginBottom: 8,
   },
 
+  // ── Read-only fields card ──
   fieldsCard: {
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 0.5,
     overflow: 'hidden',
     marginBottom: 20,
   },
   readonlyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
+    padding: 12,
     gap: 12,
   },
   fieldIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
   fieldInfo: { flex: 1 },
   fieldLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
-  fieldValue: { fontSize: 14, fontWeight: '600', marginTop: 2 },
+  fieldValue: { fontSize: 13, fontWeight: '500', marginTop: 2 },
 
-  inputGroup: { marginBottom: 14 },
+  // ── Inputs ──
+  inputGroup: { marginBottom: 12 },
   inputLabel: {
     fontSize: 11,
     fontWeight: '700',
@@ -451,42 +457,45 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderRadius: Radius.md,
     paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingVertical: 11,
   },
   textInput: { flex: 1, fontSize: 14, padding: 0 },
   textareaWrap: {
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderRadius: Radius.md,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  textarea: { fontSize: 14, minHeight: 90 },
+  textarea: { fontSize: 14, minHeight: 88 },
   charCount: { fontSize: 11, textAlign: 'right', marginTop: 4 },
 
+  // ── Note ──
   note: {
     flexDirection: 'row',
     gap: 8,
     alignItems: 'flex-start',
-    borderWidth: 1,
+    borderWidth: 0.5,
     borderRadius: Radius.md,
     padding: 10,
-    marginBottom: 20,
+    marginBottom: 18,
   },
   noteText: { flex: 1, fontSize: 12, lineHeight: 17 },
 
+  // ── Submit button ──
   submitBtn: {
-    borderRadius: 14,
-    paddingVertical: 15,
+    borderRadius: 13,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 9,
   },
-  submitText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  submitText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
+  // ── Success state ──
   successRoot: {
     flex: 1,
     alignItems: 'center',
@@ -494,65 +503,65 @@ const s = StyleSheet.create({
     padding: Spacing.lg,
   },
   successIconRing: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 2,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 22,
   },
   successIconInner: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
+    width: 82,
+    height: 82,
+    borderRadius: 41,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  successTitle: { fontSize: 24, fontWeight: '900', marginBottom: 10 },
+  successTitle: { fontSize: 22, fontWeight: '800', marginBottom: 10 },
   successSub: {
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 21,
-    marginBottom: 28,
+    marginBottom: 26,
     paddingHorizontal: 8,
   },
   summaryCard: {
     width: '100%',
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 0.5,
     overflow: 'hidden',
-    marginBottom: 28,
+    marginBottom: 26,
   },
   summaryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
+    padding: 13,
     gap: 12,
   },
   summaryIconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
   summaryInfo: { flex: 1 },
   summaryLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
-  summaryValue: { fontSize: 14, fontWeight: '600', marginTop: 2 },
+  summaryValue: { fontSize: 13, fontWeight: '500', marginTop: 2 },
   backBtn: {
     width: '100%',
-    borderRadius: 14,
-    paddingVertical: 15,
+    borderRadius: 13,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 9,
   },
-  backBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  backBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

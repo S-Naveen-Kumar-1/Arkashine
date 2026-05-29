@@ -1,17 +1,16 @@
 // src/screens/LoginScreen.jsx
-
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   StatusBar,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -21,6 +20,9 @@ import useTheme from '../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../theme';
 import { showMessage } from 'react-native-flash-message';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const { width, height } = Dimensions.get('window');
+
 export default function LoginScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
@@ -35,7 +37,6 @@ export default function LoginScreen({ navigation }) {
 
   const usernameRef = useRef(null);
   const passwordRef = useRef(null);
-  const scrollViewRef = useRef(null);
 
   useEffect(() => {
     dispatch(clearAuthError());
@@ -43,10 +44,9 @@ export default function LoginScreen({ navigation }) {
 
   const validate = () => {
     const e = {};
-    if (!username.trim()) e.username = 'Please enter username';
-    if (!password) e.password = 'Please enter password';
-    else if (password.length < 6)
-      e.password = 'Password must be at least 6 characters';
+    if (!username.trim()) e.username = 'Username is required';
+    if (!password) e.password = 'Password is required';
+    else if (password.length < 6) e.password = 'Minimum 6 characters';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -62,28 +62,18 @@ export default function LoginScreen({ navigation }) {
     passwordRef.current?.blur();
   };
 
-  // FIX: removed the erroneous navigation.navigate('AppTabs') before validation.
-  // Now only navigates on confirmed successful login (access token present).
   const handleLogin = async () => {
     if (!validate()) return;
-
     try {
       const result = await dispatch(loginUser({ username, password }));
       const data = result?.payload?.data ?? result?.payload;
-
       if (data?.access) {
-        // SAVE LOGIN DATA
         await AsyncStorage.setItem('token', data.access);
         await AsyncStorage.setItem('user', JSON.stringify(data));
-
-        showMessage({
-          message: 'Welcome back!',
-          type: 'success',
-        });
-
+        showMessage({ message: 'Welcome back!', type: 'success' });
         const role = data?.user?.role ?? data?.user?.user_type ?? '';
-        if (role === 'soil_partner' ) {
-          navigation.navigate('SoilPartnerTabs'); // your soil partner tab navigator
+        if (role === 'soil_partner') {
+          navigation.navigate('SoilPartnerTabs');
         } else {
           navigation.navigate('AppTabs');
         }
@@ -93,224 +83,196 @@ export default function LoginScreen({ navigation }) {
           data?.error ??
           result?.error?.message ??
           'Login failed';
-
-        showMessage({
-          message: msg,
-          type: 'danger',
-        });
+        showMessage({ message: msg, type: 'danger' });
       }
     } catch (err) {
-      console.log('Login error:', err);
-      showMessage({
-        message: 'Login failed',
-        type: 'danger',
-      });
+      showMessage({ message: 'Login failed', type: 'danger' });
     }
   };
-  const handleInputFocus = (inputName, scrollY) => {
-    setFocusedInput(inputName);
-    setTimeout(() => {
-      scrollViewRef.current?.scrollTo({ y: scrollY, animated: true });
-    }, 200);
-  };
+
+  const inputBorderColor = field =>
+    focusedInput === field
+      ? T.primary
+      : errors[field]
+      ? T.red || '#EF4444'
+      : T.cardBorder;
 
   return (
-    <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
+    <SafeAreaView
+      style={[s.root, { backgroundColor: T.bg }]}
+      edges={['top', 'bottom']}
+    >
       <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
+
+      {/* Decorative top arc */}
+      <View style={[s.topArc, { backgroundColor: T.primaryDim }]} />
+
+      {/* Theme toggle */}
+      <TouchableOpacity
+        style={[
+          s.themeBtn,
+          { backgroundColor: T.card, borderColor: T.cardBorder },
+        ]}
+        onPress={() => dispatch(toggleTheme())}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <MaterialCommunityIcons
+          name={theme.dark ? 'white-balance-sunny' : 'moon-waning-crescent'}
+          size={18}
+          color={T.primary}
+        />
+      </TouchableOpacity>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
+        style={s.kav}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -20}
       >
-        <ScrollView
-          ref={scrollViewRef}
-          contentContainerStyle={s.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          {/* Theme toggle */}
-          <TouchableOpacity
-            style={[
-              s.themeBtn,
-              { backgroundColor: T.card, borderColor: T.cardBorder },
-            ]}
-            onPress={() => dispatch(toggleTheme())}
-          >
-            <MaterialCommunityIcons
-              name={theme.dark ? 'white-balance-sunny' : 'moon-waning-crescent'}
-              size={20}
-              color={T.primary}
-            />
-          </TouchableOpacity>
-
-          {/* Logo */}
-          <View style={s.logoWrap}>
+        <View style={s.inner}>
+          {/* ── Brand ── */}
+          <View style={s.brandSection}>
             <View
               style={[
-                s.logoCircle,
-                { backgroundColor: T.primaryDim, borderColor: T.primary },
+                s.logoRing,
+                { borderColor: T.primary, backgroundColor: T.primaryDim },
               ]}
             >
-              <MaterialCommunityIcons name="leaf" size={52} color={T.primary} />
+              <MaterialCommunityIcons
+                name="sprout"
+                size={36}
+                color={T.primary}
+              />
             </View>
-            <Text
-              style={[
-                Typography.h1,
-                { color: T.primary, marginTop: 20, letterSpacing: 0.5 },
-              ]}
-            >
-              Arkashine
-            </Text>
-            <Text style={[s.tagline, { color: T.textSub }]}>
+            <Text style={[s.brandName, { color: T.primary }]}>Arkashine</Text>
+            <Text style={[s.brandSub, { color: T.textSub }]}>
               Agriculture Intelligence
             </Text>
           </View>
 
-          {/* Card */}
+          {/* ── Card ── */}
           <View
             style={[
               s.card,
               { backgroundColor: T.card, borderColor: T.cardBorder },
-              Shadow.lg,
+              Shadow.md,
             ]}
           >
-            <Text style={[Typography.h3, { color: T.text }]}>Welcome Back</Text>
+            <Text style={[s.cardTitle, { color: T.text }]}>Sign In</Text>
             <Text style={[s.cardSub, { color: T.textSub }]}>
-              Sign in to your account
+              Enter your credentials to continue
             </Text>
 
-            {/* API error banner */}
+            {/* API error */}
             {error ? (
               <View
                 style={[
-                  s.errorBanner,
+                  s.alertBox,
                   {
-                    borderColor: T.error || '#EF4444',
-                    backgroundColor: 'rgba(239,68,68,0.1)',
+                    backgroundColor: 'rgba(239,68,68,0.08)',
+                    borderColor: T.red || '#EF4444',
                   },
                 ]}
               >
                 <MaterialCommunityIcons
-                  name="alert-circle"
-                  size={18}
-                  color={T.error || '#EF4444'}
+                  name="alert-circle-outline"
+                  size={15}
+                  color={T.red || '#EF4444'}
                 />
-                <Text
-                  style={[
-                    s.errorText,
-                    { color: T.error || '#EF4444', marginLeft: 10 },
-                  ]}
-                >
+                <Text style={[s.alertText, { color: T.red || '#EF4444' }]}>
                   {error}
                 </Text>
               </View>
             ) : null}
 
             {/* Username */}
-            <View style={s.inputGroup}>
-              <View style={s.inputLabelRow}>
-                <MaterialCommunityIcons
-                  name="account"
-                  size={16}
-                  color={T.primary}
-                />
-                <Text style={[s.label, { color: T.text, marginLeft: 8 }]}>
-                  Username
-                </Text>
-              </View>
+            <View style={s.fieldWrap}>
+              <Text style={[s.fieldLabel, { color: T.textSub }]}>USERNAME</Text>
               <View
                 style={[
-                  s.inputContainer,
+                  s.inputRow,
                   {
-                    borderColor:
-                      focusedInput === 'username'
-                        ? T.primary
-                        : errors.username
-                        ? T.error || '#EF4444'
-                        : T.cardBorder,
-                    backgroundColor: T.inputBg || T.card,
-                    borderWidth: focusedInput === 'username' ? 2 : 1,
+                    borderColor: inputBorderColor('username'),
+                    backgroundColor: T.inputBg || T.surface,
+                    borderWidth: focusedInput === 'username' ? 1.5 : 1,
                   },
                 ]}
               >
                 <MaterialCommunityIcons
                   name="account-outline"
-                  size={20}
-                  color={focusedInput === 'username' ? T.primary : T.textSub}
-                  style={{ marginRight: 12 }}
+                  size={18}
+                  color={focusedInput === 'username' ? T.primary : T.muted}
+                  style={s.inputIcon}
                 />
                 <TextInput
                   ref={usernameRef}
-                  style={[s.textInput, { color: T.text }]}
-                  placeholder="Enter your username"
-                  placeholderTextColor={T.textSub}
+                  style={[s.input, { color: T.text }]}
+                  placeholder="your_username"
+                  placeholderTextColor={T.muted}
                   value={username}
-                  onChangeText={setUsername}
+                  onChangeText={v => {
+                    setUsername(v);
+                    if (errors.username)
+                      setErrors(p => ({ ...p, username: null }));
+                  }}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  onFocus={() => handleInputFocus('username', 80)}
+                  onFocus={() => setFocusedInput('username')}
                   onBlur={() => setFocusedInput(null)}
                   returnKeyType="next"
-                  onSubmitEditing={() =>
-                    username.trim() && passwordRef.current?.focus()
-                  }
+                  onSubmitEditing={() => passwordRef.current?.focus()}
                   blurOnSubmit={false}
                 />
+                {username.length > 0 && !errors.username && (
+                  <MaterialCommunityIcons
+                    name="check-circle-outline"
+                    size={16}
+                    color={T.primary}
+                  />
+                )}
               </View>
-              {errors.username && (
-                <Text
-                  style={[
-                    s.errorMsg,
-                    { color: T.error || '#EF4444', marginTop: 6 },
-                  ]}
-                >
+              {errors.username ? (
+                <Text style={[s.errMsg, { color: T.red || '#EF4444' }]}>
+                  <MaterialCommunityIcons
+                    name="alert-circle-outline"
+                    size={11}
+                  />{' '}
                   {errors.username}
                 </Text>
-              )}
+              ) : null}
             </View>
 
             {/* Password */}
-            <View style={[s.inputGroup, { marginTop: Spacing.lg }]}>
-              <View style={s.inputLabelRow}>
-                <MaterialCommunityIcons
-                  name="lock"
-                  size={16}
-                  color={T.primary}
-                />
-                <Text style={[s.label, { color: T.text, marginLeft: 8 }]}>
-                  Password
-                </Text>
-              </View>
+            <View style={s.fieldWrap}>
+              <Text style={[s.fieldLabel, { color: T.textSub }]}>PASSWORD</Text>
               <View
                 style={[
-                  s.inputContainer,
+                  s.inputRow,
                   {
-                    borderColor:
-                      focusedInput === 'password'
-                        ? T.primary
-                        : errors.password
-                        ? T.error || '#EF4444'
-                        : T.cardBorder,
-                    backgroundColor: T.inputBg || T.card,
-                    borderWidth: focusedInput === 'password' ? 2 : 1,
+                    borderColor: inputBorderColor('password'),
+                    backgroundColor: T.inputBg || T.surface,
+                    borderWidth: focusedInput === 'password' ? 1.5 : 1,
                   },
                 ]}
               >
                 <MaterialCommunityIcons
                   name="lock-outline"
-                  size={20}
-                  color={focusedInput === 'password' ? T.primary : T.textSub}
-                  style={{ marginRight: 12 }}
+                  size={18}
+                  color={focusedInput === 'password' ? T.primary : T.muted}
+                  style={s.inputIcon}
                 />
                 <TextInput
                   ref={passwordRef}
-                  style={[s.textInput, { color: T.text }]}
-                  placeholder="Enter your password"
-                  placeholderTextColor={T.textSub}
+                  style={[s.input, { color: T.text }]}
+                  placeholder="••••••••"
+                  placeholderTextColor={T.muted}
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={v => {
+                    setPassword(v);
+                    if (errors.password)
+                      setErrors(p => ({ ...p, password: null }));
+                  }}
                   secureTextEntry={!showPass}
-                  onFocus={() => handleInputFocus('password', 150)}
+                  onFocus={() => setFocusedInput('password')}
                   onBlur={() => setFocusedInput(null)}
                   returnKeyType="done"
                   onSubmitEditing={() => password.length >= 6 && handleLogin()}
@@ -318,37 +280,35 @@ export default function LoginScreen({ navigation }) {
                 />
                 <TouchableOpacity
                   onPress={() => setShowPass(!showPass)}
-                  style={s.eyeBtn}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <MaterialCommunityIcons
                     name={showPass ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color={T.textSub}
+                    size={18}
+                    color={T.muted}
                   />
                 </TouchableOpacity>
               </View>
-              {errors.password && (
-                <Text
-                  style={[
-                    s.errorMsg,
-                    { color: T.error || '#EF4444', marginTop: 6 },
-                  ]}
-                >
+              {errors.password ? (
+                <Text style={[s.errMsg, { color: T.red || '#EF4444' }]}>
+                  <MaterialCommunityIcons
+                    name="alert-circle-outline"
+                    size={11}
+                  />{' '}
                   {errors.password}
                 </Text>
-              )}
+              ) : null}
             </View>
 
-            {/* Sign in button */}
+            {/* Sign in */}
             <TouchableOpacity
               style={[
                 s.signInBtn,
-                { backgroundColor: T.primary, opacity: loading ? 0.7 : 1 },
+                { backgroundColor: T.primary, opacity: loading ? 0.75 : 1 },
               ]}
               onPress={handleLogin}
               disabled={loading}
-              activeOpacity={0.8}
+              activeOpacity={0.82}
             >
               {loading ? (
                 <ActivityIndicator color="#fff" size="small" />
@@ -356,122 +316,174 @@ export default function LoginScreen({ navigation }) {
                 <>
                   <MaterialCommunityIcons
                     name="login-variant"
-                    size={20}
+                    size={18}
                     color="#fff"
-                    style={{ marginRight: 10 }}
+                    style={{ marginRight: 8 }}
                   />
-                  <Text style={s.signInText}>Sign In</Text>
+                  <Text style={s.signInBtnText}>Sign In</Text>
                 </>
               )}
             </TouchableOpacity>
+          </View>
 
-            <View style={[s.divider, { backgroundColor: T.cardBorder }]} />
-
+          {/* Register link */}
+          <View style={s.footer}>
+            <View style={[s.dividerLine, { backgroundColor: T.cardBorder }]} />
             <TouchableOpacity
-              style={s.registerLinkRow}
+              style={s.footerRow}
               onPress={() => {
                 navigation.navigate('RegisterScreen');
                 resetForm();
               }}
               activeOpacity={0.7}
             >
-              <Text style={[s.registerText, { color: T.textSub }]}>
-                Don't have an account?{' '}
+              <Text style={[s.footerText, { color: T.textSub }]}>
+                New to Arkashine?{' '}
               </Text>
-              <Text style={[s.registerAction, { color: T.primary }]}>
-                Create one
+              <Text style={[s.footerAction, { color: T.primary }]}>
+                Create account →
               </Text>
             </TouchableOpacity>
           </View>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  bg: { flex: 1 },
-  scroll: { flexGrow: 1, paddingHorizontal: 16, paddingVertical: 12 },
+  root: { flex: 1 },
+
+  topArc: {
+    position: 'absolute',
+    top: -height * 0.12,
+    left: -width * 0.2,
+    width: width * 1.4,
+    height: height * 0.34,
+    borderRadius: width * 0.7,
+    opacity: 0.6,
+  },
 
   themeBtn: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    zIndex: 10,
-    width: 42,
-    height: 42,
+    top: 16,
+    right: 16,
+    zIndex: 20,
+    width: 36,
+    height: 36,
     borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
     borderWidth: 1,
-    ...Shadow.sm,
-  },
-
-  logoWrap: { alignItems: 'center', marginBottom: 18 },
-  logoCircle: {
-    width: 90,
-    height: 90,
-    borderRadius: 26,
-    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tagline: { fontSize: 13, marginTop: 6, letterSpacing: 0.2 },
 
+  kav: { flex: 1 },
+
+  inner: {
+    flex: 1,
+    paddingHorizontal: 22,
+    justifyContent: 'center',
+    gap: 20,
+  },
+
+  // Brand
+  brandSection: { alignItems: 'center', gap: 6 },
+  logoRing: {
+    width: 72,
+    height: 72,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  brandName: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  brandSub: {
+    fontSize: 12,
+    fontWeight: '500',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+
+  // Card
   card: {
     borderRadius: Radius.xl,
     borderWidth: 1,
-    padding: 14,
-    marginBottom: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    gap: 14,
   },
-  cardSub: { fontSize: 13, marginBottom: 10 },
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  cardSub: {
+    fontSize: 13,
+    marginTop: -8,
+  },
 
-  errorBanner: {
+  // Alert
+  alertBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     borderRadius: Radius.md,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    marginBottom: 10,
     borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  errorText: { fontSize: 13, flex: 1 },
+  alertText: { fontSize: 12, flex: 1, lineHeight: 18 },
 
-  inputGroup: { marginBottom: 10 },
-  inputLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
+  // Fields
+  fieldWrap: { gap: 5 },
+  fieldLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.1,
   },
-  label: { fontSize: 12, fontWeight: '600' },
-  inputContainer: {
+  inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: Radius.md,
-    paddingHorizontal: 12,
     height: 46,
+    paddingHorizontal: 12,
   },
-  textInput: { flex: 1, fontSize: 14 },
-  eyeBtn: { padding: 6, marginRight: -6 },
-  errorMsg: { fontSize: 11 },
+  inputIcon: { marginRight: 10 },
+  input: {
+    flex: 1,
+    fontSize: 14,
+    height: '100%',
+  },
+  errMsg: {
+    fontSize: 11,
+    marginTop: 2,
+  },
 
+  // Sign in button
   signInBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    height: 48,
     borderRadius: Radius.md,
-    paddingVertical: 12,
-    marginTop: Spacing.lg,
-    marginBottom: 10,
+    marginTop: 2,
   },
-  signInText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  signInBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
 
-  divider: { height: 1, marginVertical: 10 },
-  registerLinkRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  registerText: { fontSize: 12 },
-  registerAction: { fontSize: 12, fontWeight: '700' },
+  // Footer
+  footer: { alignItems: 'center', gap: 12 },
+  dividerLine: { height: 1, width: '60%', borderRadius: 4, opacity: 0.4 },
+  footerRow: { flexDirection: 'row', alignItems: 'center' },
+  footerText: { fontSize: 13 },
+  footerAction: { fontSize: 13, fontWeight: '700' },
 });
