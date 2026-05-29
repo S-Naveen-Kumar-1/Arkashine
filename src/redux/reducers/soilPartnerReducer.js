@@ -1,5 +1,7 @@
 // src/redux/reducers/soilPartnerReducer.js
 
+import { SP_ENQUIRY_REQUEST } from '../actions/soilPartnerActions';
+
 const init = {
   // Farmers list
   farmers: [],
@@ -153,6 +155,27 @@ export default function soilPartnerReducer(state = init, action) {
           action.error?.message ??
           'Failed to load payments',
       };
+
+    case 'SP_ENQUIRY_REQUEST':
+      return { ...state, status: 'loading', error: null };
+
+    case `SP_ENQUIRY_REQUEST_SUCCESS`:
+      return { ...state, status: 'success', error: null };
+
+    case `${SP_ENQUIRY_REQUEST}_FAIL`: {
+      // API returns HTTP 409 for duplicate submissions
+      const is409 =
+        action.error?.response?.status === 409 ||
+        action.payload?.status === 409;
+      return {
+        ...state,
+        status: is409 ? 'duplicate' : 'error',
+        error: action.error?.message ?? action.payload ?? 'Submission failed',
+      };
+    }
+
+    case `SP_ENQUIRY_RESET`:
+      return { ...init };
 
     case 'LOGOUT_REQUEST':
       return { ...init };

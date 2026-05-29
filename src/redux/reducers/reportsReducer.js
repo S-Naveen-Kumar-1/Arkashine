@@ -21,6 +21,11 @@ const REPORTS_FETCH_READING_REQUEST_SUCCESS =
   'REPORTS_FETCH_READING_REQUEST_SUCCESS';
 const REPORTS_FETCH_READING_REQUEST_FAIL = 'REPORTS_FETCH_READING_REQUEST_FAIL';
 
+// NEW: schema per device type_key
+const FETCH_DEVICE_FIELD_SCHEMA = 'FETCH_DEVICE_FIELD_SCHEMA';
+const FETCH_DEVICE_FIELD_SCHEMA_SUCCESS = 'FETCH_DEVICE_FIELD_SCHEMA_SUCCESS';
+const FETCH_DEVICE_FIELD_SCHEMA_FAIL = 'FETCH_DEVICE_FIELD_SCHEMA_FAIL';
+
 const REPORTS_CLEAR_READING = 'REPORTS_CLEAR_READING';
 const REPORTS_RESET = 'REPORTS_RESET';
 
@@ -28,11 +33,11 @@ export const REPORTS_ACTION_TYPES = {
   REPORTS_FETCH_DEVICES_REQUEST,
   REPORTS_FETCH_READINGS_REQUEST,
   REPORTS_FETCH_READING_REQUEST,
+  FETCH_DEVICE_FIELD_SCHEMA,
   REPORTS_CLEAR_READING,
   REPORTS_RESET,
 };
 
-// ─── Initial state ────────────────────────────────────────────────────────────
 const init = {
   devices: [],
   devicesLoading: false,
@@ -45,20 +50,23 @@ const init = {
   selectedReading: null,
   selectedReadingLoading: false,
   selectedReadingError: null,
+
+  // Field schemas keyed by type_key: { [type_key]: { schema, loading, error } }
+  // schema shape: { fieldKey: 'Human Label', ... }
+  // e.g. for soilsaathi: { nitrogen: 'Nitrogen (kg/ha)', ph: 'pH', ... }
+  // e.g. for ph_bottle:  { field1: 'pH Value', field2: 'pH Voltage (mV)', ... }
+  schemas: {},
 };
 
-// ─── Helper: extract deviceId from axios-middleware action ────────────────────
-// axios-middleware puts the original action in action.meta.previousAction
 function getDeviceId(action) {
   return action?.meta?.previousAction?.meta?.deviceId;
 }
+function getTypeKey(action) {
+  return action?.meta?.previousAction?.meta?.type_key;
+}
 
-// ─── Reducer ──────────────────────────────────────────────────────────────────
 export default function reportsReducer(state = init, action) {
   switch (action.type) {
-    case 'LOGOUT_REQUEST':
-      return { ...init };
-
     // ── Devices ──────────────────────────────────────────────────────────────
     case REPORTS_FETCH_DEVICES_REQUEST:
       return { ...state, devicesLoading: true, devicesError: null };
@@ -87,7 +95,6 @@ export default function reportsReducer(state = init, action) {
 
     // ── Readings list ────────────────────────────────────────────────────────
     case REPORTS_FETCH_READINGS_REQUEST: {
-      // deviceId lives on the action itself (set in fetchDeviceReadings)
       const deviceId = action.meta?.deviceId;
       if (!deviceId) return state;
       const prev = state.readingsByDevice[deviceId] || {};
@@ -136,7 +143,7 @@ export default function reportsReducer(state = init, action) {
           [deviceId]: {
             ...prev,
             loading: false,
-            error: action.error?.message ?? 'Failed to load readings',
+            error: action.error?.message ?? 'Failed',
           },
         },
       };
@@ -153,11 +160,7 @@ export default function reportsReducer(state = init, action) {
 
     case REPORTS_FETCH_READING_REQUEST_SUCCESS: {
       const d = action.payload.data ?? action.payload;
-      return {
-        ...state,
-        selectedReadingLoading: false,
-        selectedReading: d,
-      };
+      return { ...state, selectedReadingLoading: false, selectedReading: d };
     }
 
     case REPORTS_FETCH_READING_REQUEST_FAIL:
@@ -166,6 +169,51 @@ export default function reportsReducer(state = init, action) {
         selectedReadingLoading: false,
         selectedReadingError: action.error?.message ?? 'Failed to load reading',
       };
+
+    // ── Field schemas ────────────────────────────────────────────────────────
+    // Fired immediately when fetchDeviceFieldSchema is dispatched
+    case FETCH_DEVICE_FIELD_SCHEMA: {
+      const type_key = action.meta?.type_key;
+      if (!type_key) return state;
+      const prev = state.schemas[type_key] || {};
+      return {
+        ...state,
+        schemas: {
+          ...state.schemas,
+          [type_key]: { ...prev, loading: true, error: null },
+        },
+      };
+    }
+
+    case FETCH_DEVICE_FIELD_SCHEMA_SUCCESS: {
+      const type_key = getTypeKey(action);
+      if (!type_key) return state;
+      const d = action.payload.data ?? action.payload;
+      return {
+        ...state,
+        schemas: {
+          ...state.schemas,
+          [type_key]: { loading: false, error: null, schema: d.schema ?? {} },
+        },
+      };
+    }
+
+    case FETCH_DEVICE_FIELD_SCHEMA_FAIL: {
+      const type_key = getTypeKey(action);
+      if (!type_key) return state;
+      const prev = state.schemas[type_key] || {};
+      return {
+        ...state,
+        schemas: {
+          ...state.schemas,
+          [type_key]: {
+            ...prev,
+            loading: false,
+            error: action.error?.message ?? 'Failed to load schema',
+          },
+        },
+      };
+    }
 
     case REPORTS_CLEAR_READING:
       return {

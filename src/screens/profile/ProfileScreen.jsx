@@ -1,4 +1,5 @@
 // src/screens/profile/ProfileScreen.js
+
 import React, { useState } from 'react';
 import {
   View,
@@ -17,16 +18,12 @@ import { logoutUser, toggleTheme } from '../../redux/actions';
 import useTheme from '../../hooks/useTheme';
 import { Spacing, Radius, Shadow, Typography } from '../../theme';
 
+// ─── Static data ──────────────────────────────────────────────────────────────
+
 const STATS = [
   { label: 'Tests Done', value: '127', icon: 'test-tube', color: '#22C55E' },
   { label: 'Reports', value: '34', icon: 'file-chart', color: '#3B82F6' },
   { label: 'Fields', value: '8', icon: 'map-marker', color: '#F59E0B' },
-  // {
-  //   label: 'Days Active',
-  //   value: '42',
-  //   icon: 'calendar-check',
-  //   color: '#A78BFA',
-  // },
 ];
 
 const APP_SETTINGS = [
@@ -37,61 +34,240 @@ const APP_SETTINGS = [
     sub: 'Switch between light and dark',
     toggle: true,
   },
-  // {
-  //   key: 'notifs',
-  //   icon: 'bell-outline',
-  //   label: 'Notifications',
-  //   sub: 'Alerts and reminders',
-  //   toggle: true,
-  // },
-  // {
-  //   key: 'location',
-  //   icon: 'map-marker-outline',
-  //   label: 'Auto Location',
-  //   sub: 'Use GPS for field mapping',
-  //   toggle: true,
-  // },
-  // {
-  //   key: 'bluetooth',
-  //   icon: 'bluetooth',
-  //   label: 'Bluetooth',
-  //   sub: 'Auto-connect to devices',
-  //   toggle: false,
-  // },
 ];
 
 const ACCOUNT_ITEMS = [
-  // {
-  //   icon: 'account-edit-outline',
-  //   label: 'Edit Profile',
-  //   sub: 'Update your information',
-  //   action: 'edit',
-  // },
-  // {
-  //   icon: 'lock-reset',
-  //   label: 'Change Password',
-  //   sub: 'Update your password',
-  //   action: 'pass',
-  // },
-  // { icon: 'translate', label: 'Language', sub: 'English', action: 'lang' },
+  {
+    icon: 'lock-reset',
+    label: 'Forgot Password',
+    sub: 'Request password reset',
+    action: 'forgotPassword',
+  },
   {
     icon: 'help-circle-outline',
     label: 'Help & Support',
     sub: 'FAQs and contact',
     action: 'help',
   },
-  // {
-  //   icon: 'information-outline',
-  //   label: 'About Arkashine',
-  //   sub: 'Version 1.0.0',
-  //   action: 'about',
-  // },
 ];
+
+// ─── SoilPartnerBadge ─────────────────────────────────────────────────────────
+// Shown in the profile hero when user.user_type === 'soil_partner'
+
+function SoilPartnerBadge({ T }) {
+  return (
+    <View
+      style={[spb.wrap, { backgroundColor: T.card, borderColor: '#22C55E30' }]}
+    >
+      {/* Accent strip */}
+      <View style={spb.accent} />
+
+      <View style={spb.inner}>
+        {/* Shield icon */}
+        <View style={[spb.shieldWrap, { backgroundColor: '#22C55E14' }]}>
+          <MaterialCommunityIcons
+            name="shield-check"
+            size={26}
+            color="#22C55E"
+          />
+        </View>
+
+        {/* Text */}
+        <View style={spb.textBlock}>
+          <View style={spb.titleRow}>
+            <MaterialCommunityIcons
+              name="check-decagram"
+              size={13}
+              color="#22C55E"
+            />
+            <Text style={spb.title}>Verified Soil Partner</Text>
+          </View>
+          <Text style={[spb.sub, { color: T.muted }]}>
+            Authorised Arkashine distributor
+          </Text>
+        </View>
+
+        {/* Active indicator */}
+        <View style={spb.rightCol}>
+          <View style={[spb.dotOuter, { backgroundColor: '#22C55E20' }]}>
+            <View style={[spb.dotInner, { backgroundColor: '#22C55E' }]} />
+          </View>
+          <Text style={[spb.activeLabel, { color: '#22C55E' }]}>Active</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const spb = StyleSheet.create({
+  wrap: {
+    width: '100%',
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginTop: 12,
+    marginBottom: 4,
+    ...Shadow.sm,
+  },
+  accent: { height: 3, backgroundColor: '#22C55E' },
+  inner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    gap: 12,
+  },
+  shieldWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  textBlock: { flex: 1 },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 3,
+  },
+  title: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#22C55E',
+    letterSpacing: 0.2,
+  },
+  sub: { fontSize: 11 },
+  rightCol: { alignItems: 'center', gap: 3, flexShrink: 0 },
+  dotOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotInner: { width: 10, height: 10, borderRadius: 5 },
+  activeLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 0.3 },
+});
+
+// ─── SoilPartnerCard ──────────────────────────────────────────────────────────
+// Row that sits inside the Account card.
+// Main tap  → SoilPartnerInfoScreen
+// Info icon → SoilPartnerInfoScreen (same destination; info is the landing page)
+// "Apply"   → navigated from the info screen itself
+
+function SoilPartnerCard({ onPress, onInfoPress, T }) {
+  return (
+    <TouchableOpacity
+      style={[
+        spCard.wrap,
+        { backgroundColor: T.card, borderColor: T.cardBorder },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.82}
+    >
+      {/* Icon */}
+      <View style={[spCard.iconWrap, { backgroundColor: '#22C55E18' }]}>
+        <MaterialCommunityIcons
+          name="handshake-outline"
+          size={22}
+          color="#22C55E"
+        />
+      </View>
+
+      {/* Text */}
+      <View style={spCard.body}>
+        <View style={spCard.titleRow}>
+          <Text style={[spCard.title, { color: T.text }]}>
+            Become a Soil Partner
+          </Text>
+          {/* ⓘ info icon — navigates to the same info screen */}
+          <TouchableOpacity
+            style={[
+              spCard.infoBtn,
+              { backgroundColor: '#22C55E12', borderColor: '#22C55E30' },
+            ]}
+            onPress={onInfoPress}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <MaterialCommunityIcons
+              name="information-outline"
+              size={14}
+              color="#22C55E"
+            />
+          </TouchableOpacity>
+        </View>
+        <Text style={[spCard.sub, { color: T.muted }]}>
+          Distribute Arkashine devices · Earn commissions
+        </Text>
+      </View>
+
+      {/* NEW badge + chevron */}
+      <View style={spCard.right}>
+        <View style={spCard.newBadge}>
+          <Text style={spCard.newBadgeTxt}>NEW</Text>
+        </View>
+        <MaterialCommunityIcons
+          name="chevron-right"
+          size={18}
+          color={T.muted}
+          style={{ marginTop: 4 }}
+        />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+const spCard = StyleSheet.create({
+  wrap: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
+  iconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  body: { flex: 1 },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  title: { fontSize: 14, fontWeight: '700' },
+  infoBtn: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sub: { fontSize: 12 },
+  right: { alignItems: 'flex-end', gap: 2 },
+  newBadge: {
+    backgroundColor: '#22C55E',
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  newBadgeTxt: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+});
+
+// ─── ProfileScreen ────────────────────────────────────────────────────────────
 
 export default function ProfileScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
+
   const user = useSelector(s => s.auth.user);
   const isDark = useSelector(s => s.theme.isDark);
 
@@ -108,6 +284,14 @@ export default function ProfileScreen({ navigation }) {
     .toUpperCase()
     .slice(0, 2);
 
+  const handleAccountAction = action => {
+    if (action === 'forgotPassword')
+      navigation.navigate('ForgotPasswordScreen');
+    if (action === 'help') {
+      /* navigate to help */
+    }
+  };
+
   const handleToggle = key => {
     if (key === 'darkMode') {
       dispatch(toggleTheme());
@@ -115,6 +299,8 @@ export default function ProfileScreen({ navigation }) {
     }
     setToggles(prev => ({ ...prev, [key]: !prev[key] }));
   };
+
+  const getToggleVal = key => (key === 'darkMode' ? isDark : toggles[key]);
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -129,8 +315,6 @@ export default function ProfileScreen({ navigation }) {
       },
     ]);
   };
-
-  const getToggleVal = key => (key === 'darkMode' ? isDark : toggles[key]);
 
   return (
     <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
@@ -164,7 +348,6 @@ export default function ProfileScreen({ navigation }) {
             { backgroundColor: T.card, borderColor: T.cardBorder },
           ]}
         >
-          {/* Avatar */}
           <View style={s.avatarWrap}>
             <View style={[s.avatar, { backgroundColor: T.primary }]}>
               <Text style={s.avatarText}>{initials}</Text>
@@ -188,18 +371,15 @@ export default function ProfileScreen({ navigation }) {
               />
             </TouchableOpacity>
           </View>
-
-          {/* Name + role */}
           <Text style={[s.profileName, { color: T.text }]}>
             {user?.name || user?.username || 'User'}
           </Text>
-          {/* <Text style={[s.profileRole, { color: T.muted }]}>
-            Agricultural Technician
-          </Text> */}
+          {user?.user_type === 'soil_partner' && <SoilPartnerBadge T={T} />}
           <View
             style={[
               s.emailChip,
               { backgroundColor: T.primaryDim, borderColor: T.primary + '40' },
+              user?.user_type === 'soil_partner' && { marginTop: 8 },
             ]}
           >
             <MaterialCommunityIcons
@@ -215,7 +395,7 @@ export default function ProfileScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ── Stats row ── */}
+        {/* ── Stats ── */}
         <View style={s.statsRow}>
           {STATS.map(st => (
             <View
@@ -249,48 +429,47 @@ export default function ProfileScreen({ navigation }) {
           ]}
         >
           {APP_SETTINGS.map((item, i) => (
-            <View key={item.key}>
+            <View
+              key={item.key}
+              style={[
+                s.settingRow,
+                i < APP_SETTINGS.length - 1 && {
+                  borderBottomWidth: 1,
+                  borderBottomColor: T.divider,
+                },
+              ]}
+            >
               <View
-                style={[
-                  s.settingRow,
-                  i < APP_SETTINGS.length - 1 && {
-                    borderBottomWidth: 1,
-                    borderBottomColor: T.divider,
-                  },
-                ]}
+                style={[s.settingIconBox, { backgroundColor: T.primaryDim }]}
               >
-                <View
-                  style={[s.settingIconBox, { backgroundColor: T.primaryDim }]}
-                >
-                  <MaterialCommunityIcons
-                    name={item.icon}
-                    size={18}
-                    color={T.primary}
-                  />
-                </View>
-                <View style={s.settingInfo}>
-                  <Text style={[s.settingLabel, { color: T.text }]}>
-                    {item.label}
-                  </Text>
-                  <Text style={[s.settingSub, { color: T.muted }]}>
-                    {item.sub}
-                  </Text>
-                </View>
-                {item.toggle && (
-                  <Switch
-                    value={getToggleVal(item.key)}
-                    onValueChange={() => handleToggle(item.key)}
-                    trackColor={{ false: T.divider, true: T.primary + '60' }}
-                    thumbColor={getToggleVal(item.key) ? T.primary : T.muted}
-                    style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
-                  />
-                )}
+                <MaterialCommunityIcons
+                  name={item.icon}
+                  size={18}
+                  color={T.primary}
+                />
               </View>
+              <View style={s.settingInfo}>
+                <Text style={[s.settingLabel, { color: T.text }]}>
+                  {item.label}
+                </Text>
+                <Text style={[s.settingSub, { color: T.muted }]}>
+                  {item.sub}
+                </Text>
+              </View>
+              {item.toggle && (
+                <Switch
+                  value={getToggleVal(item.key)}
+                  onValueChange={() => handleToggle(item.key)}
+                  trackColor={{ false: T.divider, true: T.primary + '60' }}
+                  thumbColor={getToggleVal(item.key) ? T.primary : T.muted}
+                  style={{ transform: [{ scaleX: 0.85 }, { scaleY: 0.85 }] }}
+                />
+              )}
             </View>
           ))}
         </View>
 
-        {/* ── Account Items ── */}
+        {/* ── Account ── */}
         <Text style={[s.groupTitle, { color: T.muted }]}>Account</Text>
         <View
           style={[
@@ -302,12 +481,10 @@ export default function ProfileScreen({ navigation }) {
           {ACCOUNT_ITEMS.map((item, i) => (
             <TouchableOpacity
               key={item.action}
+              onPress={() => handleAccountAction(item.action)}
               style={[
                 s.settingRow,
-                i < ACCOUNT_ITEMS.length - 1 && {
-                  borderBottomWidth: 1,
-                  borderBottomColor: T.divider,
-                },
+                { borderBottomWidth: 1, borderBottomColor: T.divider },
               ]}
               activeOpacity={0.75}
             >
@@ -335,6 +512,15 @@ export default function ProfileScreen({ navigation }) {
               />
             </TouchableOpacity>
           ))}
+
+          {/* Soil Partner — hidden once user is already a partner */}
+          {user?.user_type !== 'soil_partner' && (
+            <SoilPartnerCard
+              T={T}
+              onPress={() => navigation.navigate('SoilPartnerInfoScreen')}
+              onInfoPress={() => navigation.navigate('SoilPartnerInfoScreen')}
+            />
+          )}
         </View>
 
         {/* ── App info ── */}
@@ -384,6 +570,8 @@ export default function ProfileScreen({ navigation }) {
     </SafeAreaView>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
   bg: { flex: 1 },
@@ -441,7 +629,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   profileName: { fontSize: 22, fontWeight: '900', marginBottom: 4 },
-  profileRole: { fontSize: 13, marginBottom: 10 },
   emailChip: {
     flexDirection: 'row',
     alignItems: 'center',

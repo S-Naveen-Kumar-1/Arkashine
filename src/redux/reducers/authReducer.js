@@ -6,6 +6,8 @@ const init = {
   error: null,
   status: null,
   isLoggedIn: false,
+  forgotPasswordSuccess: false,
+  forgotPasswordData: null,
 };
 
 export default function authReducer(state = init, action) {
@@ -99,7 +101,27 @@ export default function authReducer(state = init, action) {
         ...state,
         error: null,
       };
+    case 'FORGOT_PASSWORD':
+      return {
+        ...state,
+        loading: true,
+        error: null,
+      };
 
+    case 'FORGOT_PASSWORD_SUCCESS':
+      return {
+        ...state,
+        loading: false,
+        forgotPasswordSuccess: true,
+        forgotPasswordData: action.payload.data,
+      };
+
+    case 'FORGOT_PASSWORD_FAIL':
+      return {
+        ...state,
+        loading: false,
+        error: action.error,
+      };
     default:
       return state;
   }

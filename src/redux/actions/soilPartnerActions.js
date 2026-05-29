@@ -1,4 +1,8 @@
 // src/redux/actions/soilPartnerActions.js
+export const SP_ENQUIRY_REQUEST = 'SP_ENQUIRY_REQUEST';
+export const SP_ENQUIRY_SUCCESS = 'SP_ENQUIRY_SUCCESS';
+export const SP_ENQUIRY_FAIL = 'SP_ENQUIRY_FAIL';
+export const SP_ENQUIRY_RESET = 'SP_ENQUIRY_RESET';
 
 // ─── 1. Fetch farmers list ────────────────────────────────────────────────────
 export function fetchFarmers() {
@@ -82,4 +86,22 @@ export function fetchPayments(filters = {}) {
       },
     },
   };
+}
+
+export function submitSoilPartnerEnquiry(data) {
+  return {
+    type: SP_ENQUIRY_REQUEST,
+    payload: {
+      request: {
+        url: '/api/mobile/auth/soil-partner-enquiry/',
+        method: 'POST',
+        data,
+      },
+    },
+  };
+}
+
+// Reset form state (call after modal closes)
+export function resetSoilPartnerEnquiry() {
+  return { type: SP_ENQUIRY_RESET };
 }

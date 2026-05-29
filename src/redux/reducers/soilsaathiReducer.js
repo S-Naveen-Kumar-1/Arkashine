@@ -1,100 +1,96 @@
 // src/redux/reducers/soilsaathiReducer.js
+
 import {
   SOIL_LIST_REQUEST,
-  SOIL_LIST_SUCCESS,
-  SOIL_LIST_FAIL,
   SOIL_CREATE_REQUEST,
-  SOIL_CREATE_SUCCESS,
-  SOIL_CREATE_FAIL,
   SOIL_DETAIL_REQUEST,
-  SOIL_DETAIL_SUCCESS,
-  SOIL_DETAIL_FAIL,
   SOIL_RECS_REQUEST,
-  SOIL_RECS_SUCCESS,
-  SOIL_RECS_FAIL,
   SOIL_AI_RECS_REQUEST,
-  SOIL_AI_RECS_SUCCESS,
-  SOIL_AI_RECS_FAIL,
   SOIL_CLEAR,
   SOIL_SET_CURRENT_ID,
 } from '../actions/soilsaathiActions';
+
 export const SENSOR_DURATION = 60;
 export const MOTOR_DURATION = 180;
-const init = {
-  // ── Phase control ─────────────────────────────
-  phase: 'idle', // 'idle' | 'motor' | 'sensor'
 
+const init = {
+  // ── Phase / BLE control ──────────────────────────────────────────────────────
+  phase: 'idle', // 'idle' | 'motor' | 'sensor'
   timerTotal: 0,
   timerLeft: 0,
   timerDone: false,
   timerStartedAt: null,
-
-  motorState: 'Idle', // 'idle' | 'running' | 'done'
+  motorState: 'Idle', // 'Idle' | 'running' | 'done'
   sensorState: 'Idle',
   motorStateFromBle: null,
   sensorStateFromBle: null,
-
   bleResultData: null,
-  // ── Existing fields (unchanged) ───────────────
-  createStatus: 'idle',
+
+  // ── CRUD ────────────────────────────────────────────────────────────────────
+  createStatus: 'idle', // 'idle' | 'loading' | 'success' | 'error'
   createError: null,
-  currentRecord: null,
-  currentId: null,
+
   detailStatus: 'idle',
   detailError: null,
+  currentRecord: null,
+  currentId: null,
+
   listStatus: 'idle',
   listError: null,
   list: [],
   listMeta: { count: 0, totalPages: 1, page: 1 },
-  recsStatus: 'idle',
+
+  // ── Fertilizer recommendations ───────────────────────────────────────────────
+  // Shape after success:
+  // {
+  //   device_id, reading_id, reading_date, crop_type,
+  //   npk: { nitrogen, phosphorous, potassium, ph, ec, oc },
+  //   recommendations: {
+  //     crop_fertilizer: [["For 1st year", "Urea : …", …], …],
+  //     fym:             [["Soil remedy: …", …]]
+  //   }
+  // }
+  recsStatus: 'idle', // 'idle' | 'loading' | 'success' | 'error'
   recsError: null,
   recommendations: null,
-  aiRecsStatus: 'idle',
+
+  // ── AI crop recommendation ────────────────────────────────────────────────────
+  // Shape after success:
+  // {
+  //   device_id, reading_id, reading_date,
+  //   recommended_crop: "muskmelon",
+  //   input_nutrients: { nitrogen, phosphorous, potassium, ph }
+  // }
+  aiRecsStatus: 'idle', // 'idle' | 'loading' | 'success' | 'error'
   aiRecsError: null,
   aiRecommendations: null,
 };
 
 export default function soilsaathiReducer(state = init, action) {
   switch (action.type) {
+    // ── Reset / logout ──────────────────────────────────────────────────────────
     case 'TEST_RESET':
-      return {
-        ...init,
-      };
     case 'LOGOUT_REQUEST':
+    case SOIL_CLEAR:
       return { ...init };
 
-    case 'SOIL_MOTOR_STATE': {
-      return {
-        ...state,
-        motorState: action.payload.data,
-      };
-    }
-    case 'SOIL_SENSOR_STATE': {
-      return {
-        ...state,
-        sensorState: action.payload.data,
-      };
-    }
-    case 'SOIL_MOTOR_STATE_FROM_BLE': {
-      return {
-        ...state,
-        motorStateFromBle: action.payload.data,
-      };
-    }
-    case 'SOIL_SENSOR_STATE_FROM_BLE': {
-      return {
-        ...state,
-        sensorStateFromBle: action.payload.data,
-      };
-    }
+    // ── BLE / phase state ───────────────────────────────────────────────────────
+    case 'SOIL_MOTOR_STATE':
+      return { ...state, motorState: action.payload.data };
+
+    case 'SOIL_SENSOR_STATE':
+      return { ...state, sensorState: action.payload.data };
+
+    case 'SOIL_MOTOR_STATE_FROM_BLE':
+      return { ...state, motorStateFromBle: action.payload.data };
+
+    case 'SOIL_SENSOR_STATE_FROM_BLE':
+      return { ...state, sensorStateFromBle: action.payload.data };
 
     case 'SOIL_BLE_RESULT':
-      return {
-        ...state,
-        bleResultData: action.payload,
-      };
+      return { ...state, bleResultData: action.payload };
 
-    // ─── CREATE ─────────────────────────────
+    // ── CREATE ──────────────────────────────────────────────────────────────────
     case SOIL_CREATE_REQUEST:
       return { ...state, createStatus: 'loading', createError: null };
 
@@ -113,7 +109,7 @@ export default function soilsaathiReducer(state = init, action) {
         createError: action.error?.message ?? action.payload ?? 'Create failed',
       };
 
-    // ─── DETAIL ─────────────────────────────
+    // ── DETAIL ──────────────────────────────────────────────────────────────────
     case SOIL_DETAIL_REQUEST:
       return { ...state, detailStatus: 'loading', detailError: null };
 
@@ -131,7 +127,7 @@ export default function soilsaathiReducer(state = init, action) {
         detailError: action.error?.message ?? action.payload,
       };
 
-    // ─── LIST ───────────────────────────────
+    // ── LIST ────────────────────────────────────────────────────────────────────
     case SOIL_LIST_REQUEST:
       return { ...state, listStatus: 'loading', listError: null };
 
@@ -156,7 +152,7 @@ export default function soilsaathiReducer(state = init, action) {
         listError: action.error?.message ?? action.payload,
       };
 
-    // ─── RECOMMENDATIONS ────────────────────
+    // ── RECOMMENDATIONS ─────────────────────────────────────────────────────────
     case SOIL_RECS_REQUEST:
       return { ...state, recsStatus: 'loading', recsError: null };
 
@@ -164,17 +160,20 @@ export default function soilsaathiReducer(state = init, action) {
       return {
         ...state,
         recsStatus: 'success',
-        recommendations: action.payload.data,
+        recommendations: action.payload.data, // full API response object
       };
 
     case `${SOIL_RECS_REQUEST}_FAIL`:
       return {
         ...state,
         recsStatus: 'error',
-        recsError: action.error?.message ?? action.payload,
+        recsError:
+          action.error?.message ??
+          action.payload ??
+          'Failed to load recommendations',
       };
 
-    // ─── AI RECOMMENDATIONS ────────────────
+    // ── AI RECOMMENDATIONS ──────────────────────────────────────────────────────
     case SOIL_AI_RECS_REQUEST:
       return { ...state, aiRecsStatus: 'loading', aiRecsError: null };
 
@@ -182,22 +181,22 @@ export default function soilsaathiReducer(state = init, action) {
       return {
         ...state,
         aiRecsStatus: 'success',
-        aiRecommendations: action.payload.data,
+        aiRecommendations: action.payload.data, // full AI API response object
       };
 
     case `${SOIL_AI_RECS_REQUEST}_FAIL`:
       return {
         ...state,
         aiRecsStatus: 'error',
-        aiRecsError: action.error?.message ?? action.payload,
+        aiRecsError:
+          action.error?.message ??
+          action.payload ??
+          'Failed to load AI recommendation',
       };
 
-    // ─── MISC ──────────────────────────────
+    // ── MISC ────────────────────────────────────────────────────────────────────
     case SOIL_SET_CURRENT_ID:
       return { ...state, currentId: action.payload };
-
-    case SOIL_CLEAR:
-      return { ...init };
 
     default:
       return state;

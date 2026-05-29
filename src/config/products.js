@@ -4,7 +4,9 @@ export const PRODUCTS = [
   {
     id: 1,
     name: 'Soil Maps',
+
     shortName: 'SoilMaps',
+    device_type: 'soil_map',
     icon: 'map-marker-radius',
     color: '#22C55E',
     description:
@@ -15,10 +17,12 @@ export const PRODUCTS = [
     route: 'SoilMaps',
     stats: { tests: 142, lastUsed: '2d ago' },
   },
+
   {
     id: 2,
     name: 'Ph Bottle',
     shortName: 'PhBottle',
+    device_type: 'ph_bottle',
     icon: 'flask-outline',
     color: '#F59E0B',
     description:
@@ -29,10 +33,12 @@ export const PRODUCTS = [
     route: 'BLEScanScreen',
     stats: { tests: 87, lastUsed: '1d ago' },
   },
+
   {
     id: 3,
     name: 'SOILENZ',
     shortName: 'SOILENZ',
+    device_type: 'soilsaathi',
     icon: 'microscope',
     color: '#22C55E',
     description:
@@ -44,10 +50,12 @@ export const PRODUCTS = [
     route: 'BLEScanScreen',
     stats: { tests: 213, lastUsed: 'Today' },
   },
+
   {
     id: 4,
     name: 'SoilSparsh',
     shortName: 'SoilSparsh',
+    device_type: 'atmo_sense',
     icon: 'hand-back-right',
     color: '#4ADE80',
     description:
@@ -58,10 +66,12 @@ export const PRODUCTS = [
     route: 'SoilSparsh',
     stats: { tests: 54, lastUsed: '3d ago' },
   },
+
   {
     id: 5,
     name: 'SOILIFE',
     shortName: 'SOILIFE',
+    device_type: 'soil_life',
     icon: 'bacteria',
     color: '#34D399',
     description:
@@ -72,10 +82,12 @@ export const PRODUCTS = [
     route: null,
     stats: { tests: 0, lastUsed: 'Coming soon' },
   },
+
   {
     id: 6,
     name: 'Leaf Lenz',
     shortName: 'LeafLenz',
+    device_type: 'leaf_lenz',
     icon: 'leaf',
     color: '#86EFAC',
     description:
@@ -86,10 +98,12 @@ export const PRODUCTS = [
     route: 'LeafLenz',
     stats: { tests: 76, lastUsed: '5h ago' },
   },
+
   {
     id: 7,
     name: 'AI Agronomy',
     shortName: 'AIAgronomy',
+    device_type: 'ai_agronomy',
     icon: 'robot-outline',
     color: '#818CF8',
     description:
@@ -100,10 +114,12 @@ export const PRODUCTS = [
     route: 'AIAgronomy',
     stats: { tests: 331, lastUsed: 'Today' },
   },
+
   {
     id: 8,
     name: 'Crop Recommend',
     shortName: 'CropRec',
+    device_type: 'crop_recommend',
     icon: 'sprout',
     color: '#FCD34D',
     description:
@@ -114,10 +130,12 @@ export const PRODUCTS = [
     route: 'CropRec',
     stats: { tests: 128, lastUsed: '1d ago' },
   },
+
   {
     id: 9,
     name: 'Carbon Monitor',
     shortName: 'CarbonMon',
+    device_type: 'carbon_monitor',
     icon: 'recycle',
     color: '#6EE7B7',
     description:
@@ -128,10 +146,12 @@ export const PRODUCTS = [
     route: null,
     stats: { tests: 0, lastUsed: 'Coming soon' },
   },
+
   {
     id: 10,
     name: 'Water Testing',
     shortName: 'WaterTest',
+    device_type: 'water_testing',
     icon: 'water',
     color: '#38BDF8',
     description:
@@ -168,7 +188,11 @@ export const QUICK_STATS = [
 export const mapProductsWithDevices = (products, deviceResponse) => {
   const devices = deviceResponse?.results || deviceResponse || [];
 
-  const normalize = str => str?.toLowerCase()?.replace(/\s+/g, '')?.trim();
+  const normalize = str =>
+    str
+      ?.toLowerCase()
+      ?.replace(/[\s_]+/g, '')
+      ?.trim();
 
   if (!devices || devices.length === 0) {
     return products.map(product => ({
@@ -177,30 +201,27 @@ export const mapProductsWithDevices = (products, deviceResponse) => {
       locked: true,
       device: null,
       deviceId: null,
+      deviceType: null,
     }));
   }
 
   return products.map(product => {
-    const productKey = normalize(product.shortName);
-
     const matchedDevice = devices.find(
-      d => normalize(d.type_name) === productKey,
+      d => normalize(d.devise_type) === normalize(product.device_type),
     );
 
     const isUnlocked = !!matchedDevice;
 
     return {
-      ...product, // ✅ keep ALL existing product fields unchanged
+      ...product,
 
       active: isUnlocked,
       locked: !isUnlocked,
 
-      // ✅ simple access helpers
       deviceId: matchedDevice?.id ?? null,
       deviceType: matchedDevice?.devise_type ?? null,
 
-      // 🔥 EXACT backend object (unchanged)
-      device: matchedDevice ? { ...matchedDevice } : null,
+      device: matchedDevice || null,
     };
   });
 };

@@ -1,10 +1,17 @@
 // src/screens/reports/DeviceReadingsScreen.jsx
 //
-// Screen 2: Device info header + paginated list of readings.
-// Adapts column display based on devise_type (ph_bottle vs soilsaathi).
-// Tapping a reading row → ReadingDetailScreen
+// Uses dynamic field schema from /api/mobile/device-types/{type_key}/field-schema/
+// instead of hardcoded column lists.
+//
+// Schema shapes:
+//   soilsaathi → named keys (nitrogen, phosphorous, ph, ec, oc, …)
+//   ph_bottle  → generic keys (field1, field2, … + latitude, longitude)
+//   atmo_sense / soil_life → generic keys (field1…fieldN)
+//
+// We show max MAX_PREVIEW_COLS columns in the row preview (fits on screen).
+// All fields are shown in ReadingDetailScreen.
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,7 +27,10 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing, Shadow } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
-import { fetchDeviceReadings } from '../redux/actions/reportsActions';
+import {
+  fetchDeviceReadings,
+  fetchDeviceFieldSchema,
+} from '../redux/actions/reportsActions';
 
 const DEVICE_META = {
   soilsaathi: { icon: 'flask-outline', color: '#16A34A', label: 'SoiLENZ' },
@@ -41,47 +51,85 @@ const DEVICE_META = {
   },
 };
 
-// Columns shown in the reading rows per device type
-const SOILLENZ_COLS = ['N', 'P', 'K', 'pH', 'EC'];
-const PHBOTTLE_COLS = ['pH', 'EC', 'pH V', 'EC V'];
+// Max columns to show in the reading list row preview
+const MAX_PREVIEW_COLS = 4;
 
-function hasData(reading) {
-  return (
-    (reading.nitrogen ?? 0) > 0 ||
-    (reading.phosphorous ?? 0) > 0 ||
-    (reading.potassium ?? 0) > 0 ||
-    (reading.ph ?? 0) > 0 ||
-    (reading.ec ?? 0) > 0 ||
-    (reading.ph_value ?? 0) > 0
-  );
+// Skip these keys in the preview columns (location noise)
+const SKIP_PREVIEW_KEYS = new Set([
+  'latitude',
+  'longitude',
+  'area_name',
+  'tag',
+  'crop_type',
+  'created_at',
+]);
+
+// ─── Derive preview columns from schema ───────────────────────────────────────
+// Returns [{ key, shortLabel, fullLabel }, …] limited to MAX_PREVIEW_COLS
+function derivePreviewCols(schema) {
+  if (!schema || Object.keys(schema).length === 0) return [];
+  return Object.entries(schema)
+    .filter(([key]) => !SKIP_PREVIEW_KEYS.has(key))
+    .slice(0, MAX_PREVIEW_COLS)
+    .map(([key, fullLabel]) => ({
+      key,
+      fullLabel,
+      shortLabel: shortify(key, fullLabel),
+    }));
+}
+
+function shortify(key, fullLabel) {
+  const abbr = {
+    nitrogen: 'N',
+    phosphorous: 'P',
+    potassium: 'K',
+    ph: 'pH',
+    ec: 'EC',
+    oc: 'OC',
+    calcium: 'Ca',
+    magnesium: 'Mg',
+    sulphur: 'S',
+    zinc: 'Zn',
+    manganese: 'Mn',
+    iron: 'Fe',
+    copper: 'Cu',
+    boron: 'B',
+    electrical_conduction: 'EC',
+  };
+  if (abbr[key]) return abbr[key];
+  const firstWord = fullLabel?.split(' ')[0] ?? key;
+  return firstWord.length > 5 ? firstWord.slice(0, 4) + '.' : firstWord;
+}
+
+function getFieldValue(reading, key) {
+  return reading[key] ?? null;
+}
+
+function hasData(reading, previewCols) {
+  if (previewCols.length === 0) {
+    return [
+      'nitrogen',
+      'phosphorous',
+      'potassium',
+      'ph',
+      'ec',
+      'field1',
+      'field2',
+    ].some(k => (reading[k] ?? 0) > 0);
+  }
+  return previewCols.some(col => (getFieldValue(reading, col.key) ?? 0) > 0);
 }
 
 function fmt(v, dec = 1) {
   if (v == null) return '—';
-  return Number(v).toFixed(dec);
+  const n = Number(v);
+  return isNaN(n) ? String(v) : n.toFixed(dec);
 }
 
-function ReadingRow({ reading, deviceType, color, onPress, T }) {
-  const isSoil = deviceType === 'soilsaathi';
-  const active = hasData(reading);
+// ─── Reading row ─────────────────────────────────────────────────────────────
+function ReadingRow({ reading, previewCols, color, onPress, T }) {
+  const active = hasData(reading, previewCols);
   const date = new Date(reading.created_at);
-
-  const cols = isSoil
-    ? [
-        fmt(reading.nitrogen, 0),
-        fmt(reading.phosphorous, 0),
-        fmt(reading.potassium, 0),
-        fmt(reading.ph, 1),
-        fmt(reading.ec, 1),
-      ]
-    : [
-        fmt(reading.ph_value ?? reading.ph, 2),
-        fmt(reading.ec, 2),
-        fmt(reading.ph_voltage, 3),
-        fmt(reading.ec_voltage, 3),
-      ];
-
-  const labels = isSoil ? SOILLENZ_COLS : PHBOTTLE_COLS;
 
   return (
     <TouchableOpacity
@@ -89,35 +137,33 @@ function ReadingRow({ reading, deviceType, color, onPress, T }) {
       onPress={onPress}
       activeOpacity={0.82}
     >
-      {/* Status dot */}
       <View
         style={[s.statusDot, { backgroundColor: active ? color : T.border }]}
       />
 
-      {/* ID + area */}
       <View style={s.rowLeft}>
-        <Text style={[s.rowId, { color: T.muted }]}>#{reading.id}</Text>
-        <Text style={[s.rowArea, { color: T.text }]} numberOfLines={1}>
-          {reading.area_name || 'No area'}
-        </Text>
         {reading.tag ? (
           <Text style={[s.rowTag, { color: T.muted }]}>{reading.tag}</Text>
         ) : null}
+        <Text style={[s.rowArea, { color: T.text }]} numberOfLines={1}>
+          {reading.area_name || 'Tag'}
+        </Text>
       </View>
 
-      {/* Mini nutrient chips */}
       <View style={s.colsWrap}>
-        {labels.map((lbl, i) => (
-          <View key={lbl} style={s.colItem}>
-            <Text style={[s.colLbl, { color: T.muted }]}>{lbl}</Text>
+        {previewCols.map(col => (
+          <View key={col.key} style={s.colItem}>
+            <Text style={[s.colLbl, { color: T.muted }]}>{col.shortLabel}</Text>
             <Text style={[s.colVal, { color: active ? color : T.textSub }]}>
-              {cols[i]}
+              {fmt(getFieldValue(reading, col.key))}
             </Text>
           </View>
         ))}
+        {previewCols.length === 0 && (
+          <Text style={[s.colLbl, { color: T.muted }]}>No schema</Text>
+        )}
       </View>
 
-      {/* Date + chevron */}
       <View style={s.rowRight}>
         <Text style={[s.rowDate, { color: T.muted }]}>
           {date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
@@ -140,14 +186,15 @@ function ReadingRow({ reading, deviceType, color, onPress, T }) {
   );
 }
 
+// ─── Main screen ─────────────────────────────────────────────────────────────
 export default function DeviceReadingsScreen({ navigation, route }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
 
   const { deviceId, deviceName, deviceType, device } = route.params;
+  console.log('DeviceReadingsScreen params:', route.params);
   const meta = DEVICE_META[deviceType] || DEVICE_META.soilsaathi;
-  const isSoil = deviceType === 'soilsaathi';
 
   const slot = useSelector(s => s.reports.readingsByDevice[deviceId]);
   const readings = slot?.data ?? [];
@@ -157,139 +204,211 @@ export default function DeviceReadingsScreen({ navigation, route }) {
   const currentPage = readingsMeta.page ?? 1;
   const totalPages = readingsMeta.total_pages ?? 1;
 
+  const schemaSlot = useSelector(s => s.reports.schemas?.[deviceType]);
+  const schema = schemaSlot?.schema ?? null;
+  const schemaLoading = schemaSlot?.loading ?? false;
+
+  const previewCols = useMemo(() => derivePreviewCols(schema), [schema]);
+
   useEffect(() => {
     dispatch(fetchDeviceReadings(deviceId, 1));
-  }, [deviceId, dispatch]);
+    if (!schema && !schemaLoading) {
+      dispatch(fetchDeviceFieldSchema(deviceType));
+    }
+  }, [deviceId, deviceType, dispatch]);
 
   const loadPage = useCallback(
     page => dispatch(fetchDeviceReadings(deviceId, page)),
     [deviceId, dispatch],
   );
 
-  const renderHeader = () => (
-    <View>
-      {/* ── Device info card ─────────────────────────────────── */}
-      <View
-        style={[s.infoCard, { backgroundColor: T.card, borderColor: T.border }]}
-      >
-        {/* Top accent */}
-        <View style={[s.infoAccent, { backgroundColor: meta.color }]} />
+  // ── Render helpers ─────────────────────────────────────────────────────────
 
-        {/* Device identity */}
-        <View style={s.infoTopRow}>
+  const renderHeader = () => {
+    const address = [device.address1, device.address2]
+      .filter(Boolean)
+      .join(', ');
+
+    return (
+      <View>
+        {/* ── Device info card ── */}
+        <View
+          style={[
+            s.infoCard,
+            { backgroundColor: T.card, borderColor: T.border },
+          ]}
+        >
+          {/* Colour accent strip */}
+          <View style={[s.infoAccent, { backgroundColor: meta.color }]} />
+
+          {/* ── Top row: icon + name/type + active badge + api pill ── */}
+          <View style={s.infoTopRow}>
+            {/* Device icon */}
+            <View
+              style={[
+                s.infoIconWrap,
+                {
+                  backgroundColor: meta.color + '18',
+                  borderColor: meta.color + '40',
+                },
+              ]}
+            >
+              <Icon name={meta.icon} size={26} color={meta.color} />
+            </View>
+
+            {/* Name + type */}
+            <View style={s.infoNameBlock}>
+              <Text style={[s.infoName, { color: T.text }]}>{device.name}</Text>
+              <Text style={[s.infoType, { color: meta.color }]}>
+                {meta.label}
+              </Text>
+            </View>
+
+            {/* Right column: Active badge stacked over API calls pill */}
+            <View style={s.infoTopRight}>
+              {/* Active badge */}
+              <View
+                style={[
+                  s.statusPill,
+                  {
+                    backgroundColor: meta.color + '18',
+                    borderColor: meta.color + '50',
+                  },
+                ]}
+              >
+                <View style={[s.pillDot, { backgroundColor: meta.color }]} />
+                <Text style={[s.pillText, { color: meta.color }]}>Active</Text>
+              </View>
+
+              {/* API calls mini pill */}
+              <View
+                style={[
+                  s.apiPill,
+                  {
+                    backgroundColor: T.cardAlt ?? T.bg,
+                    borderColor: T.border,
+                  },
+                ]}
+              >
+                <Icon name="api" size={11} color={T.muted} />
+                <Text style={[s.apiPillText, { color: T.muted }]}>
+                  {device.api_used ?? 0} API calls
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* ── Info grid ── */}
+          {/*
+            Layout:
+              Row 1: Serial No  |  Device ID
+              Row 2: Land       |  Purchased
+              Row 3: Address (full width)
+          */}
+          <View style={[s.infoGrid, { borderTopColor: T.border }]}>
+            {/* Row 1 */}
+            <InfoCell label="Serial No" value={device.serial_no} T={T} />
+            <InfoCell label="Device ID" value={device.devise_id} T={T} />
+
+            {/* Row 2 */}
+            <InfoCell label="Land" value={`${device.land} acres`} T={T} />
+            <InfoCell
+              label="Purchased"
+              value={
+                device.purchase_date
+                  ? new Date(device.purchase_date).toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                    })
+                  : '—'
+              }
+              T={T}
+            />
+
+            {/* Row 3 — Address spans full width */}
+            {address ? (
+              <View style={[s.infoCellFull, { borderTopColor: T.border }]}>
+                <Text style={[s.infoCellLabel, { color: T.muted }]}>
+                  Address
+                </Text>
+                <Text style={[s.infoCellValueWrap, { color: T.text }]}>
+                  {address}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        {/* ── Section header ── */}
+        <View style={s.sectionHeader}>
+          <Text style={[s.sectionTitle, { color: T.textSub }]}>
+            {meta.label} readings
+          </Text>
+          {readingsMeta.count != null && (
+            <View
+              style={[
+                s.countPill,
+                {
+                  backgroundColor: meta.color + '18',
+                  borderColor: meta.color + '40',
+                },
+              ]}
+            >
+              <Text style={[s.countPillText, { color: meta.color }]}>
+                {readingsMeta.count} total
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Schema loading indicator */}
+        {schemaLoading && (
           <View
             style={[
-              s.infoIconWrap,
+              s.schemaLoadingBar,
               {
-                backgroundColor: meta.color + '18',
-                borderColor: meta.color + '40',
+                backgroundColor: meta.color + '12',
+                borderColor: meta.color + '30',
               },
             ]}
           >
-            <Icon name={meta.icon} size={28} color={meta.color} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[s.infoName, { color: T.text }]}>{device.name}</Text>
-            <Text style={[s.infoType, { color: meta.color }]}>
-              {meta.label}
+            <ActivityIndicator size="small" color={meta.color} />
+            <Text style={[s.schemaLoadingText, { color: meta.color }]}>
+              Loading field schema…
             </Text>
           </View>
-          {/* Active/Inactive indicator */}
-          <View
-            style={[
-              s.statusPill,
-              {
-                backgroundColor: meta.color + '18',
-                borderColor: meta.color + '50',
-              },
-            ]}
-          >
-            <View style={[s.pillDot, { backgroundColor: meta.color }]} />
-            <Text style={[s.pillText, { color: meta.color }]}>Active</Text>
-          </View>
-        </View>
+        )}
 
-        {/* Info grid */}
-        <View style={[s.infoGrid, { borderTopColor: T.border }]}>
-          <InfoCell label="Serial No" value={device.serial_no} T={T} />
-          <InfoCell label="Device ID" value={device.devise_id} T={T} />
-          <InfoCell label="Land" value={`${device.land} acres`} T={T} />
-          <InfoCell
-            label="API calls"
-            value={device.api_count ?? 0}
-            T={T}
-            accentColor={meta.color}
-          />
-          <InfoCell
-            label="Address"
-            value={[device.address1, device.address2]
-              .filter(Boolean)
-              .join(', ')}
-            T={T}
-          />
-          <InfoCell
-            label="Purchased"
-            value={
-              device.purchase_date
-                ? new Date(device.purchase_date).toLocaleDateString('en-IN', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })
-                : '—'
-            }
-            T={T}
-          />
-        </View>
-      </View>
-
-      {/* ── Section header ───────────────────────────────────── */}
-      <View style={s.sectionHeader}>
-        <Text style={[s.sectionTitle, { color: T.textSub }]}>
-          {isSoil ? 'Soil readings' : 'pH / EC readings'}
-        </Text>
-        {readingsMeta.count != null && (
-          <View
-            style={[
-              s.countPill,
-              {
-                backgroundColor: meta.color + '18',
-                borderColor: meta.color + '40',
-              },
-            ]}
-          >
-            <Text style={[s.countPillText, { color: meta.color }]}>
-              {readingsMeta.count} total
+        {/* Column header */}
+        {!schemaLoading && previewCols.length > 0 && readings.length > 0 && (
+          <View style={[s.colHeader, { borderBottomColor: T.border }]}>
+            <Text style={[s.colHeaderText, { width: 52, color: T.muted }]}>
+              ID / Area
+            </Text>
+            <View style={s.colsWrap}>
+              {previewCols.map(col => (
+                <Text
+                  key={col.key}
+                  style={[s.colHeaderItem, { color: T.muted }]}
+                >
+                  {col.shortLabel}
+                </Text>
+              ))}
+            </View>
+            <Text
+              style={[
+                s.colHeaderText,
+                { width: 62, textAlign: 'right', color: T.muted },
+              ]}
+            >
+              Date
             </Text>
           </View>
         )}
       </View>
-
-      {/* ── Column labels ────────────────────────────────────── */}
-      {readings.length > 0 && (
-        <View style={[s.colHeader, { borderBottomColor: T.border }]}>
-          <Text style={[s.colHeaderText, { width: 52, color: T.muted }]}>
-            ID / Area
-          </Text>
-          <View style={s.colsWrap}>
-            {(isSoil ? SOILLENZ_COLS : PHBOTTLE_COLS).map(l => (
-              <Text key={l} style={[s.colHeaderItem, { color: T.muted }]}>
-                {l}
-              </Text>
-            ))}
-          </View>
-          <Text
-            style={[
-              s.colHeaderText,
-              { width: 62, textAlign: 'right', color: T.muted },
-            ]}
-          >
-            Date
-          </Text>
-        </View>
-      )}
-    </View>
-  );
+    );
+  };
 
   const renderFooter = () => {
     if (readingsLoading)
@@ -300,7 +419,6 @@ export default function DeviceReadingsScreen({ navigation, route }) {
         />
       );
     if (totalPages <= 1) return <View style={{ height: 32 }} />;
-
     return (
       <View style={s.pagination}>
         <TouchableOpacity
@@ -314,11 +432,9 @@ export default function DeviceReadingsScreen({ navigation, route }) {
           <Icon name="chevron-left" size={16} color={T.text} />
           <Text style={[s.pageBtnText, { color: T.text }]}>Prev</Text>
         </TouchableOpacity>
-
         <Text style={[s.pageInfo, { color: T.muted }]}>
           {currentPage} / {totalPages}
         </Text>
-
         <TouchableOpacity
           style={[
             s.pageBtn,
@@ -361,7 +477,6 @@ export default function DeviceReadingsScreen({ navigation, route }) {
         barStyle={T.statusBar ?? 'light-content'}
         backgroundColor={T.bg}
       />
-
       <TopBar
         title={deviceName}
         subtitle={meta.label}
@@ -398,17 +513,24 @@ export default function DeviceReadingsScreen({ navigation, route }) {
         renderItem={({ item }) => (
           <ReadingRow
             reading={item}
-            deviceType={deviceType}
+            previewCols={previewCols}
             color={meta.color}
             T={T}
             onPress={() =>
-              navigation.navigate('ReadingDetailScreen', {
-                readingId: item.id,
-                deviceId,
-                deviceType,
-                deviceName,
-                reading: item,
-              })
+              navigation.navigate(
+                deviceType === 'soilsaathi'
+                  ? 'SoilSaathiDetailScreen'
+                  : 'PhBottleDetailScreen',
+                {
+                  readingId: item.id,
+                  deviceId,
+                  deviceType,
+                  deviceName,
+                  reading: item,
+                  // Pass schema so detail screen doesn't need to re-fetch
+                  schema,
+                },
+              )
             }
           />
         )}
@@ -418,6 +540,7 @@ export default function DeviceReadingsScreen({ navigation, route }) {
   );
 }
 
+// ─── InfoCell (2-column cells) ────────────────────────────────────────────────
 function InfoCell({ label, value, T, accentColor }) {
   return (
     <View style={s.infoCell}>
@@ -432,11 +555,12 @@ function InfoCell({ label, value, T, accentColor }) {
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root: { flex: 1 },
   list: { padding: Spacing.lg, paddingTop: Spacing.sm },
 
-  // Device info card
+  // ── Info card ──────────────────────────────────────────────────────────────
   infoCard: {
     borderRadius: Radius.lg,
     borderWidth: 1,
@@ -445,6 +569,8 @@ const s = StyleSheet.create({
     ...Shadow.sm,
   },
   infoAccent: { height: 4 },
+
+  // Top row: icon | name+type | right-stack
   infoTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -452,15 +578,27 @@ const s = StyleSheet.create({
     padding: Spacing.md,
   },
   infoIconWrap: {
-    width: 52,
-    height: 52,
+    width: 48,
+    height: 48,
     borderRadius: Radius.md,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
+  },
+  infoNameBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   infoName: { fontSize: 17, fontWeight: '800' },
   infoType: { fontSize: 12, fontWeight: '700', marginTop: 2 },
+
+  // Right column: Active badge stacked over API pill
+  infoTopRight: {
+    alignItems: 'flex-end',
+    gap: 6,
+    flexShrink: 0,
+  },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -473,6 +611,19 @@ const s = StyleSheet.create({
   pillDot: { width: 6, height: 6, borderRadius: 3 },
   pillText: { fontSize: 11, fontWeight: '700' },
 
+  // API calls pill (smaller, muted)
+  apiPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  apiPillText: { fontSize: 10, fontWeight: '600' },
+
+  // Info grid
   infoGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -480,6 +631,7 @@ const s = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
   },
+  // 2-column half-width cell
   infoCell: { width: '50%', paddingVertical: 6, paddingRight: 8 },
   infoCellLabel: {
     fontSize: 10,
@@ -489,8 +641,20 @@ const s = StyleSheet.create({
     letterSpacing: 0.4,
   },
   infoCellValue: { fontSize: 13, fontWeight: '700' },
+  // Full-width address cell
+  infoCellFull: {
+    width: '100%',
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    marginTop: 2,
+  },
+  infoCellValueWrap: {
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
 
-  // Section header
+  // ── Section header ─────────────────────────────────────────────────────────
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -511,7 +675,19 @@ const s = StyleSheet.create({
   },
   countPillText: { fontSize: 11, fontWeight: '700' },
 
-  // Column header
+  // ── Schema loading bar ─────────────────────────────────────────────────────
+  schemaLoadingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 8,
+    marginBottom: 8,
+  },
+  schemaLoadingText: { fontSize: 12, fontWeight: '600' },
+
+  // ── Column header ──────────────────────────────────────────────────────────
   colHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -527,7 +703,7 @@ const s = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Reading row
+  // ── Reading row ────────────────────────────────────────────────────────────
   readingRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -541,7 +717,6 @@ const s = StyleSheet.create({
   },
   statusDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
   rowLeft: { width: 52, flexShrink: 0 },
-  rowId: { fontSize: 10, fontWeight: '600' },
   rowArea: { fontSize: 12, fontWeight: '700', marginBottom: 1 },
   rowTag: { fontSize: 10 },
   colsWrap: { flex: 1, flexDirection: 'row' },
@@ -552,7 +727,7 @@ const s = StyleSheet.create({
   rowDate: { fontSize: 10, fontWeight: '600' },
   rowTime: { fontSize: 9 },
 
-  // Pagination
+  // ── Pagination ─────────────────────────────────────────────────────────────
   pagination: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -572,7 +747,7 @@ const s = StyleSheet.create({
   pageBtnText: { fontSize: 13, fontWeight: '700' },
   pageInfo: { fontSize: 13 },
 
-  // Error bar
+  // ── Error bar ──────────────────────────────────────────────────────────────
   errorBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -583,6 +758,7 @@ const s = StyleSheet.create({
     padding: Spacing.sm,
   },
 
+  // ── Empty state ────────────────────────────────────────────────────────────
   empty: { alignItems: 'center', paddingVertical: Spacing.xl },
   emptyTitle: { fontSize: 15, fontWeight: '700', marginTop: 12 },
   emptySub: { fontSize: 12, marginTop: 6, textAlign: 'center' },

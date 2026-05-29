@@ -167,3 +167,15 @@ export function fetchDeviceFieldSchema(type_key) {
     },
   };
 }
+export function forgotPassword(data) {
+  return {
+    type: 'FORGOT_PASSWORD',
+    payload: {
+      request: {
+        url: '/api/mobile/auth/forgot-password/',
+        method: 'POST',
+        data,
+      },
+    },
+  };
+}

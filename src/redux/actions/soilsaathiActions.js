@@ -22,7 +22,10 @@ export const SOIL_AI_RECS_FAIL = 'SOIL_AI_RECS_FAIL';
 
 export const SOIL_CLEAR = 'SOIL_CLEAR';
 export const SOIL_SET_CURRENT_ID = 'SOIL_SET_CURRENT_ID';
-
+// PDF DOWNLOAD
+export const SOIL_PDF_REQUEST = 'SOIL_PDF_REQUEST';
+export const SOIL_PDF_SUCCESS = 'SOIL_PDF_SUCCESS';
+export const SOIL_PDF_FAIL = 'SOIL_PDF_FAIL';
 export const testReset = () => ({ type: 'TEST_RESET' });
 
 export function listSoilReadings(deviceId) {
@@ -130,6 +133,27 @@ export function predictSoil({ lat, lon, polygon = [] }) {
           lat,
           lon,
           polygon,
+        },
+      },
+    },
+  };
+}
+
+export function downloadSoilRecommendationPDF(
+  deviceId,
+  callId,
+  token,
+) {
+  return {
+    type: SOIL_PDF_REQUEST,
+    payload: {
+      request: {
+        method: 'GET',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/recommendation-pdf/`,
+        responseType: 'arraybuffer',
+
+        headers: {
+          Accept: '*/*',
         },
       },
     },

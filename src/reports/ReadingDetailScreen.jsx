@@ -1,6 +1,18 @@
 // src/screens/reports/ReadingDetailScreen.jsx
+//
+// Fully dynamic — reads field labels from schema passed via route.params
+// (already fetched by DeviceReadingsScreen) or fetches it if missing.
+//
+// Schema shapes handled:
+//   soilsaathi → named keys (nitrogen, phosphorous, ph, ec, oc, calcium, …)
+//   ph_bottle  → field1…fieldN + latitude/longitude
+//   atmo_sense / soil_life → field1…fieldN
+//
+// Tabs:
+//   soilsaathi: Overview | Primary | Secondary | Chart
+//   other types: Overview | All Fields
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -21,13 +33,26 @@ import useTheme from '../hooks/useTheme';
 import {
   fetchReadingDetail,
   clearSelectedReading,
+  fetchDeviceFieldSchema,
 } from '../redux/actions/reportsActions';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CONTENT_W = SCREEN_W - Spacing.lg * 2;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const fmt = (v, d = 2) => (v == null ? '—' : Number(v).toFixed(d));
+const fmt = (v, d = 2) =>
+  v == null ? '—' : isNaN(Number(v)) ? String(v) : Number(v).toFixed(d);
+
+// Keys to skip in "All Fields" tab — they're shown in reading info
+const META_KEYS = new Set([
+  'area_name',
+  'tag',
+  'crop_type',
+  'created_at',
+  'latitude',
+  'longitude',
+  'id',
+]);
 
 function phClass(ph) {
   if (!ph || ph === 0)
@@ -79,7 +104,6 @@ function phClass(ph) {
     text: '#6D28D9',
   };
 }
-
 function ecClass(ec) {
   if (!ec || ec === 0)
     return {
@@ -113,7 +137,6 @@ function ecClass(ec) {
     text: '#B91C1C',
   };
 }
-
 function nutrientLevel(key, value) {
   const ranges = {
     nitrogen: { low: 280, high: 560 },
@@ -149,7 +172,7 @@ function nutrientLevel(key, value) {
   return { label: 'Optimal', color: '#16A34A', bg: '#DCFCE7', text: '#14532D' };
 }
 
-// ─── Level badge — small fixed-width pill ────────────────────────────────────
+// ─── Reusable UI components ───────────────────────────────────────────────────
 function LevelBadge({ label, bg, text }) {
   return (
     <View style={[lb.wrap, { backgroundColor: bg }]}>
@@ -167,9 +190,7 @@ const lb = StyleSheet.create({
   text: { fontSize: 10, fontWeight: '800' },
 });
 
-// ─── NutrientRow — fixed-width columns so nothing wraps ──────────────────────
-// Layout: [label 96px] [bar flex] [value 52px] [badge 62px]
-function NutrientRow({ label, value, unit, dataKey, T }) {
+function NutrientRow({ label, value, unit = '', dataKey, T }) {
   const cls = nutrientLevel(dataKey, value);
   const maxMap = {
     nitrogen: 600,
@@ -190,11 +211,8 @@ function NutrientRow({ label, value, unit, dataKey, T }) {
   };
   const maxVal = maxMap[dataKey] ?? 100;
   const pct = value > 0 ? Math.min(1, value / maxVal) : 0;
-
-  // bar width = total content - label - value - badge - gaps
   const BAR_W = CONTENT_W - Spacing.md * 2 - 96 - 52 - 62 - 24;
   const dispVal = value != null ? `${Number(value).toFixed(1)}${unit}` : '—';
-
   return (
     <View style={[nr.row, { borderBottomColor: T.border + '60' }]}>
       <Text style={[nr.label, { color: T.textSub }]} numberOfLines={2}>
@@ -232,51 +250,52 @@ const nr = StyleSheet.create({
   },
 });
 
-// ─── pH Gauge ─────────────────────────────────────────────────────────────────
+// Generic field row — for non-soilsaathi devices (field1, field2, …)
+function FieldRow({ label, value, color, T, last }) {
+  const n = value != null ? Number(value) : null;
+  const dispVal =
+    n != null && !isNaN(n)
+      ? n.toFixed(4).replace(/\.?0+$/, '')
+      : value != null
+      ? String(value)
+      : '—';
+  return (
+    <View
+      style={[
+        frow.row,
+        !last && { borderBottomColor: T.border + '60', borderBottomWidth: 0.5 },
+      ]}
+    >
+      <Text style={[frow.label, { color: T.textSub }]} numberOfLines={2}>
+        {label}
+      </Text>
+      <Text style={[frow.value, { color: color }]}>{dispVal}</Text>
+    </View>
+  );
+}
+const frow = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  label: { fontSize: 13, flex: 1, paddingRight: 16 },
+  value: { fontSize: 14, fontWeight: '800' },
+});
+
 function PhGauge({ ph, T }) {
   const cls = phClass(ph);
   const gaugeW = CONTENT_W - Spacing.md * 2;
   const pct = ph > 0 ? Math.min(1, ph / 14) : 0;
-
   const SEGS = [
-    { x: 0, w: gaugeW * 0.22, color: '#DC2626', r: true, rr: false },
-    {
-      x: gaugeW * 0.22,
-      w: gaugeW * 0.1,
-      color: '#EA580C',
-      r: false,
-      rr: false,
-    },
-    {
-      x: gaugeW * 0.32,
-      w: gaugeW * 0.14,
-      color: '#CA8A04',
-      r: false,
-      rr: false,
-    },
-    {
-      x: gaugeW * 0.46,
-      w: gaugeW * 0.18,
-      color: '#16A34A',
-      r: false,
-      rr: false,
-    },
-    {
-      x: gaugeW * 0.64,
-      w: gaugeW * 0.14,
-      color: '#2563EB',
-      r: false,
-      rr: false,
-    },
-    {
-      x: gaugeW * 0.78,
-      w: gaugeW * 0.22,
-      color: '#7C3AED',
-      r: false,
-      rr: true,
-    },
+    { x: 0, w: gaugeW * 0.22, color: '#DC2626', r: true },
+    { x: gaugeW * 0.22, w: gaugeW * 0.1, color: '#EA580C', r: false },
+    { x: gaugeW * 0.32, w: gaugeW * 0.14, color: '#CA8A04', r: false },
+    { x: gaugeW * 0.46, w: gaugeW * 0.18, color: '#16A34A', r: false },
+    { x: gaugeW * 0.64, w: gaugeW * 0.14, color: '#2563EB', r: false },
+    { x: gaugeW * 0.78, w: gaugeW * 0.22, color: '#7C3AED', r: false },
   ];
-
   return (
     <View style={[gg.card, { backgroundColor: T.card, borderColor: T.border }]}>
       <View style={gg.hdr}>
@@ -296,8 +315,8 @@ function PhGauge({ ph, T }) {
               width={seg.w}
               height={10}
               fill={seg.color}
-              rx={seg.r || seg.rr ? 5 : 0}
-              ry={seg.r || seg.rr ? 5 : 0}
+              rx={seg.r || i === SEGS.length - 1 ? 5 : 0}
+              ry={seg.r || i === SEGS.length - 1 ? 5 : 0}
             />
           ))}
           {ph > 0 && (
@@ -354,19 +373,17 @@ const gg = StyleSheet.create({
   lbl: { fontSize: 9 },
 });
 
-// ─── Donut chart ──────────────────────────────────────────────────────────────
 function NutrientDonut({ reading, T }) {
   const items = [
-    { key: 'N', v: reading.nitrogen ?? 0, color: '#16A34A' },
-    { key: 'P', v: reading.phosphorous ?? 0, color: '#2563EB' },
-    { key: 'K', v: reading.potassium ?? 0, color: '#D97706' },
-    { key: 'Ca', v: reading.calcium ?? 0, color: '#7C3AED' },
-    { key: 'Mg', v: reading.magnesium ?? 0, color: '#DC2626' },
-    { key: 'S', v: reading.sulphur ?? 0, color: '#0891B2' },
+    { key: 'nitrogen', v: reading.nitrogen ?? 0, color: '#16A34A' },
+    { key: 'phosphorous', v: reading.phosphorous ?? 0, color: '#2563EB' },
+    { key: 'potassium', v: reading.potassium ?? 0, color: '#D97706' },
+    { key: 'calcium', v: reading.calcium ?? 0, color: '#7C3AED' },
+    { key: 'magnesium', v: reading.magnesium ?? 0, color: '#DC2626' },
+    { key: 'sulphur', v: reading.sulphur ?? 0, color: '#0891B2' },
   ];
   const total = items.reduce((a, b) => a + b.v, 0);
-
-  if (total === 0) {
+  if (total === 0)
     return (
       <View style={[dt.empty, { borderColor: T.border }]}>
         <Icon
@@ -380,8 +397,6 @@ function NutrientDonut({ reading, T }) {
         </Text>
       </View>
     );
-  }
-
   const cx = 72,
     cy = 72,
     R = 58,
@@ -391,15 +406,15 @@ function NutrientDonut({ reading, T }) {
     .filter(d => d.v > 0)
     .map(d => {
       const sw = (d.v / total) * 2 * Math.PI;
-      const x1 = cx + R * Math.cos(ang);
-      const y1 = cy + R * Math.sin(ang);
+      const x1 = cx + R * Math.cos(ang),
+        y1 = cy + R * Math.sin(ang);
       ang += sw;
-      const x2 = cx + R * Math.cos(ang);
-      const y2 = cy + R * Math.sin(ang);
-      const xi1 = cx + ri * Math.cos(ang - sw);
-      const yi1 = cy + ri * Math.sin(ang - sw);
-      const xi2 = cx + ri * Math.cos(ang);
-      const yi2 = cy + ri * Math.sin(ang);
+      const x2 = cx + R * Math.cos(ang),
+        y2 = cy + R * Math.sin(ang);
+      const xi1 = cx + ri * Math.cos(ang - sw),
+        yi1 = cy + ri * Math.sin(ang - sw);
+      const xi2 = cx + ri * Math.cos(ang),
+        yi2 = cy + ri * Math.sin(ang);
       return {
         ...d,
         d: `M${x1},${y1} A${R},${R},0,${
@@ -409,7 +424,6 @@ function NutrientDonut({ reading, T }) {
         },0,${xi1},${yi1} Z`,
       };
     });
-
   return (
     <View style={dt.wrap}>
       <Svg width={144} height={144}>
@@ -443,7 +457,7 @@ function NutrientDonut({ reading, T }) {
             <View key={d.key} style={dt.row}>
               <View style={[dt.dot, { backgroundColor: d.color }]} />
               <Text style={[dt.txt, { color: T.textSub }]}>
-                {d.key}:{' '}
+                {d.key.slice(0, 2).toUpperCase()}:{' '}
                 <Text style={{ color: T.text, fontWeight: '700' }}>{d.v}</Text>
               </Text>
             </View>
@@ -468,7 +482,6 @@ const dt = StyleSheet.create({
   txt: { fontSize: 12 },
 });
 
-// ─── Bar chart ────────────────────────────────────────────────────────────────
 function BarChart({ data, color, T }) {
   const maxVal = Math.max(...data.map(d => d.v), 1);
   const bw = Math.floor(
@@ -507,7 +520,6 @@ function BarChart({ data, color, T }) {
   );
 }
 
-// ─── Section card ─────────────────────────────────────────────────────────────
 function SectionCard({ title, icon, color, children, T }) {
   return (
     <View style={[sc.card, { backgroundColor: T.card, borderColor: T.border }]}>
@@ -548,7 +560,6 @@ const sc = StyleSheet.create({
   body: { padding: Spacing.md },
 });
 
-// ─── Info row ─────────────────────────────────────────────────────────────────
 function InfoRow({ icon, label, value, T, last }) {
   return (
     <View
@@ -576,7 +587,6 @@ const ri = StyleSheet.create({
   value: { flex: 1, fontSize: 13, fontWeight: '700', textAlign: 'right' },
 });
 
-// ─── Mini stat ────────────────────────────────────────────────────────────────
 function MiniStat({ label, value, color, T }) {
   return (
     <View style={[ms.card, { backgroundColor: T.card, borderColor: T.border }]}>
@@ -619,7 +629,9 @@ export default function ReadingDetailScreen({ navigation, route }) {
     deviceType,
     deviceName,
     reading: passed,
+    schema: passedSchema, // schema passed from DeviceReadingsScreen
   } = route.params;
+
   const isSoil = deviceType === 'soilsaathi';
   const meta = isSoil
     ? { color: '#16A34A', icon: 'flask-outline' }
@@ -628,17 +640,154 @@ export default function ReadingDetailScreen({ navigation, route }) {
   const { selectedReading, selectedReadingLoading } = useSelector(
     s => s.reports,
   );
-  const reading = selectedReading ?? passed;
+  const schemaSlot = useSelector(s => s.reports.schemas?.[deviceType]);
+  const reduxSchema = schemaSlot?.schema ?? null;
 
+  // Prefer passed schema (already loaded), fallback to Redux, fallback to null
+  const schema = passedSchema ?? reduxSchema;
+
+  const reading = selectedReading ?? passed;
   const [activeTab, setActiveTab] = useState(0);
+
   const TABS = isSoil
     ? ['Overview', 'Primary', 'Secondary', 'Chart']
-    : ['Overview', 'Details'];
+    : ['Overview', 'All Fields'];
 
   useEffect(() => {
     dispatch(fetchReadingDetail(deviceId, readingId));
+    // Fetch schema if not available
+    if (!schema && !schemaSlot?.loading) {
+      dispatch(fetchDeviceFieldSchema(deviceType));
+    }
     return () => dispatch(clearSelectedReading());
-  }, [deviceId, readingId, dispatch]);
+  }, [deviceId, readingId, deviceType, dispatch]);
+
+  // ── Derive sorted field list from schema for non-soil devices ───────────────
+  // Separates field1…fieldN from geo keys
+  const { dataFields, geoFields } = useMemo(() => {
+    if (!schema) return { dataFields: [], geoFields: [] };
+    const data = [],
+      geo = [];
+    Object.entries(schema).forEach(([key, label]) => {
+      if (META_KEYS.has(key)) return;
+      if (key === 'latitude' || key === 'longitude') geo.push({ key, label });
+      else data.push({ key, label });
+    });
+    return { dataFields: data, geoFields: geo };
+  }, [schema]);
+
+  // ── soilsaathi primary + secondary ─────────────────────────────────────────
+  const soilPrimary = useMemo(() => {
+    if (!isSoil || !schema)
+      return [
+        {
+          label: 'Nitrogen (N) kg/ha',
+          v: reading?.nitrogen,
+          unit: '',
+          key: 'nitrogen',
+        },
+        {
+          label: 'Phosphorous (P) kg/ha',
+          v: reading?.phosphorous,
+          unit: '',
+          key: 'phosphorous',
+        },
+        {
+          label: 'Potassium (K) kg/ha',
+          v: reading?.potassium,
+          unit: '',
+          key: 'potassium',
+        },
+        { label: 'pH', v: reading?.ph, unit: '', key: 'ph' },
+        { label: 'EC dS/m', v: reading?.ec, unit: '', key: 'ec' },
+        { label: 'OC %', v: reading?.oc, unit: '%', key: 'oc' },
+      ];
+    // Use schema labels where available
+    const labelOf = key => schema[key] ?? key;
+    return [
+      {
+        label: labelOf('nitrogen'),
+        v: reading?.nitrogen,
+        unit: '',
+        key: 'nitrogen',
+      },
+      {
+        label: labelOf('phosphorous'),
+        v: reading?.phosphorous,
+        unit: '',
+        key: 'phosphorous',
+      },
+      {
+        label: labelOf('potassium'),
+        v: reading?.potassium,
+        unit: '',
+        key: 'potassium',
+      },
+      { label: labelOf('ph'), v: reading?.ph, unit: '', key: 'ph' },
+      { label: labelOf('ec'), v: reading?.ec, unit: '', key: 'ec' },
+      { label: labelOf('oc') ?? 'OC %', v: reading?.oc, unit: '%', key: 'oc' },
+    ];
+  }, [isSoil, schema, reading]);
+
+  const soilSecondary = useMemo(() => {
+    const labelOf = key => schema?.[key] ?? key;
+    return [
+      {
+        label: labelOf('calcium'),
+        v: reading?.calcium,
+        unit: '',
+        key: 'calcium',
+      },
+      {
+        label: labelOf('magnesium'),
+        v: reading?.magnesium,
+        unit: '',
+        key: 'magnesium',
+      },
+      {
+        label: labelOf('sulphur') ?? 'Sulphur',
+        v: reading?.sulphur,
+        unit: ' ppm',
+        key: 'sulphur',
+      },
+      {
+        label: labelOf('zinc') ?? 'Zinc',
+        v: reading?.zinc,
+        unit: ' ppm',
+        key: 'zinc',
+      },
+      {
+        label: labelOf('manganese') ?? 'Manganese',
+        v: reading?.manganese,
+        unit: ' ppm',
+        key: 'manganese',
+      },
+      {
+        label: labelOf('iron') ?? 'Iron',
+        v: reading?.iron,
+        unit: ' ppm',
+        key: 'iron',
+      },
+      {
+        label: labelOf('copper') ?? 'Copper',
+        v: reading?.copper,
+        unit: ' ppm',
+        key: 'copper',
+      },
+      {
+        label: labelOf('boron') ?? 'Boron',
+        v: reading?.boron,
+        unit: ' ppm',
+        key: 'boron',
+      },
+      {
+        label: 'Electrical cond.',
+        v: reading?.electrical_conduction,
+        unit: '',
+        key: 'electrical_conduction',
+      },
+    ];
+  }, [schema, reading]);
 
   if (selectedReadingLoading && !reading) {
     return (
@@ -650,14 +799,13 @@ export default function ReadingDetailScreen({ navigation, route }) {
         />
         <View style={s.center}>
           <ActivityIndicator size="large" color={meta.color} />
-          <Text style={[{ color: T.muted, marginTop: 12, fontSize: 13 }]}>
+          <Text style={{ color: T.muted, marginTop: 12, fontSize: 13 }}>
             Loading…
           </Text>
         </View>
       </SafeAreaView>
     );
   }
-
   if (!reading) {
     return (
       <SafeAreaView style={[s.root, { backgroundColor: T.bg }]}>
@@ -668,7 +816,7 @@ export default function ReadingDetailScreen({ navigation, route }) {
         />
         <View style={s.center}>
           <Icon name="alert-circle-outline" size={40} color="#EF4444" />
-          <Text style={[{ color: T.text, marginTop: 12 }]}>
+          <Text style={{ color: T.text, marginTop: 12 }}>
             Could not load reading
           </Text>
         </View>
@@ -677,86 +825,12 @@ export default function ReadingDetailScreen({ navigation, route }) {
   }
 
   const recordedAt = new Date(reading.created_at);
-  const phVal = reading.ph ?? reading.ph_value ?? 0;
-  const ecVal = reading.ec ?? reading.ec_value ?? 0;
+  const phVal = reading.ph ?? reading.ph_value ?? reading.field1 ?? 0;
+  const ecVal = reading.ec ?? reading.ec_value ?? reading.field3 ?? 0;
   const phCls = phClass(phVal);
   const ecCls = ecClass(ecVal);
 
-  const PRIMARY_NUTRIENTS = [
-    {
-      label: 'Nitrogen (N) kg/ha',
-      v: reading.nitrogen,
-      unit: '',
-      key: 'nitrogen',
-    },
-    {
-      label: 'Phosphorous (P) kg/ha',
-      v: reading.phosphorous,
-      unit: '',
-      key: 'phosphorous',
-    },
-    {
-      label: 'Potassium (K) kg/ha',
-      v: reading.potassium,
-      unit: '',
-      key: 'potassium',
-    },
-    { label: 'pH', v: reading.ph, unit: '', key: 'ph' },
-    { label: 'EC dS/m', v: reading.ec, unit: '', key: 'ec' },
-    { label: 'OC %', v: reading.oc, unit: '%', key: 'oc' },
-  ];
-
-  const SECONDARY_NUTRIENTS = [
-    {
-      label: 'Calcium (meq/100g)',
-      v: reading.calcium,
-      unit: '',
-      key: 'calcium',
-    },
-    {
-      label: 'Magnesium (meq/100g)',
-      v: reading.magnesium,
-      unit: '',
-      key: 'magnesium',
-    },
-    {
-      label: 'Sulphur (ppm)',
-      v: reading.sulphur,
-      unit: ' ppm',
-      key: 'sulphur',
-    },
-    { label: 'Zinc (ppm)', v: reading.zinc, unit: ' ppm', key: 'zinc' },
-    {
-      label: 'Manganese (ppm)',
-      v: reading.manganese,
-      unit: ' ppm',
-      key: 'manganese',
-    },
-    { label: 'Iron (ppm)', v: reading.iron, unit: ' ppm', key: 'iron' },
-    { label: 'Copper (ppm)', v: reading.copper, unit: ' ppm', key: 'copper' },
-    { label: 'Boron (ppm)', v: reading.boron, unit: ' ppm', key: 'boron' },
-    {
-      label: 'Electrical cond.',
-      v: reading.electrical_conduction,
-      unit: '',
-      key: 'electrical_conduction',
-    },
-  ];
-
-  const BAR_DATA = [
-    { key: 'N', v: reading.nitrogen ?? 0 },
-    { key: 'P', v: reading.phosphorous ?? 0 },
-    { key: 'K', v: reading.potassium ?? 0 },
-    { key: 'Ca', v: reading.calcium ?? 0 },
-    { key: 'Mg', v: reading.magnesium ?? 0 },
-    { key: 'S', v: reading.sulphur ?? 0 },
-    { key: 'Zn', v: reading.zinc ?? 0 },
-    { key: 'Mn', v: reading.manganese ?? 0 },
-    { key: 'Fe', v: reading.iron ?? 0 },
-    { key: 'Cu', v: reading.copper ?? 0 },
-    { key: 'B', v: reading.boron ?? 0 },
-  ];
-
+  // ── soilsaathi tabs ─────────────────────────────────────────────────────────
   const renderSoilTab = () => {
     switch (activeTab) {
       case 0:
@@ -764,7 +838,7 @@ export default function ReadingDetailScreen({ navigation, route }) {
           <>
             <View style={s.statRow}>
               <MiniStat
-                label="Nitrogen"
+                label={schema?.nitrogen ? 'N' : 'Nitrogen'}
                 value={`${reading.nitrogen ?? 0}`}
                 color="#16A34A"
                 T={T}
@@ -838,7 +912,7 @@ export default function ReadingDetailScreen({ navigation, route }) {
             color={meta.color}
             T={T}
           >
-            {PRIMARY_NUTRIENTS.map(n => (
+            {soilPrimary.map(n => (
               <NutrientRow
                 key={n.key}
                 label={n.label}
@@ -858,7 +932,7 @@ export default function ReadingDetailScreen({ navigation, route }) {
             color={meta.color}
             T={T}
           >
-            {SECONDARY_NUTRIENTS.map(n => (
+            {soilSecondary.map(n => (
               <NutrientRow
                 key={n.key}
                 label={n.label}
@@ -870,7 +944,20 @@ export default function ReadingDetailScreen({ navigation, route }) {
             ))}
           </SectionCard>
         );
-      case 3:
+      case 3: {
+        const barData = [
+          { key: 'N', v: reading.nitrogen ?? 0 },
+          { key: 'P', v: reading.phosphorous ?? 0 },
+          { key: 'K', v: reading.potassium ?? 0 },
+          { key: 'Ca', v: reading.calcium ?? 0 },
+          { key: 'Mg', v: reading.magnesium ?? 0 },
+          { key: 'S', v: reading.sulphur ?? 0 },
+          { key: 'Zn', v: reading.zinc ?? 0 },
+          { key: 'Mn', v: reading.manganese ?? 0 },
+          { key: 'Fe', v: reading.iron ?? 0 },
+          { key: 'Cu', v: reading.copper ?? 0 },
+          { key: 'B', v: reading.boron ?? 0 },
+        ];
         return (
           <>
             <SectionCard
@@ -879,7 +966,7 @@ export default function ReadingDetailScreen({ navigation, route }) {
               color={meta.color}
               T={T}
             >
-              <BarChart data={BAR_DATA} color={meta.color} T={T} />
+              <BarChart data={barData} color={meta.color} T={T} />
             </SectionCard>
             <View style={s.clsRow}>
               <View
@@ -909,59 +996,90 @@ export default function ReadingDetailScreen({ navigation, route }) {
             </View>
           </>
         );
+      }
       default:
         return null;
     }
   };
 
-  const renderPhTab = () => {
+  // ── Generic device tabs (ph_bottle, atmo_sense, soil_life, …) ───────────────
+  const renderGenericTab = () => {
+    // Try to find a pH-like field and EC-like field from schema labels
+    const phKey = dataFields.find(
+      f => /pH/i.test(f.label) && !/volt/i.test(f.label),
+    )?.key;
+    const ecKey = dataFields.find(
+      f => /EC|conductiv/i.test(f.label) && !/volt/i.test(f.label),
+    )?.key;
+    const phValue = phKey ? Number(reading[phKey] ?? 0) : phVal;
+    const ecValue = ecKey ? Number(reading[ecKey] ?? 0) : ecVal;
+
     switch (activeTab) {
       case 0:
         return (
           <>
-            <View style={s.statRow}>
-              <MiniStat
-                label="pH"
-                value={fmt(phVal)}
-                color={phCls.color}
-                T={T}
-              />
-              <MiniStat
-                label="EC dS/m"
-                value={fmt(ecVal)}
-                color={ecCls.color}
-                T={T}
-              />
-              <MiniStat
-                label="pH V"
-                value={fmt(reading.ph_voltage ?? reading.voltage, 3)}
-                color="#7C3AED"
-                T={T}
-              />
-              <MiniStat
-                label="EC V"
-                value={fmt(reading.ec_voltage, 3)}
-                color="#0891B2"
-                T={T}
-              />
-            </View>
-            <PhGauge ph={phVal} T={T} />
-            <SectionCard
-              title="Electrical conductivity"
-              icon="lightning-bolt-outline"
-              color={ecCls.color}
-              T={T}
-            >
-              <View style={s.ecRow}>
-                <Text style={[s.ecVal, { color: ecCls.color }]}>
-                  {fmt(ecVal)} dS/m
-                </Text>
-                <LevelBadge {...ecCls} />
+            {/* Mini stat row — first 4 data fields */}
+            {dataFields.length > 0 && (
+              <View style={s.statRow}>
+                {dataFields.slice(0, 4).map((f, i) => {
+                  const colors = ['#2563EB', '#16A34A', '#7C3AED', '#0891B2'];
+                  const v = reading[f.key];
+                  return (
+                    <MiniStat
+                      key={f.key}
+                      label={f.label.split(' ')[0]}
+                      value={v != null ? Number(v).toFixed(2) : '—'}
+                      color={colors[i % colors.length]}
+                      T={T}
+                    />
+                  );
+                })}
               </View>
-              <Text style={[s.ecRange, { color: T.muted }]}>
-                Optimal range: 1 – 4 dS/m
-              </Text>
-            </SectionCard>
+            )}
+
+            {/* Schema loading */}
+            {!schema && (
+              <View
+                style={[
+                  s.schemaLoadingBar,
+                  {
+                    backgroundColor: meta.color + '12',
+                    borderColor: meta.color + '30',
+                  },
+                ]}
+              >
+                <ActivityIndicator size="small" color={meta.color} />
+                <Text style={[s.schemaLoadingText, { color: meta.color }]}>
+                  Loading field labels…
+                </Text>
+              </View>
+            )}
+
+            {/* pH gauge if a pH-like field exists */}
+            {phKey && <PhGauge ph={phValue} T={T} />}
+
+            {/* EC card if an EC-like field exists */}
+            {ecKey && (
+              <SectionCard
+                title={
+                  dataFields.find(f => f.key === ecKey)?.label ?? 'Conductivity'
+                }
+                icon="lightning-bolt-outline"
+                color={ecClass(ecValue).color}
+                T={T}
+              >
+                <View style={s.ecRow}>
+                  <Text style={[s.ecVal, { color: ecClass(ecValue).color }]}>
+                    {fmt(ecValue)} dS/m
+                  </Text>
+                  <LevelBadge {...ecClass(ecValue)} />
+                </View>
+                <Text style={[s.ecRange, { color: T.muted }]}>
+                  Optimal range: 1 – 4 dS/m
+                </Text>
+              </SectionCard>
+            )}
+
             <SectionCard
               title="Reading info"
               icon="information-outline"
@@ -987,16 +1105,6 @@ export default function ReadingDetailScreen({ navigation, route }) {
                 T={T}
               />
               <InfoRow
-                icon="thermometer"
-                label="Temperature"
-                value={
-                  reading.temperature != null
-                    ? `${reading.temperature} °C`
-                    : '—'
-                }
-                T={T}
-              />
-              <InfoRow
                 icon="clock-outline"
                 label="Recorded"
                 value={recordedAt.toLocaleString('en-IN')}
@@ -1006,51 +1114,75 @@ export default function ReadingDetailScreen({ navigation, route }) {
             </SectionCard>
           </>
         );
+
       case 1:
         return (
-          <SectionCard
-            title="Voltage & location"
-            icon="flash-outline"
-            color="#7C3AED"
-            T={T}
-          >
-            <InfoRow
-              icon="water-outline"
-              label="pH Voltage"
-              value={fmt(reading.ph_voltage ?? reading.voltage, 4) + ' V'}
-              T={T}
-            />
-            <InfoRow
-              icon="lightning-bolt"
-              label="EC Voltage"
-              value={fmt(reading.ec_voltage, 4) + ' V'}
-              T={T}
-            />
-            <InfoRow
-              icon="thermometer"
-              label="Temperature"
-              value={
-                reading.temperature != null
-                  ? `${fmt(reading.temperature, 1)} °C`
-                  : '—'
-              }
-              T={T}
-            />
-            <InfoRow
-              icon="map-marker-outline"
-              label="Latitude"
-              value={String(reading.latitude ?? '—')}
-              T={T}
-            />
-            <InfoRow
-              icon="map-marker"
-              label="Longitude"
-              value={String(reading.longitude ?? '—')}
-              T={T}
-              last
-            />
-          </SectionCard>
+          <>
+            {/* All data fields from schema */}
+            {dataFields.length > 0 ? (
+              <SectionCard
+                title="All fields"
+                icon="database-outline"
+                color={meta.color}
+                T={T}
+              >
+                {dataFields.map((f, i) => {
+                  const val = reading[f.key];
+                  const colors = [
+                    '#2563EB',
+                    '#16A34A',
+                    '#7C3AED',
+                    '#0891B2',
+                    '#D97706',
+                    '#DC2626',
+                  ];
+                  return (
+                    <FieldRow
+                      key={f.key}
+                      label={f.label}
+                      value={val}
+                      color={colors[i % colors.length]}
+                      T={T}
+                      last={
+                        i === dataFields.length - 1 && geoFields.length === 0
+                      }
+                    />
+                  );
+                })}
+                {geoFields.map((f, i) => (
+                  <FieldRow
+                    key={f.key}
+                    label={f.label}
+                    value={reading[f.key]}
+                    color={T.muted}
+                    T={T}
+                    last={i === geoFields.length - 1}
+                  />
+                ))}
+              </SectionCard>
+            ) : !schema ? (
+              <View style={s.center}>
+                <ActivityIndicator color={meta.color} />
+                <Text style={{ color: T.muted, marginTop: 10, fontSize: 13 }}>
+                  Loading field labels…
+                </Text>
+              </View>
+            ) : (
+              <View style={s.center}>
+                <Icon
+                  name="database-off-outline"
+                  size={36}
+                  color={T.muted}
+                  style={{ opacity: 0.3 }}
+                />
+                <Text style={{ color: T.muted, marginTop: 10, fontSize: 13 }}>
+                  No schema fields defined
+                </Text>
+              </View>
+            )}
+          </>
         );
+
       default:
         return null;
     }
@@ -1110,7 +1242,7 @@ export default function ReadingDetailScreen({ navigation, route }) {
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {isSoil ? renderSoilTab() : renderPhTab()}
+        {isSoil ? renderSoilTab() : renderGenericTab()}
         <View style={{ height: 32 }} />
       </ScrollView>
     </SafeAreaView>
@@ -1133,6 +1265,17 @@ const s = StyleSheet.create({
   tabTxt: { fontSize: 12 },
 
   statRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
+
+  schemaLoadingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 8,
+    marginBottom: Spacing.md,
+  },
+  schemaLoadingText: { fontSize: 12, fontWeight: '600' },
 
   clsRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.md },
   clsCard: {

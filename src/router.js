@@ -32,6 +32,11 @@ import FarmersListScreen from './soilpartner/FarmersListScreen';
 import FarmerDetailScreen from './soilpartner/FarmerDetailScreen';
 import PaymentHistoryScreen from './soilpartner/ PaymentHistoryScreen';
 import { MapScreen } from './SoilMaps/SoilMap';
+import SoilSaathiDetailScreen from './reports/SoilSaathiDetailScreen';
+import PhBottleDetailScreen from './reports/PhBottleDetailScreen';
+import ForgotPasswordScreen from './screens/profile/ForgotPasswordModal';
+import SoilPartnerInfoScreen from './screens/profile/SoilPartnerInfoScreen';
+import SoilPartnerEnquiryScreen from './screens/profile/SoilPartnerEnquiryScreen';
 export const AppStack = () => {
   return (
     <NavigationContainer>
@@ -274,13 +279,38 @@ export const AppStack = () => {
             // gestureEnabled: false,
           }}
         />
-           <Stack.Screen
+        <Stack.Screen
           name="SoilMaps"
           component={MapScreen}
           options={{
             headerShown: false,
             // gestureEnabled: false,
           }}
+        />
+        <Stack.Screen
+          name="SoilSaathiDetailScreen"
+          component={SoilSaathiDetailScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="PhBottleDetailScreen"
+          component={PhBottleDetailScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="ForgotPasswordScreen"
+          component={ForgotPasswordScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="SoilPartnerInfoScreen"
+          component={SoilPartnerInfoScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="SoilPartnerEnquiryScreen"
+          component={SoilPartnerEnquiryScreen}
+          options={{ headerShown: false }}
         />
       </Stack.Navigator>
     </NavigationContainer>
