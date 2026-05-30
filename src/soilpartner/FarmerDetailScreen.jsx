@@ -1,6 +1,12 @@
 // src/screens/soilpartner/FarmerDetailScreen.jsx
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'react';
 import {
   View,
   Text,
@@ -30,10 +36,12 @@ import {
   uploadFarmerImage,
   updateFarmerDetails,
   deleteFarmerImage,
+  fetchFarmerApiCalls,
   resetUpdateStatus,
   resetUploadImage,
   resetUpdateFarmer,
   resetDeleteImage,
+  resetFarmerApiCalls,
 } from '../redux/actions/soilPartnerActions';
 import { showMessage } from 'react-native-flash-message';
 
@@ -809,6 +817,299 @@ const pp = StyleSheet.create({
   cancel: { fontSize: 13, fontWeight: '600' },
 });
 
+// ─── Device meta for API readings section ────────────────────────────────────
+const DEVICE_COLORS = {
+  soilsaathi: '#16A34A',
+  ph_bottle: '#2563EB',
+  atmo_sense: '#7C3AED',
+  soil_life: '#D97706',
+  soilsparsh: '#0891B2',
+};
+const DEVICE_ICONS = {
+  soilsaathi: 'flask-outline',
+  ph_bottle: 'water-check-outline',
+  atmo_sense: 'weather-partly-cloudy',
+  soil_life: 'leaf-circle-outline',
+  soilsparsh: 'water-check-outline',
+};
+
+// ─── Single reading row in the table ─────────────────────────────────────────
+function ReadingRow({ reading, colKeys, T, isLast }) {
+  return (
+    <View
+      style={[
+        rr.row,
+        !isLast && {
+          borderBottomColor: (T.border ?? '#E2E8F0') + '60',
+          borderBottomWidth: 0.5,
+        },
+      ]}
+    >
+      <Text style={[rr.id, { color: T.muted }]}>#{reading.id}</Text>
+      {colKeys.map(k => {
+        const v = reading[k];
+        const display =
+          v != null ? String(Number(v).toFixed(v % 1 !== 0 ? 2 : 0)) : '—';
+        return (
+          <Text
+            key={k}
+            style={[
+              rr.cell,
+              { color: v != null && v !== 0 ? T.text : T.muted },
+            ]}
+            numberOfLines={1}
+          >
+            {display}
+          </Text>
+        );
+      })}
+      <Text style={[rr.date, { color: T.muted }]}>
+        {reading.created_at
+          ? new Date(reading.created_at).toLocaleDateString('en-IN', {
+              day: '2-digit',
+              month: 'short',
+            })
+          : '—'}
+      </Text>
+    </View>
+  );
+}
+const rr = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 4,
+  },
+  id: { width: 36, fontSize: 10, fontWeight: '700' },
+  cell: { flex: 1, fontSize: 11, fontWeight: '600', textAlign: 'center' },
+  date: { width: 52, fontSize: 9, textAlign: 'right' },
+});
+
+// ─── Table header ─────────────────────────────────────────────────────────────
+function ReadingTableHeader({ colKeys, T }) {
+  const labels = {
+    field1: 'F1',
+    field2: 'F2',
+    field3: 'F3',
+    field4: 'F4',
+    field5: 'F5',
+    field6: 'F6',
+    field7: 'F7',
+    field8: 'F8',
+    nitrogen: 'N',
+    phosphorous: 'P',
+    potassium: 'K',
+    ph: 'pH',
+    ec: 'EC',
+    oc: 'OC',
+  };
+  return (
+    <View
+      style={[
+        rth.row,
+        {
+          borderBottomColor: T.border ?? '#E2E8F0',
+          backgroundColor: (T.border ?? '#E2E8F0') + '30',
+        },
+      ]}
+    >
+      <Text style={[rth.hdr, { width: 36, color: T.muted }]}>ID</Text>
+      {colKeys.map(k => (
+        <Text key={k} style={[rth.hdr, { flex: 1, color: T.muted }]}>
+          {labels[k] ?? k}
+        </Text>
+      ))}
+      <Text
+        style={[rth.hdr, { width: 52, textAlign: 'right', color: T.muted }]}
+      >
+        Date
+      </Text>
+    </View>
+  );
+}
+const rth = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderRadius: 6,
+    gap: 4,
+  },
+  hdr: {
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+});
+
+// ─── Per-device reading card ───────────────────────────────────────────────────
+function DeviceReadingsCard({ device, T, navigation, farmerId }) {
+  const [expanded, setExpanded] = useState(false);
+  const color = DEVICE_COLORS[device.device_type] ?? '#6B7280';
+  const icon = DEVICE_ICONS[device.device_type] ?? 'devices';
+
+  // Derive column keys from first reading
+  const colKeys = useMemo(() => {
+    if (!device.readings?.length) return [];
+    const first = device.readings[0];
+    const fieldKeys = Object.keys(first).filter(
+      k =>
+        /^field\d+$/.test(k) ||
+        ['nitrogen', 'phosphorous', 'potassium', 'ph', 'ec', 'oc'].includes(k),
+    );
+    // Only include cols that have at least one non-zero value
+    return fieldKeys.filter(k =>
+      device.readings.some(r => r[k] != null && r[k] !== 0),
+    );
+  }, [device.readings]);
+
+  return (
+    <View
+      style={[
+        drc.card,
+        {
+          backgroundColor: T.card,
+          borderColor: T.border ?? '#E2E8F0',
+          borderLeftColor: color,
+          borderLeftWidth: 3,
+        },
+      ]}
+    >
+      {/* Header row */}
+      <TouchableOpacity
+        style={drc.header}
+        onPress={() => setExpanded(e => !e)}
+        activeOpacity={0.8}
+      >
+        <View style={[drc.icoWrap, { backgroundColor: color + '18' }]}>
+          <Icon name={icon} size={18} color={color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[drc.devName, { color: T.text }]}>
+            {device.device_name}
+          </Text>
+          <Text style={[drc.devType, { color: T.muted }]}>
+            {device.device_type?.replace(/_/g, ' ')}
+          </Text>
+        </View>
+        <View
+          style={[
+            drc.countBadge,
+            { backgroundColor: color + '18', borderColor: color + '40' },
+          ]}
+        >
+          <Text style={[drc.countTxt, { color }]}>{device.api_count}</Text>
+          <Text style={[drc.countLbl, { color }]}>calls</Text>
+        </View>
+        <Icon
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={T.muted}
+          style={{ marginLeft: 8 }}
+        />
+      </TouchableOpacity>
+
+      {/* Expanded readings table */}
+      {expanded && device.readings?.length > 0 && (
+        <View
+          style={[
+            drc.tableWrap,
+            { borderTopColor: (T.border ?? '#E2E8F0') + '60' },
+          ]}
+        >
+          <View style={{ paddingHorizontal: 4 }}>
+            <ReadingTableHeader colKeys={colKeys} T={T} />
+            {device.readings.map((r, i) => (
+              <ReadingRow
+                key={r.id}
+                reading={r}
+                colKeys={colKeys}
+                T={T}
+                isLast={i === device.readings.length - 1}
+              />
+            ))}
+          </View>
+          {device.readings_total_pages > 1 && (
+            <Text style={[drc.pageHint, { color: T.muted }]}>
+              Page {device.readings_page} of {device.readings_total_pages}
+            </Text>
+          )}
+        </View>
+      )}
+      {expanded && (!device.readings || device.readings.length === 0) && (
+        <View
+          style={[
+            drc.emptyReadings,
+            { borderTopColor: (T.border ?? '#E2E8F0') + '60' },
+          ]}
+        >
+          <Icon
+            name="database-off-outline"
+            size={24}
+            color={T.muted}
+            style={{ opacity: 0.4 }}
+          />
+          <Text style={[drc.emptyTxt, { color: T.muted }]}>
+            No readings available
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+const drc = StyleSheet.create({
+  card: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    marginBottom: Spacing.sm,
+    overflow: 'hidden',
+    ...Shadow.sm,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: Spacing.md,
+  },
+  icoWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  devName: { fontSize: 14, fontWeight: '800', marginBottom: 2 },
+  devType: { fontSize: 10, fontWeight: '600', textTransform: 'capitalize' },
+  countBadge: {
+    alignItems: 'center',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  countTxt: { fontSize: 18, fontWeight: '900', lineHeight: 22 },
+  countLbl: { fontSize: 9, fontWeight: '600' },
+  tableWrap: {
+    borderTopWidth: 0.5,
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
+    paddingTop: Spacing.sm,
+  },
+  pageHint: { fontSize: 10, textAlign: 'center', marginTop: 8 },
+  emptyReadings: {
+    borderTopWidth: 0.5,
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: Spacing.md,
+  },
+  emptyTxt: { fontSize: 12 },
+});
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function FarmerDetailScreen({ navigation, route }) {
   const dispatch = useDispatch();
@@ -830,6 +1131,8 @@ export default function FarmerDetailScreen({ navigation, route }) {
     updateFarmerLoading,
     updateFarmerSuccess,
     updateFarmerError,
+    farmerApiCalls,
+    farmerApiCallsLoading,
   } = useSelector(s => s.soilPartner ?? {});
 
   const farmer = farmerDetail ?? passedFarmer;
@@ -846,7 +1149,10 @@ export default function FarmerDetailScreen({ navigation, route }) {
   const editHandled = useRef(false);
 
   useEffect(() => {
-    if (farmerId) dispatch(fetchFarmerDetail(farmerId));
+    if (farmerId) {
+      dispatch(fetchFarmerDetail(farmerId));
+      dispatch(fetchFarmerApiCalls(farmerId));
+    }
   }, [farmerId]);
 
   // Reset guards when redux clears back to false
@@ -1497,6 +1803,80 @@ export default function FarmerDetailScreen({ navigation, route }) {
           />
         </Section>
 
+        {/* ── API Readings ────────────────────────────────────── */}
+        <View
+          style={[
+            s.apiSection,
+            { backgroundColor: T.card, borderColor: T.border ?? T.cardBorder },
+          ]}
+        >
+          <View
+            style={[
+              s.apiHeader,
+              {
+                borderBottomColor: T.border ?? T.cardBorder,
+                backgroundColor: '#1D4ED810',
+              },
+            ]}
+          >
+            <View style={s.apiHeaderLeft}>
+              <View style={[s.apiHdrIco, { backgroundColor: '#1D4ED820' }]}>
+                <Icon name="api" size={15} color="#1D4ED8" />
+              </View>
+              <Text style={[s.apiHdrTitle, { color: T.text }]}>
+                API READINGS
+              </Text>
+            </View>
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+            >
+              {farmerApiCalls && (
+                <View style={[s.apiTotalBadge, { backgroundColor: '#1D4ED8' }]}>
+                  <Text style={s.apiTotalTxt}>
+                    {farmerApiCalls.total_api_calls} total
+                  </Text>
+                </View>
+              )}
+              {farmerApiCallsLoading && (
+                <ActivityIndicator size="small" color="#1D4ED8" />
+              )}
+            </View>
+          </View>
+
+          <View style={s.apiBody}>
+            {farmerApiCallsLoading && !farmerApiCalls ? (
+              <View style={s.apiLoading}>
+                <ActivityIndicator color="#1D4ED8" />
+                <Text style={[s.apiLoadingTxt, { color: T.muted }]}>
+                  Loading API calls…
+                </Text>
+              </View>
+            ) : !farmerApiCalls || farmerApiCalls.devices?.length === 0 ? (
+              <View style={s.apiEmpty}>
+                <Icon
+                  name="database-off-outline"
+                  size={36}
+                  color={T.muted}
+                  style={{ opacity: 0.3 }}
+                />
+                <Text style={[s.apiEmptyTxt, { color: T.muted }]}>
+                  No API readings linked to this farmer yet
+                </Text>
+              </View>
+            ) : (
+              farmerApiCalls.devices.map(device => (
+                <DeviceReadingsCard
+                  key={device.device_id}
+                  device={device}
+                  T={T}
+                  navigation={navigation}
+                  farmerId={farmerId}
+                />
+              ))
+            )}
+          </View>
+        </View>
+
         <View style={{ height: 40 }} />
       </ScrollView>
 
@@ -1669,4 +2049,46 @@ const s = StyleSheet.create({
     paddingVertical: 4,
   },
   mapBtnTxt: { fontSize: 11, fontWeight: '700' },
+
+  // API readings section
+  apiSection: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+    overflow: 'hidden',
+    ...Shadow.sm,
+  },
+  apiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: Spacing.md,
+    paddingVertical: 11,
+    borderBottomWidth: 0.5,
+  },
+  apiHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  apiHdrIco: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  apiHdrTitle: { fontSize: 13, fontWeight: '800', letterSpacing: 0.6 },
+  apiTotalBadge: {
+    borderRadius: Radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  apiTotalTxt: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  apiBody: { padding: Spacing.md },
+  apiLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: Spacing.md,
+  },
+  apiLoadingTxt: { fontSize: 13 },
+  apiEmpty: { alignItems: 'center', gap: 8, paddingVertical: Spacing.xl },
+  apiEmptyTxt: { fontSize: 13, textAlign: 'center', maxWidth: 220 },
 });

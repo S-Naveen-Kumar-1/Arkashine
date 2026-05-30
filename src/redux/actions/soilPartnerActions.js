@@ -185,7 +185,7 @@ export function deleteFarmerImage(farmerId) {
     type: 'SP_DELETE_IMAGE_REQUEST',
     payload: {
       request: {
-        url: `/api/mobile/farmers/${farmerId}/image/delete/`,
+        url: `/api/mobile/farmers/${farmerId}/image/`,
         method: 'DELETE',
       },
     },
@@ -194,4 +194,26 @@ export function deleteFarmerImage(farmerId) {
 
 export function resetDeleteImage() {
   return { type: 'SP_DELETE_IMAGE_RESET' };
+}
+
+// ─── 12. Fetch farmer API calls / readings ────────────────────────────────────
+// GET /api/mobile/farmers/{id}/api-calls/
+export function fetchFarmerApiCalls(
+  farmerId,
+  { page = 1, perDevice = 20 } = {},
+) {
+  return {
+    type: 'SP_FARMER_API_CALLS_REQUEST',
+    payload: {
+      request: {
+        url: `/api/mobile/farmers/${farmerId}/api-calls/`,
+        method: 'GET',
+        params: { page, per_device: perDevice },
+      },
+    },
+  };
+}
+
+export function resetFarmerApiCalls() {
+  return { type: 'SP_FARMER_API_CALLS_RESET' };
 }

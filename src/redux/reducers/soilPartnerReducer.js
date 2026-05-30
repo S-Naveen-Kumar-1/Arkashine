@@ -44,6 +44,11 @@ const init = {
   deleteImageSuccess: false,
   deleteImageError: null,
 
+  // Farmer API calls
+  farmerApiCalls: null,
+  farmerApiCallsLoading: false,
+  farmerApiCallsError: null,
+
   // Payments
   payments: [],
   paymentsMeta: {
@@ -353,6 +358,35 @@ export default function soilPartnerReducer(state = init, action) {
         deleteImageLoading: false,
         deleteImageSuccess: false,
         deleteImageError: null,
+      };
+
+    // ── Farmer API calls ─────────────────────────────────────────────────
+    case 'SP_FARMER_API_CALLS_REQUEST':
+      return {
+        ...state,
+        farmerApiCallsLoading: true,
+        farmerApiCallsError: null,
+      };
+
+    case 'SP_FARMER_API_CALLS_REQUEST_SUCCESS': {
+      const d = action.payload?.data ?? action.payload;
+      return { ...state, farmerApiCallsLoading: false, farmerApiCalls: d };
+    }
+
+    case 'SP_FARMER_API_CALLS_REQUEST_FAIL':
+      return {
+        ...state,
+        farmerApiCallsLoading: false,
+        farmerApiCallsError:
+          action.error?.message ?? 'Failed to load API calls',
+      };
+
+    case 'SP_FARMER_API_CALLS_RESET':
+      return {
+        ...state,
+        farmerApiCalls: null,
+        farmerApiCallsLoading: false,
+        farmerApiCallsError: null,
       };
 
     // ── Payments ──────────────────────────────────────────────────────────
