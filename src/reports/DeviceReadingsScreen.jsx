@@ -193,6 +193,7 @@ export default function DeviceReadingsScreen({ navigation, route }) {
   const T = theme.colors;
 
   const { deviceId, deviceName, deviceType, device } = route.params;
+  console.log('DeviceReadingsScreen route.params:', route.params);
   console.log('DeviceReadingsScreen params:', route.params);
   const meta = DEVICE_META[deviceType] || DEVICE_META.soilsaathi;
 
@@ -471,6 +472,26 @@ export default function DeviceReadingsScreen({ navigation, route }) {
     );
   };
 
+  const handleDetailNavigate = item => {
+    console.log('Navigating to detail with item:', item);
+    const screen =
+      deviceType === 'soilsaathi'
+        ? 'SoilSaathiDetailScreen'
+        : deviceType === 'soil_life'
+        ? 'SoilLifeDetailScreen'
+        : deviceType === 'atmo_sense'
+        ? 'SoilSparshDetailScreen'
+        : 'PhBottleDetailScreen';
+
+    navigation.navigate(screen, {
+      readingId: item.id,
+      deviceId,
+      deviceType,
+      deviceName,
+      reading: item,
+    });
+  };
+
   return (
     <SafeAreaView style={[s.root, { backgroundColor: T.bg }]}>
       <StatusBar
@@ -516,22 +537,7 @@ export default function DeviceReadingsScreen({ navigation, route }) {
             previewCols={previewCols}
             color={meta.color}
             T={T}
-            onPress={() =>
-              navigation.navigate(
-                deviceType === 'soilsaathi'
-                  ? 'SoilSaathiDetailScreen'
-                  : 'PhBottleDetailScreen',
-                {
-                  readingId: item.id,
-                  deviceId,
-                  deviceType,
-                  deviceName,
-                  reading: item,
-                  // Pass schema so detail screen doesn't need to re-fetch
-                  schema,
-                },
-              )
-            }
+            onPress={() => handleDetailNavigate(item)}
           />
         )}
         showsVerticalScrollIndicator={false}

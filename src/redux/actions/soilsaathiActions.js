@@ -159,3 +159,23 @@ export function downloadSoilRecommendationPDF(
     },
   };
 }
+export function downloadSoilDetailPDF(
+  deviceId,
+  callId,
+  token,
+) {
+  return {
+    type: SOIL_PDF_REQUEST,
+    payload: {
+      request: {
+        method: 'GET',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/recommendation-pdf/`,
+        responseType: 'arraybuffer',
+
+        headers: {
+          Accept: '*/*',
+        },
+      },
+    },
+  };
+}

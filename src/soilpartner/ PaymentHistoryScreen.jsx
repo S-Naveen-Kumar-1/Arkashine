@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   TextInput,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -95,13 +96,12 @@ function PaymentCard({ payment, T }) {
   const color = isPaid ? PRIMARY : AMBER;
 
   // API returns dynamic keys — handle both structured and additionalProp shapes
-  const amount = payment.amount ?? payment.additionalProp1;
-  const farmer =
-    payment.farmer ?? payment.farmer_name ?? payment.additionalProp3 ?? '—';
-  const note = payment.note ?? payment.additionalProp2;
-  const createdAt = payment.created_at ?? payment.date;
-  const paidOn = payment.paid_on ?? payment.paid_date;
-
+  const amount = payment.amount;
+  const farmer = payment.farmer_name ?? '—';
+  const note = payment.description;
+  const createdAt = payment.created_at;
+  const paidOn = payment.paid_at;
+  const attachments = payment.attachments ?? [];
   return (
     <View
       style={[
@@ -151,7 +151,7 @@ function PaymentCard({ payment, T }) {
         </View>
 
         {/* Bottom row — paid on + note */}
-        {paidOn || note ? (
+        {paidOn || (note && note.trim()) || attachments.length > 0 ? (
           <View
             style={[pc.bottomRow, { borderTopColor: T.border ?? T.cardBorder }]}
           >
@@ -169,7 +169,7 @@ function PaymentCard({ payment, T }) {
                 </Text>
               </View>
             )}
-            {note && note !== '—' && (
+            {note && note.trim() !== '' && (
               <View style={pc.infoChip}>
                 <MaterialCommunityIcons
                   name="note-text-outline"
@@ -184,6 +184,28 @@ function PaymentCard({ payment, T }) {
                 </Text>
               </View>
             )}
+            {attachments.map((url, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={pc.infoChip}
+                onPress={() => Linking.openURL(url)}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons
+                  name="paperclip"
+                  size={11}
+                  color={'#2563EB'}
+                />
+                <Text
+                  style={[
+                    pc.infoChipText,
+                    { color: '#2563EB', textDecorationLine: 'underline' },
+                  ]}
+                >
+                  Attachment {attachments.length > 1 ? idx + 1 : ''}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
         ) : null}
       </View>
@@ -353,31 +375,7 @@ export default function PaymentHistoryScreen({ navigation }) {
       {/* Summary strip */}
       <SummaryStrip meta={paymentsMeta} T={T} />
 
-      {/* Stat cards */}
-      <View style={s.statsRow}>
-        <StatCard
-          icon="check-circle-outline"
-          label="Paid"
-          value={fmtAmount(paymentsMeta.paid_amount)}
-          color={PRIMARY}
-          T={T}
-        />
-        <StatCard
-          icon="clock-outline"
-          label="Pending"
-          value={fmtAmount(paymentsMeta.pending_amount)}
-          color={AMBER}
-          T={T}
-        />
-        <StatCard
-          icon="database-outline"
-          label="Total"
-          value={String(paymentsMeta.count ?? 0)}
-          color="#7C3AED"
-          T={T}
-        />
-      </View>
-
+  
       {/* Search */}
       <View
         style={[

@@ -18,6 +18,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -286,11 +287,11 @@ const fr = StyleSheet.create({
 function PaymentRow({ payment, T }) {
   const isPaid = payment.status === 'paid';
   const color = isPaid ? '#16A34A' : '#F59E0B';
-  const amount = payment.amount ?? payment.additionalProp1 ?? '—';
-  const date = payment.created_at ?? payment.date ?? payment.additionalProp2;
-  const farmer =
-    payment.farmer_name ?? payment.farmer ?? payment.additionalProp3 ?? '—';
-
+  const amount = payment.amount ?? '—';
+  const date = payment.created_at;
+  const paidOn = payment.paid_at;
+  const farmer = payment.farmer_name ?? '—';
+  const attachments = payment.attachments ?? [];
   return (
     <View style={[pr.row, { borderBottomColor: T.border ?? T.cardBorder }]}>
       <View style={[pr.dot, { backgroundColor: color }]} />
@@ -307,6 +308,16 @@ function PaymentRow({ payment, T }) {
             })}
           </Text>
         ) : null}
+        {paidOn ? (
+          <Text style={[pr.date, { color: '#16A34A' }]}>
+            Paid{' '}
+            {new Date(paidOn).toLocaleDateString('en-IN', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric',
+            })}
+          </Text>
+        ) : null}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
         <Text style={[pr.amount, { color: T.text }]}>₹{amount}</Text>
@@ -315,6 +326,35 @@ function PaymentRow({ payment, T }) {
             {isPaid ? 'Paid' : 'Pending'}
           </Text>
         </View>
+        {attachments.map((url, idx) => (
+          <TouchableOpacity
+            key={idx}
+            onPress={() => Linking.openURL(url)}
+            activeOpacity={0.7}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 2,
+              marginTop: 2,
+            }}
+          >
+            <MaterialCommunityIcons
+              name="paperclip"
+              size={12}
+              color={'#2563EB'}
+            />
+            <Text
+              style={{
+                fontSize: 9,
+                color: '#2563EB',
+                fontWeight: '700',
+                textDecorationLine: 'underline',
+              }}
+            >
+              {attachments.length > 1 ? `File ${idx + 1}` : 'File'}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
     </View>
   );

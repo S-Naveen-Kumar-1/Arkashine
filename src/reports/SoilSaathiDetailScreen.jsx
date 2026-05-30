@@ -46,6 +46,7 @@ import {
   getSoilRecommendations,
   getSoilAIRecommendations,
   downloadSoilRecommendationPDF,
+  downloadSoilDetailPDF,
 } from '../redux/actions/soilsaathiActions';
 import {
   fmt,
@@ -126,59 +127,46 @@ function parseFertLine(line) {
   return null;
 }
 
-// ─── PDF Download ─────────────────────────────────────────────────────────────
-
-// ─── PDFDownloadButton ────────────────────────────────────────────────────────
-
-function PDFDownloadButton({ deviceId, readingId, T ,dispatch}) {
+function PDFDownloadButton({
+  deviceId,
+  readingId,
+  T,
+  dispatch,
+  action,
+  title,
+  subtitle,
+  fileName,
+}) {
   const [downloading, setDownloading] = useState(false);
-  const handleDownloadPDF = async () => {
+
+  const handleDownload = async () => {
     try {
       setDownloading(true);
-
-
-      const response = await dispatch(
-        downloadSoilRecommendationPDF(deviceId, readingId),
-      );
-
+      const response = await dispatch(action(deviceId, readingId));
       const pdfData = response?.payload?.data;
+      if (!pdfData) throw new Error('No PDF received');
 
-      if (!pdfData) {
-        throw new Error('No PDF received');
-      }
-
-      // arraybuffer -> base64
       const base64 = Buffer.from(pdfData, 'binary').toString('base64');
-
-      const filePath = `${RNFS.DocumentDirectoryPath}/SoiLENZ_Report_${readingId}.pdf`;
-
+      const filePath = `${RNFS.DocumentDirectoryPath}/${fileName}_${readingId}.pdf`;
       await RNFS.writeFile(filePath, base64, 'base64');
-
       await Share.open({
         url: `file://${filePath}`,
         type: 'application/pdf',
-        title: 'SoiLENZ Report',
+        title,
         failOnCancel: false,
       });
     } catch (error) {
       console.log('PDF Download Error:', error);
-
       Alert.alert('Error', 'Could not download PDF. Please try again.');
     } finally {
       setDownloading(false);
     }
   };
+
   return (
     <TouchableOpacity
-      style={[
-        pdfs.btn,
-        {
-          borderColor: '#EF444430',
-          backgroundColor: T.card,
-          borderColor: T.border,
-        },
-      ]}
-      onPress={() => handleDownloadPDF(deviceId, readingId, setDownloading)}
+      style={[pdfs.btn, { backgroundColor: T.card, borderColor: T.border }]}
+      onPress={handleDownload}
       activeOpacity={0.8}
       disabled={downloading}
     >
@@ -186,47 +174,50 @@ function PDFDownloadButton({ deviceId, readingId, T ,dispatch}) {
         {downloading ? (
           <ActivityIndicator size="small" color="#EF4444" />
         ) : (
-          <Icon name="file-pdf-box" size={24} color="#EF4444" />
+          <Icon name="file-pdf-box" size={22} color="#EF4444" />
         )}
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[pdfs.title, { color: T.text }]}>
-          Download Full Report
+        <Text style={[pdfs.title, { color: T.text }]} numberOfLines={1}>
+          {title}
         </Text>
-        <Text style={[pdfs.sub, { color: T.muted }]}>
-          {downloading
-            ? 'Downloading…'
-            : '6-page SoiLENZ PDF · Soil chemistry + recommendations'}
+        <Text style={[pdfs.sub, { color: T.muted }]} numberOfLines={1}>
+          {downloading ? 'Downloading…' : subtitle}
         </Text>
       </View>
       {!downloading && (
-        <Icon name="download-outline" size={20} color="#EF4444" />
+        <Icon name="download-outline" size={18} color="#EF4444" />
       )}
     </TouchableOpacity>
   );
 }
 
 const pdfs = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: Spacing.md,
+  },
   btn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
     borderRadius: Radius.lg,
     borderWidth: 1,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
+    padding: Spacing.sm,
     ...Shadow.sm,
   },
   icoWrap: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: 36,
     borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
-  title: { fontSize: 14, fontWeight: '800' },
-  sub: { fontSize: 11, marginTop: 2 },
+  title: { fontSize: 12, fontWeight: '800' },
+  sub: { fontSize: 10, marginTop: 1 },
 });
 
 // ─── FertilizerYearCard ───────────────────────────────────────────────────────
@@ -1647,6 +1638,150 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
     );
   }
 
+  // ─── AllValuesPieChart ────────────────────────────────────────────────────────
+
+  function AllValuesPieChart({ reading, T }) {
+    const ALL_NUTRIENTS = [
+      { key: 'nitrogen', label: 'Nitrogen', abbr: 'N', color: '#16A34A' },
+      { key: 'phosphorous', label: 'Phosphorous', abbr: 'P', color: '#EF4444' },
+      { key: 'potassium', label: 'Potassium', abbr: 'K', color: '#F97316' },
+      { key: 'calcium', label: 'Calcium', abbr: 'Ca', color: '#EC4899' },
+      { key: 'magnesium', label: 'Magnesium', abbr: 'Mg', color: '#F59E0B' },
+      { key: 'sulphur', label: 'Sulphur', abbr: 'S', color: '#84CC16' },
+      { key: 'zinc', label: 'Zinc', abbr: 'Zn', color: '#6366F1' },
+      { key: 'manganese', label: 'Manganese', abbr: 'Mn', color: '#14B8A6' },
+      { key: 'iron', label: 'Iron', abbr: 'Fe', color: '#E879F9' },
+      { key: 'copper', label: 'Copper', abbr: 'Cu', color: '#2563EB' },
+      { key: 'boron', label: 'Boron', abbr: 'B', color: '#22D3EE' },
+      { key: 'ph', label: 'pH', abbr: 'pH', color: '#7C3AED' },
+      { key: 'ec', label: 'EC', abbr: 'EC', color: '#0891B2' },
+      { key: 'oc', label: 'OC', abbr: 'OC', color: '#D97706' },
+      {
+        key: 'electrical_conduction',
+        label: 'Elec. Cond.',
+        abbr: 'ElC',
+        color: '#64748B',
+      },
+    ];
+
+    const data = ALL_NUTRIENTS.map(n => ({
+      ...n,
+      v: reading?.[n.key] ?? 0,
+    })).filter(n => n.v > 0);
+
+    const total = data.reduce((s, d) => s + d.v, 0);
+
+    const SIZE = CONTENT_W - Spacing.lg * 2; // full-width pie
+    const cx = SIZE / 2,
+      cy = SIZE / 2;
+    const R = SIZE / 2 - 10,
+      ri = SIZE / 2 - 55;
+
+    let ang = -Math.PI / 2;
+    const slices = data.map(d => {
+      const sweep = total > 0 ? (d.v / total) * 2 * Math.PI : 0;
+      const path =
+        sweep > 0.005 ? buildDonutPath(cx, cy, R, ri, ang, sweep) : null;
+      // label position — midpoint of arc
+      const mid = ang + sweep / 2;
+      const lR = (R + ri) / 2;
+      const lx = cx + lR * Math.cos(mid);
+      const ly = cy + lR * Math.sin(mid);
+      ang += sweep;
+      return {
+        ...d,
+        sweep,
+        path,
+        pct: total > 0 ? Math.round((d.v / total) * 100) : 0,
+        lx,
+        ly,
+      };
+    });
+
+    return (
+      <View>
+        {/* Pie */}
+        <View style={{ alignItems: 'center', marginBottom: Spacing.md }}>
+          <Svg width={SIZE} height={SIZE}>
+            {/* background ring */}
+            <Path
+              d={buildDonutPath(cx, cy, R, ri, 0, 2 * Math.PI - 0.001)}
+              fill={T.border + '40'}
+            />
+            {slices.map((sl, i) =>
+              sl.path ? <Path key={i} d={sl.path} fill={sl.color} /> : null,
+            )}
+            {/* center label */}
+            <SvgText
+              x={cx}
+              y={cy - 10}
+              textAnchor="middle"
+              fontSize={11}
+              fill={T.muted ?? '#94A3B8'}
+            >
+              All nutrients
+            </SvgText>
+            <SvgText
+              x={cx}
+              y={cy + 8}
+              textAnchor="middle"
+              fontSize={20}
+              fontWeight="900"
+              fill={T.text ?? '#111'}
+            >
+              {data.length}
+            </SvgText>
+            <SvgText
+              x={cx}
+              y={cy + 24}
+              textAnchor="middle"
+              fontSize={10}
+              fill={T.muted ?? '#94A3B8'}
+            >
+              parameters
+            </SvgText>
+          </Svg>
+        </View>
+
+        {/* Legend grid */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {data.map(d => (
+            <View
+              key={d.key}
+              style={[
+                avp.legendChip,
+                { backgroundColor: T.card, borderColor: T.border },
+              ]}
+            >
+              <View style={[avp.dot, { backgroundColor: d.color }]} />
+              <Text style={[avp.chipLabel, { color: T.muted }]}>{d.label}</Text>
+              <Text style={[avp.chipVal, { color: d.color }]}>{d.v}</Text>
+              <View style={[avp.pctBadge, { backgroundColor: d.color + '20' }]}>
+                <Text style={[avp.pctTxt, { color: d.color }]}>{d.pct}%</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  }
+
+  const avp = StyleSheet.create({
+    legendChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      borderRadius: Radius.full,
+      borderWidth: 1,
+      paddingVertical: 5,
+      paddingHorizontal: 9,
+    },
+    dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+    chipLabel: { fontSize: 11, fontWeight: '600' },
+    chipVal: { fontSize: 11, fontWeight: '900' },
+    pctBadge: { borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
+    pctTxt: { fontSize: 9, fontWeight: '700' },
+  });
   const recordedAt = new Date(reading.created_at);
   const phVal = reading.ph ?? 0;
   const ecVal = reading.ec ?? 0;
@@ -1678,14 +1813,17 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
                 />
               ))}
             </View>
+
+            {/* ← replaces NPKPieSection SectionCard */}
             <SectionCard
-              title="NPK overview"
-              icon="chart-donut"
+              title="All values"
+              icon="chart-pie"
               color={DEVICE_COLOR}
               T={T}
             >
-              <NPKPieSection reading={reading} T={T} />
+              <AllValuesPieChart reading={reading} T={T} />
             </SectionCard>
+
             <SectionCard
               title="Reading info"
               icon="information-outline"
@@ -1774,12 +1912,29 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
 
         return (
           <>
-            <PDFDownloadButton
-              deviceId={deviceId}
-              readingId={readingId}
-              T={T}
-              dispatch={dispatch}
-            />
+            {/* Two PDF buttons side by side */}
+            <View style={pdfs.row}>
+              <PDFDownloadButton
+                deviceId={deviceId}
+                readingId={readingId}
+                T={T}
+                dispatch={dispatch}
+                action={downloadSoilRecommendationPDF}
+                title="Full Report"
+                subtitle="6-page SoiLENZ PDF"
+                fileName="SoiLENZ_Report"
+              />
+              <PDFDownloadButton
+                deviceId={deviceId}
+                readingId={readingId}
+                T={T}
+                dispatch={dispatch}
+                action={downloadSoilDetailPDF}
+                title="Detail PDF"
+                subtitle="Soil detail report"
+                fileName="SoiLENZ_Detail"
+              />
+            </View>
 
             <AICropCard
               aiData={soilAIRecs}

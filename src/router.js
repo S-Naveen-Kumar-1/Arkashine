@@ -33,6 +33,9 @@ import FarmerDetailScreen from './soilpartner/FarmerDetailScreen';
 import PaymentHistoryScreen from './soilpartner/ PaymentHistoryScreen';
 import { MapScreen } from './SoilMaps/SoilMap';
 import SoilSaathiDetailScreen from './reports/SoilSaathiDetailScreen';
+import SoilLifeDetailScreen from './reports/SoilLifeDetailScreen';
+import SoilSparshDetailScreen from './reports/SoilSparshDetailScreen';
+
 import PhBottleDetailScreen from './reports/PhBottleDetailScreen';
 import ForgotPasswordScreen from './screens/profile/ForgotPasswordModal';
 import SoilPartnerInfoScreen from './screens/profile/SoilPartnerInfoScreen';
@@ -310,6 +313,16 @@ export const AppStack = () => {
         <Stack.Screen
           name="SoilPartnerEnquiryScreen"
           component={SoilPartnerEnquiryScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="SoilLifeDetailScreen"
+          component={SoilLifeDetailScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="SoilSparshDetailScreen"
+          component={SoilSparshDetailScreen}
           options={{ headerShown: false }}
         />
       </Stack.Navigator>

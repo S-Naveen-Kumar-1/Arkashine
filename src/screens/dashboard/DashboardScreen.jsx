@@ -24,6 +24,92 @@ const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - Spacing.lg * 2;
 const CARD_MARGIN = Spacing.md;
 
+// Daily Tips Database
+const DAILY_TIPS = [
+  {
+    id: 1,
+    title: 'Water Your Crops',
+    description: 'Water your crops in the early morning for better absorption.',
+    icon: 'water-percent',
+    color: '#3B82F6',
+  },
+  {
+    id: 2,
+    title: 'Check Soil pH',
+    description:
+      'Monitor soil pH levels regularly for optimal nutrient availability.',
+    icon: 'beaker-check-outline',
+    color: '#8B5CF6',
+  },
+  {
+    id: 3,
+    title: 'Monitor Weather',
+    description:
+      'Check weather forecasts before planting to avoid crop damage.',
+    icon: 'weather-cloudy',
+    color: '#06B6D4',
+  },
+  {
+    id: 4,
+    title: 'Pest Control',
+    description:
+      'Use organic pest management techniques to protect your crops.',
+    icon: 'bug-check-outline',
+    color: '#10B981',
+  },
+  {
+    id: 5,
+    title: 'Crop Rotation',
+    description: 'Practice crop rotation annually to maintain soil fertility.',
+    icon: 'sprout',
+    color: '#F59E0B',
+  },
+  {
+    id: 6,
+    title: 'Nutrient Balance',
+    description:
+      'Use balanced fertilizers with nitrogen, phosphorus, and potassium.',
+    icon: 'leaf-circle',
+    color: '#EC4899',
+  },
+  {
+    id: 7,
+    title: 'Weed Management',
+    description: 'Remove weeds regularly to reduce crop competition.',
+    icon: 'botanicals',
+    color: '#14B8A6',
+  },
+  {
+    id: 8,
+    title: 'Irrigation Schedule',
+    description:
+      'Maintain consistent irrigation based on soil moisture levels.',
+    icon: 'water-pump',
+    color: '#6366F1',
+  },
+  {
+    id: 9,
+    title: 'Seasonal Planting',
+    description:
+      'Plant crops according to their seasonal requirements for better yields.',
+    icon: 'calendar-check',
+    color: '#F97316',
+  },
+  {
+    id: 10,
+    title: 'Mulching Benefits',
+    description: 'Apply mulch to retain soil moisture and reduce weed growth.',
+    icon: 'tree-outline',
+    color: '#8B4513',
+  },
+];
+
+// Function to get random tip
+const getRandomTip = () => {
+  const randomIndex = Math.floor(Math.random() * DAILY_TIPS.length);
+  return DAILY_TIPS[randomIndex];
+};
+
 // Weather utility functions
 const getWeatherIcon = code => {
   // WMO Weather interpretation codes
@@ -71,6 +157,9 @@ export function DashboardScreen({ navigation }) {
 
   // Refresh control state
   const [refreshing, setRefreshing] = useState(false);
+
+  // Daily tip state
+  const [dailyTip, setDailyTip] = useState(getRandomTip());
 
   // Weather state
   const [weather, setWeather] = useState({
@@ -157,6 +246,9 @@ export function DashboardScreen({ navigation }) {
     try {
       // Fetch both devices and weather in parallel
       await Promise.all([fetchDevices(), fetchWeatherData()]);
+
+      // Update daily tip on refresh
+      setDailyTip(getRandomTip());
     } catch (error) {
       console.log('Refresh error:', error);
     } finally {
@@ -391,6 +483,7 @@ export function DashboardScreen({ navigation }) {
 
         {/* Live Overview Section */}
         <View style={[s.section, { paddingHorizontal: Spacing.lg }]}>
+          {/* Dynamic Daily Tip Card */}
           <View
             style={[
               s.tipCard,
@@ -404,22 +497,24 @@ export function DashboardScreen({ navigation }) {
             <View
               style={[
                 s.tipIconContainer,
-                { backgroundColor: `${T.primary}20` },
+                { backgroundColor: `${dailyTip.color}20` },
               ]}
             >
               <MaterialCommunityIcons
-                name="hand-water"
+                name={dailyTip.icon}
                 size={28}
-                color={T.primary}
+                color={dailyTip.color}
               />
             </View>
             <View style={s.tipContent}>
-              <Text style={[s.tipTitle, { color: T.text }]}>Daily Tip</Text>
+              <Text style={[s.tipTitle, { color: T.text }]}>
+                {dailyTip.title}
+              </Text>
               <Text
                 style={[s.tipDescription, { color: T.textSub }]}
                 numberOfLines={2}
               >
-                Water your crops in the early morning for better absorption.
+                {dailyTip.description}
               </Text>
             </View>
           </View>
@@ -731,6 +826,10 @@ const s = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     lineHeight: 16,
+  },
+  refreshTipButton: {
+    padding: Spacing.sm,
+    marginLeft: Spacing.sm,
   },
 
   // Weather Card Styles

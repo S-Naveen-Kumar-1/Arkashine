@@ -11,12 +11,108 @@ import {
   TouchableOpacity,
   Switch,
   Alert,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useDispatch, useSelector } from 'react-redux';
 import { logoutUser, toggleTheme } from '../../redux/actions';
 import useTheme from '../../hooks/useTheme';
 import { Spacing, Radius, Shadow, Typography } from '../../theme';
+import { TextInput } from 'react-native';
+
+// Enable LayoutAnimation for Android
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// ─── FAQ Data ─────────────────────────────────────────────────────────────────
+const FAQS = [
+  {
+    id: 1,
+    question: 'What is SoiLENZ?',
+    answer:
+      'SoiLENZ is Arkashine’s portable soil testing solution that provides instant soil health analysis and nutrient information directly in the field.',
+    icon: 'test-tube',
+    category: 'SoiLENZ',
+  },
+  {
+    id: 2,
+    question: 'How do I perform a soil test?',
+    answer:
+      'Collect the soil sample as instructed, connect your SoiLENZ device, start a new test from the app, and follow the on-screen steps to generate the report.',
+    icon: 'clipboard-check-outline',
+    category: 'Testing',
+  },
+  {
+    id: 3,
+    question: 'What parameters are measured in a soil test?',
+    answer:
+      'Depending on the device and package, tests may include pH, EC, Organic Carbon, Nitrogen, Phosphorus, Potassium, Moisture, and other soil health indicators.',
+    icon: 'flask-outline',
+    category: 'Testing',
+  },
+  {
+    id: 4,
+    question: 'How can I view my soil test reports?',
+    answer:
+      'All completed reports are available in the Reports section where you can view, download, and share them.',
+    icon: 'file-chart-outline',
+    category: 'Reports',
+  },
+  {
+    id: 5,
+    question: 'Why is my device not connecting?',
+    answer:
+      'Ensure Bluetooth is enabled, the device is charged, and you are within range. Restart the device and try reconnecting from the app.',
+    icon: 'bluetooth-connect',
+    category: 'Device',
+  },
+  {
+    id: 6,
+    question: 'What is a Soil Partner?',
+    answer:
+      'A Soil Partner is an authorized Arkashine distributor or service provider who helps farmers perform soil testing and provides agricultural advisory services.',
+    icon: 'handshake-outline',
+    category: 'Soil Partner',
+  },
+  {
+    id: 7,
+    question: 'How do I become a Soil Partner?',
+    answer:
+      'Navigate to the Soil Partner section in the app, review the program details, and submit your application. Our team will contact you after verification.',
+    icon: 'account-plus-outline',
+    category: 'Soil Partner',
+  },
+  {
+    id: 8,
+    question: 'Can I share reports with farmers or clients?',
+    answer:
+      'Yes. Soil reports can be shared digitally through PDF export or directly from the app.',
+    icon: 'share-variant-outline',
+    category: 'Reports',
+  },
+  {
+    id: 9,
+    question: 'How accurate are Arkashine soil test results?',
+    answer:
+      'Arkashine devices are calibrated using validated testing methods and provide reliable field-level insights for faster decision making.',
+    icon: 'check-decagram-outline',
+    category: 'Accuracy',
+  },
+  {
+    id: 10,
+    question: 'Who should I contact for support?',
+    answer:
+      'You can contact the Arkashine support team through the Help & Support section or by using the official support email and phone number provided in the app.',
+    icon: 'headset',
+    category: 'Support',
+  },
+];
 
 // ─── Static data ──────────────────────────────────────────────────────────────
 
@@ -214,6 +310,61 @@ function SoilPartnerCard({ onPress, onInfoPress, T }) {
   );
 }
 
+// ─── FAQ Item Component ────────────────────────────────────────────────────────
+
+function FAQItem({ faq, T, expanded, onToggle }) {
+  return (
+    <View
+      style={[
+        faqItem.wrap,
+        { backgroundColor: T.card, borderColor: T.cardBorder },
+        expanded && { backgroundColor: T.primaryDim },
+      ]}
+    >
+      <TouchableOpacity
+        style={faqItem.header}
+        onPress={onToggle}
+        activeOpacity={0.7}
+      >
+        <View style={[faqItem.iconBox, { backgroundColor: T.primary + '20' }]}>
+          <MaterialCommunityIcons name={faq.icon} size={18} color={T.primary} />
+        </View>
+
+        <View style={faqItem.headerText}>
+          <Text style={[faqItem.category, { color: T.muted }]}>
+            {faq.category}
+          </Text>
+          <Text style={[faqItem.question, { color: T.text }]} numberOfLines={2}>
+            {faq.question}
+          </Text>
+        </View>
+
+        <MaterialCommunityIcons
+          name={expanded ? 'chevron-up' : 'chevron-down'}
+          size={20}
+          color={T.primary}
+          style={{ marginLeft: 8 }}
+        />
+      </TouchableOpacity>
+
+      {expanded && (
+        <View style={[faqItem.body, { borderTopColor: T.divider }]}>
+          <Text style={[faqItem.answer, { color: T.text }]}>{faq.answer}</Text>
+          <View style={faqItem.footer}>
+            <MaterialCommunityIcons
+              name="check-circle"
+              size={14}
+              color={T.primary}
+            />
+            <Text style={[faqItem.helpful, { color: T.primary }]}>
+              Was this helpful?
+            </Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
 const spCard = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
   iconWrap: {
@@ -255,6 +406,332 @@ const spCard = StyleSheet.create({
     letterSpacing: 0.5,
   },
 });
+const faqItem = StyleSheet.create({
+  wrap: {
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    marginBottom: 12,
+    overflow: 'hidden',
+    ...Shadow.sm,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+  },
+  iconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  headerText: {
+    flex: 1,
+  },
+  category: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  question: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  body: {
+    borderTopWidth: 1,
+    padding: 14,
+    paddingTop: 12,
+  },
+  answer: {
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  helpful: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+});
+
+// ─── Help Modal Component ──────────────────────────────────────────────────────
+
+function HelpSupportModal({ T, onClose }) {
+  const [expandedId, setExpandedId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleToggle = id => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedId(expandedId === id ? null : id);
+  };
+
+  const filteredFaqs = FAQS.filter(
+    faq =>
+      faq.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      faq.answer.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      faq.category.toLowerCase().includes(searchQuery.toLowerCase()),
+  );
+
+  return (
+    <View style={[helpModal.container, { backgroundColor: T.bg }]}>
+      {/* Header */}
+      <View style={[helpModal.header, { borderBottomColor: T.divider }]}>
+        <View>
+          <Text style={[helpModal.title, { color: T.text }]}>
+            Help & Support
+          </Text>
+          <Text style={[helpModal.subtitle, { color: T.muted }]}>
+            Find answers to your questions
+          </Text>
+        </View>
+        <TouchableOpacity onPress={onClose} hitSlop={{ all: 8 }}>
+          <MaterialCommunityIcons name="close" size={24} color={T.text} />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 40 }}
+      >
+        {/* Search Bar */}
+        <View style={helpModal.searchContainer}>
+          <View
+            style={[
+              helpModal.searchBox,
+              { backgroundColor: T.card, borderColor: T.cardBorder },
+            ]}
+          >
+            <MaterialCommunityIcons name="magnify" size={20} color={T.muted} />
+            <TextInput
+              placeholder="Search FAQs..."
+              placeholderTextColor={T.muted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              style={[helpModal.searchInput, { color: T.text }]}
+            />
+            {searchQuery !== '' && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <MaterialCommunityIcons
+                  name="close-circle"
+                  size={18}
+                  color={T.muted}
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Contact Info */}
+        <View style={helpModal.contactSection}>
+          <Text style={[helpModal.sectionTitle, { color: T.muted }]}>
+            Contact Us
+          </Text>
+          <View
+            style={[
+              helpModal.contactCard,
+              { backgroundColor: T.card, borderColor: T.cardBorder },
+            ]}
+          >
+            <View
+              style={[
+                helpModal.contactIcon,
+                { backgroundColor: T.primary + '20' },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="email-outline"
+                size={20}
+                color={T.primary}
+              />
+            </View>
+            <View style={helpModal.contactInfo}>
+              <Text style={[helpModal.contactLabel, { color: T.muted }]}>
+                Email
+              </Text>
+              <Text style={[helpModal.contactValue, { color: T.text }]}>
+                support@arkashine.com
+              </Text>
+            </View>
+          </View>
+
+          <View
+            style={[
+              helpModal.contactCard,
+              { backgroundColor: T.card, borderColor: T.cardBorder },
+            ]}
+          >
+            <View
+              style={[
+                helpModal.contactIcon,
+                { backgroundColor: T.primary + '20' },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="phone-outline"
+                size={20}
+                color={T.primary}
+              />
+            </View>
+            <View style={helpModal.contactInfo}>
+              <Text style={[helpModal.contactLabel, { color: T.muted }]}>
+                Phone
+              </Text>
+              <Text style={[helpModal.contactValue, { color: T.text }]}>
+                +91-XXXX-XXXX-XX
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* FAQs Section */}
+        <View style={helpModal.faqSection}>
+          <Text style={[helpModal.sectionTitle, { color: T.muted }]}>
+            Frequently Asked Questions ({filteredFaqs.length})
+          </Text>
+
+          {filteredFaqs.length > 0 ? (
+            filteredFaqs.map(faq => (
+              <FAQItem
+                key={faq.id}
+                faq={faq}
+                T={T}
+                expanded={expandedId === faq.id}
+                onToggle={() => handleToggle(faq.id)}
+              />
+            ))
+          ) : (
+            <View style={helpModal.emptyState}>
+              <MaterialCommunityIcons
+                name="search-web"
+                size={48}
+                color={T.muted}
+              />
+              <Text style={[helpModal.emptyText, { color: T.muted }]}>
+                No FAQs found
+              </Text>
+              <Text style={[helpModal.emptySubtext, { color: T.muted }]}>
+                Try a different search term
+              </Text>
+            </View>
+          )}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const helpModal = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  searchContainer: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 12,
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: 12,
+  },
+  contactSection: {
+    paddingHorizontal: Spacing.lg,
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  contactCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 10,
+    gap: 12,
+    ...Shadow.sm,
+  },
+  contactIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  contactInfo: {
+    flex: 1,
+  },
+  contactLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  contactValue: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  faqSection: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: 20,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 12,
+  },
+  emptySubtext: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+});
 
 // ─── ProfileScreen ────────────────────────────────────────────────────────────
 
@@ -272,6 +749,8 @@ export default function ProfileScreen({ navigation }) {
     bluetooth: false,
   });
 
+  const [showHelpModal, setShowHelpModal] = useState(false);
+
   const initials = (user?.name || user?.username || 'U')
     .split(' ')
     .map(w => w[0])
@@ -283,7 +762,7 @@ export default function ProfileScreen({ navigation }) {
     if (action === 'forgotPassword')
       navigation.navigate('ForgotPasswordScreen');
     if (action === 'help') {
-      /* navigate to help */
+      setShowHelpModal(true);
     }
   };
 
@@ -310,6 +789,15 @@ export default function ProfileScreen({ navigation }) {
       },
     ]);
   };
+
+  if (showHelpModal) {
+    return (
+      <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
+        <StatusBar barStyle={T.statusBar} backgroundColor={T.bg} />
+        <HelpSupportModal T={T} onClose={() => setShowHelpModal(false)} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[s.bg, { backgroundColor: T.bg }]}>
