@@ -17,7 +17,6 @@ export function fetchFarmers() {
 
 // ─── 2. Fetch single farmer detail ───────────────────────────────────────────
 export function fetchFarmerDetail(farmerId) {
-  console.log('Action: fetchFarmerDetail, farmerId:', farmerId);
   return {
     type: 'SP_FETCH_FARMER_DETAIL_REQUEST',
     payload: {
@@ -177,4 +176,22 @@ export function submitSoilPartnerEnquiry(data) {
 
 export function resetSoilPartnerEnquiry() {
   return { type: SP_ENQUIRY_RESET };
+}
+
+// ─── 11. Delete farmer image ──────────────────────────────────────────────────
+// DELETE /api/mobile/farmers/{id}/image/
+export function deleteFarmerImage(farmerId) {
+  return {
+    type: 'SP_DELETE_IMAGE_REQUEST',
+    payload: {
+      request: {
+        url: `/api/mobile/farmers/${farmerId}/image/delete/`,
+        method: 'DELETE',
+      },
+    },
+  };
+}
+
+export function resetDeleteImage() {
+  return { type: 'SP_DELETE_IMAGE_RESET' };
 }

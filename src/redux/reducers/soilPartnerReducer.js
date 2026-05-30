@@ -39,6 +39,11 @@ const init = {
   aadhaarCheckLoading: false,
   aadhaarCheckError: null,
 
+  // Delete image
+  deleteImageLoading: false,
+  deleteImageSuccess: false,
+  deleteImageError: null,
+
   // Payments
   payments: [],
   paymentsMeta: {
@@ -309,6 +314,45 @@ export default function soilPartnerReducer(state = init, action) {
         aadhaarCheck: null,
         aadhaarCheckLoading: false,
         aadhaarCheckError: null,
+      };
+
+    // ── Delete farmer image ───────────────────────────────────────────────
+    case 'SP_DELETE_IMAGE_REQUEST':
+      return {
+        ...state,
+        deleteImageLoading: true,
+        deleteImageSuccess: false,
+        deleteImageError: null,
+      };
+
+    case 'SP_DELETE_IMAGE_REQUEST_SUCCESS':
+      return {
+        ...state,
+        deleteImageLoading: false,
+        deleteImageSuccess: true,
+        deleteImageError: null,
+        farmerDetail: state.farmerDetail
+          ? { ...state.farmerDetail, farmer_image: null }
+          : state.farmerDetail,
+      };
+
+    case 'SP_DELETE_IMAGE_REQUEST_FAIL':
+      return {
+        ...state,
+        deleteImageLoading: false,
+        deleteImageSuccess: false,
+        deleteImageError:
+          action.error?.response?.data?.detail ??
+          action.error?.message ??
+          'Delete failed',
+      };
+
+    case 'SP_DELETE_IMAGE_RESET':
+      return {
+        ...state,
+        deleteImageLoading: false,
+        deleteImageSuccess: false,
+        deleteImageError: null,
       };
 
     // ── Payments ──────────────────────────────────────────────────────────

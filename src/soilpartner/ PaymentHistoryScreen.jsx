@@ -23,9 +23,7 @@ import { fetchPayments } from '../redux/actions/soilPartnerActions';
 
 const PRIMARY = '#16A34A';
 const AMBER = '#F59E0B';
-const RED = '#EF4444';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtDate(dateStr) {
   if (!dateStr) return '—';
   return new Date(dateStr).toLocaleDateString('en-IN', {
@@ -91,17 +89,17 @@ const stc = StyleSheet.create({
 });
 
 // ─── Payment card ─────────────────────────────────────────────────────────────
+// SWAPPED: paid/pending badge on LEFT, farmer name on RIGHT
 function PaymentCard({ payment, T }) {
   const isPaid = payment.status === 'paid';
   const color = isPaid ? PRIMARY : AMBER;
-
-  // API returns dynamic keys — handle both structured and additionalProp shapes
   const amount = payment.amount;
-  const farmer = payment.farmer_name ?? '—';
+  const farmer = payment.farmer_name ;
   const note = payment.description;
   const createdAt = payment.created_at;
   const paidOn = payment.paid_at;
   const attachments = payment.attachments ?? [];
+
   return (
     <View
       style={[
@@ -109,25 +107,25 @@ function PaymentCard({ payment, T }) {
         { backgroundColor: T.card, borderColor: T.border ?? T.cardBorder },
       ]}
     >
-      {/* Left accent */}
       <View style={[pc.accent, { backgroundColor: color }]} />
 
       <View style={pc.inner}>
-        {/* Top row — farmer + amount */}
         <View style={pc.topRow}>
+          {/* ── PAID/PENDING badge (was on right, now LEFT) ── */}
           <View
             style={[
-              pc.avatarWrap,
+              pc.statusWrap,
               { backgroundColor: color + '18', borderColor: color + '40' },
             ]}
           >
-            <MaterialCommunityIcons
-              name="account-outline"
-              size={18}
-              color={color}
-            />
+            <View style={[pc.statusDot, { backgroundColor: color }]} />
+            <Text style={[pc.statusTxt, { color }]}>
+              {isPaid ? 'Paid' : 'Pending'}
+            </Text>
           </View>
-          <View style={{ flex: 1 }}>
+
+          {/* ── FARMER NAME + date (was on left, now RIGHT) ── */}
+          <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={[pc.farmer, { color: T.text }]} numberOfLines={1}>
               {farmer}
             </Text>
@@ -137,38 +135,31 @@ function PaymentCard({ payment, T }) {
               </Text>
             )}
           </View>
+
+          {/* Amount stays right */}
           <View style={{ alignItems: 'flex-end', gap: 4 }}>
             <Text style={[pc.amount, { color: T.text }]}>
               {fmtAmount(amount)}
             </Text>
-            <View style={[pc.badge, { backgroundColor: color + '18' }]}>
-              <View style={[pc.badgeDot, { backgroundColor: color }]} />
-              <Text style={[pc.badgeText, { color }]}>
-                {isPaid ? 'Paid' : 'Pending'}
+            {paidOn && (
+              <Text style={[pc.paidOn, { color: PRIMARY }]}>
+                <MaterialCommunityIcons
+                  name="check-circle-outline"
+                  size={10}
+                  color={PRIMARY}
+                />{' '}
+                {fmtDate(paidOn)}
               </Text>
-            </View>
+            )}
           </View>
         </View>
 
-        {/* Bottom row — paid on + note */}
-        {paidOn || (note && note.trim()) || attachments.length > 0 ? (
+        {/* Bottom row — note + attachments */}
+        {(note && note.trim()) || attachments.length > 0 ? (
           <View
             style={[pc.bottomRow, { borderTopColor: T.border ?? T.cardBorder }]}
           >
-            {paidOn && (
-              <View style={pc.infoChip}>
-                <MaterialCommunityIcons
-                  name="check-circle-outline"
-                  size={11}
-                  color={PRIMARY}
-                />
-                <Text
-                  style={[pc.infoChipText, { color: T.muted ?? T.textSub }]}
-                >
-                  Paid on {fmtDate(paidOn)}
-                </Text>
-              </View>
-            )}
+            
             {note && note.trim() !== '' && (
               <View style={pc.infoChip}>
                 <MaterialCommunityIcons
@@ -194,7 +185,7 @@ function PaymentCard({ payment, T }) {
                 <MaterialCommunityIcons
                   name="paperclip"
                   size={11}
-                  color={'#2563EB'}
+                  color="#2563EB"
                 />
                 <Text
                   style={[
@@ -222,29 +213,25 @@ const pc = StyleSheet.create({
   },
   accent: { width: 4, position: 'absolute', top: 0, left: 0, bottom: 0 },
   inner: { marginLeft: 4, padding: Spacing.md },
-  topRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatarWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    borderWidth: 1,
+  topRow: { flexDirection: 'row', alignItems: 'center' },
+  // Status badge — LEFT
+  statusWrap: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 5,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     flexShrink: 0,
   },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusTxt: { fontSize: 11, fontWeight: '800' },
+  // Farmer — RIGHT of badge
   farmer: { fontSize: 14, fontWeight: '800', marginBottom: 2 },
   date: { fontSize: 11 },
   amount: { fontSize: 16, fontWeight: '900' },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 5,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  badgeDot: { width: 6, height: 6, borderRadius: 3 },
-  badgeText: { fontSize: 10, fontWeight: '800' },
+  paidOn: { fontSize: 10, fontWeight: '600' },
   bottomRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -329,7 +316,6 @@ export default function PaymentHistoryScreen({ navigation }) {
     paymentsMeta = {},
     paymentsLoading,
   } = useSelector(s => s.soilPartner ?? {});
-
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
 
@@ -351,17 +337,10 @@ export default function PaymentHistoryScreen({ navigation }) {
     load(key);
   };
 
-  // Client-side search on top of server-filtered list
   const filtered = payments.filter(p => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
-    const farmer = (
-      p.farmer ??
-      p.farmer_name ??
-      p.additionalProp3 ??
-      ''
-    ).toLowerCase();
-    return farmer.includes(q);
+    return (p.farmer_name ?? '').toLowerCase().includes(q);
   });
 
   const filters = [
@@ -372,10 +351,8 @@ export default function PaymentHistoryScreen({ navigation }) {
 
   const renderHeader = () => (
     <View>
-      {/* Summary strip */}
       <SummaryStrip meta={paymentsMeta} T={T} />
 
-  
       {/* Search */}
       <View
         style={[
@@ -502,7 +479,6 @@ export default function PaymentHistoryScreen({ navigation }) {
         barStyle={T.statusBar ?? 'dark-content'}
         backgroundColor={T.bg}
       />
-
       <TopBar
         title="Payment History"
         subtitle="All transactions"
@@ -544,9 +520,6 @@ export default function PaymentHistoryScreen({ navigation }) {
 const s = StyleSheet.create({
   root: { flex: 1 },
   list: { padding: Spacing.lg, paddingTop: Spacing.sm },
-
-  statsRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
-
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -558,7 +531,6 @@ const s = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   searchInput: { flex: 1, fontSize: 14 },
-
   filterRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -579,7 +551,6 @@ const s = StyleSheet.create({
   filterBadge: { borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
   filterBadgeText: { fontSize: 10, fontWeight: '800' },
   resultCount: { fontSize: 12, marginLeft: 'auto' },
-
   emptyWrap: { alignItems: 'center', paddingVertical: 48, gap: 10 },
   emptyTitle: { fontSize: 16, fontWeight: '700' },
   emptySub: { fontSize: 13, textAlign: 'center', maxWidth: 240 },

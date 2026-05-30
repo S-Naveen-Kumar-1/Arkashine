@@ -1,12 +1,4 @@
 // src/screens/soilpartner/SoilPartnerDashboardScreen.jsx
-//
-// Shown when auth.user.role === 'soil_partner' (or similar field from API).
-// Sections:
-//   1. Header — greeting + avatar initials
-//   2. Stats row — farmers count, paid amount, pending amount
-//   3. Quick actions — My Farmers, Add Farmer, My Devices, Payment History
-//   4. Recent farmers list (latest 3)
-//   5. Payments summary card
 
 import React, { useEffect, useCallback } from 'react';
 import {
@@ -39,7 +31,6 @@ function AvatarInitials({ name, size = 52, color, T }) {
     .join('')
     .toUpperCase()
     .slice(0, 2);
-
   return (
     <View
       style={[
@@ -80,7 +71,7 @@ function SectionHeader({ title, icon, color, onPress, actionLabel, T }) {
           onPress={onPress}
           activeOpacity={0.7}
         >
-          <Text style={[sh.actionText, { color: color }]}>
+          <Text style={[sh.actionText, { color }]}>
             {actionLabel ?? 'See all'}
           </Text>
           <MaterialCommunityIcons
@@ -219,6 +210,7 @@ const qa = StyleSheet.create({
 });
 
 // ─── Farmer row ───────────────────────────────────────────────────────────────
+// SWAPPED: status pill is now on the LEFT, name/info on the RIGHT
 function FarmerRow({ farmer, T, onPress }) {
   const statusColor =
     {
@@ -239,14 +231,8 @@ function FarmerRow({ farmer, T, onPress }) {
         color={statusColor}
         T={T}
       />
-      <View style={fr.info}>
-        <Text style={[fr.name, { color: T.text }]} numberOfLines={1}>
-          {farmer.farmer_name}
-        </Text>
-        <Text style={[fr.sub, { color: T.muted ?? T.textSub }]}>
-          {farmer.village}, {farmer.district} · {farmer.crop}
-        </Text>
-      </View>
+
+      {/* ── STATUS PILL (was on right, now on left after avatar) ── */}
       <View
         style={[
           fr.statusPill,
@@ -260,6 +246,16 @@ function FarmerRow({ farmer, T, onPress }) {
           {farmer.season_display ?? farmer.season}
         </Text>
       </View>
+
+      {/* ── NAME + SUB (was on left, now on right) ── */}
+      <View style={fr.info}>
+        <Text style={[fr.name, { color: T.text }]} numberOfLines={1}>
+          {farmer.farmer_name}
+        </Text>
+        <Text style={[fr.sub, { color: T.muted ?? T.textSub }]}>
+          {farmer.village}, {farmer.district} · {farmer.crop}
+        </Text>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -267,39 +263,58 @@ const fr = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     paddingVertical: 10,
     borderBottomWidth: 0.5,
   },
   info: { flex: 1 },
-  name: { fontSize: 14, fontWeight: '700', marginBottom: 2 },
-  sub: { fontSize: 11 },
+  name: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+    textAlign: 'right',
+  },
+  sub: { fontSize: 11, textAlign: 'right' },
   statusPill: {
     borderRadius: Radius.full,
     borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 3,
+    flexShrink: 0,
   },
   statusText: { fontSize: 10, fontWeight: '700' },
 });
 
 // ─── Payment row ──────────────────────────────────────────────────────────────
+// SWAPPED: paid/pending badge now LEFT side, farmer name now RIGHT side
 function PaymentRow({ payment, T }) {
   const isPaid = payment.status === 'paid';
   const color = isPaid ? '#16A34A' : '#F59E0B';
   const amount = payment.amount ?? '—';
   const date = payment.created_at;
   const paidOn = payment.paid_at;
-  const farmer = payment.farmer_name ?? '—';
+  const farmer = payment.farmer_name;
   const attachments = payment.attachments ?? [];
+
   return (
     <View style={[pr.row, { borderBottomColor: T.border ?? T.cardBorder }]}>
       <View style={[pr.dot, { backgroundColor: color }]} />
-      <View style={pr.info}>
-        <Text style={[pr.farmer, { color: T.text }]} numberOfLines={1}>
-          {farmer}
+
+      {/* ── PAID/PENDING badge (was on right, now on left) ── */}
+      <View
+        style={[
+          pr.badge,
+          { backgroundColor: color + '18', borderColor: color + '40' },
+        ]}
+      >
+        <Text style={[pr.badgeText, { color }]}>
+          {isPaid ? 'Paid' : 'Pending'}
         </Text>
-        {date ? (
+      </View>
+
+      {/* ── FARMER NAME + meta (was on left, now on right) ── */}
+      <View style={pr.info}>
+        {date && (
           <Text style={[pr.date, { color: T.muted ?? T.textSub }]}>
             {new Date(date).toLocaleDateString('en-IN', {
               day: 'numeric',
@@ -307,8 +322,8 @@ function PaymentRow({ payment, T }) {
               year: 'numeric',
             })}
           </Text>
-        ) : null}
-        {paidOn ? (
+        )}
+        {paidOn && (
           <Text style={[pr.date, { color: '#16A34A' }]}>
             Paid
             {new Date(paidOn).toLocaleDateString('en-IN', {
@@ -317,15 +332,14 @@ function PaymentRow({ payment, T }) {
               year: 'numeric',
             })}
           </Text>
-        ) : null}
+        )}
       </View>
+
       <View style={{ alignItems: 'flex-end' }}>
         <Text style={[pr.amount, { color: T.text }]}>₹{amount}</Text>
-        <View style={[pr.badge, { backgroundColor: color + '18' }]}>
-          <Text style={[pr.badgeText, { color }]}>
-            {isPaid ? 'Paid' : 'Pending'}
-          </Text>
-        </View>
+        <Text style={[pr.farmer, { color: T.textSub }]} numberOfLines={1}>
+          {farmer}
+        </Text>
         {attachments.map((url, idx) => (
           <TouchableOpacity
             key={idx}
@@ -341,7 +355,7 @@ function PaymentRow({ payment, T }) {
             <MaterialCommunityIcons
               name="paperclip"
               size={12}
-              color={'#2563EB'}
+              color="#2563EB"
             />
             <Text
               style={{
@@ -368,12 +382,18 @@ const pr = StyleSheet.create({
     borderBottomWidth: 0.5,
   },
   dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  badge: {
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    flexShrink: 0,
+  },
+  badgeText: { fontSize: 10, fontWeight: '800' },
   info: { flex: 1 },
   farmer: { fontSize: 13, fontWeight: '700', marginBottom: 2 },
   date: { fontSize: 10 },
   amount: { fontSize: 14, fontWeight: '800', marginBottom: 2 },
-  badge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-  badgeText: { fontSize: 9, fontWeight: '800' },
 });
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
@@ -384,17 +404,12 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
 
   const user = useSelector(s => s.auth?.user);
   const token = useSelector(s => s.auth?.token);
-
   const devices = useSelector(s => s.userDevices?.devices);
-  useEffect(() => {
-    const fetchDevices = async () => {
-      if (token) {
-        const res = await dispatch(getUserDevices(token));
-      }
-    };
 
-    fetchDevices();
+  useEffect(() => {
+    if (token) dispatch(getUserDevices(token));
   }, [token]);
+
   const {
     farmers,
     farmersCount,
@@ -411,26 +426,15 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
     dispatch(fetchFarmers());
     dispatch(fetchPayments());
   }, [dispatch]);
-
   useEffect(() => {
     load();
   }, [load]);
 
-  const onRefresh = () => load();
-
-  const PRIMARY = '#16A34A';
-  const BLUE = '#2563EB';
-  const AMBER = '#F59E0B';
-  const PURPLE = '#7C3AED';
-  const RED = '#EF4444';
-
+  const PRIMARY = '#16A34A',
+    BLUE = '#2563EB',
+    AMBER = '#F59E0B',
+    PURPLE = '#7C3AED';
   const displayName = user?.full_name ?? user?.username ?? 'Partner';
-  const initials = displayName
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
 
   return (
     <SafeAreaView style={[s.root, { backgroundColor: T.bg }]}>
@@ -445,13 +449,13 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
         refreshControl={
           <RefreshControl
             refreshing={farmersLoading || paymentsLoading}
-            onRefresh={onRefresh}
+            onRefresh={load}
             tintColor={PRIMARY}
             colors={[PRIMARY]}
           />
         }
       >
-        {/* ── Header ────────────────────────────────────────── */}
+        {/* Header */}
         <View
           style={[s.header, { borderBottomColor: T.border ?? T.cardBorder }]}
         >
@@ -491,7 +495,7 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ── Stats ─────────────────────────────────────────── */}
+        {/* Stats */}
         <View style={s.statsRow}>
           <StatCard
             icon="account-group-outline"
@@ -516,7 +520,7 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
           />
         </View>
 
-        {/* ── Quick actions ────────────────────────────────── */}
+        {/* Quick actions */}
         <View style={s.section}>
           <SectionHeader
             title="Quick Actions"
@@ -548,9 +552,7 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
               color={PURPLE}
               T={T}
               onPress={() =>
-                navigation.navigate('SoilPartnerTabs', {
-                  screen: 'Products',
-                })
+                navigation.navigate('SoilPartnerTabs', { screen: 'Products' })
               }
             />
             <QuickAction
@@ -564,7 +566,7 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ── Recent farmers ───────────────────────────────── */}
+        {/* Recent farmers */}
         <View
           style={[
             s.section,
@@ -638,7 +640,7 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
           )}
         </View>
 
-        {/* ── Payments summary ─────────────────────────────── */}
+        {/* Payments summary */}
         <View
           style={[
             s.section,
@@ -654,8 +656,6 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
             onPress={() => navigation.navigate('PaymentHistoryScreen')}
             actionLabel="Full history"
           />
-
-          {/* Totals strip */}
           <View
             style={[
               s.paymentTotals,
@@ -702,7 +702,6 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
               </Text>
             </View>
           </View>
-
           {paymentsLoading && safePayments.length === 0 ? (
             <ActivityIndicator
               color={AMBER}
@@ -736,8 +735,6 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
 const s = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingBottom: 20 },
-
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -761,16 +758,12 @@ const s = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   roleText: { fontSize: 10, fontWeight: '700' },
-
-  // Stats
   statsRow: {
     flexDirection: 'row',
     gap: Spacing.sm,
     paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.lg,
   },
-
-  // Section
   section: { paddingHorizontal: Spacing.lg, marginBottom: Spacing.lg },
   card: {
     borderRadius: Radius.xl,
@@ -778,11 +771,7 @@ const s = StyleSheet.create({
     padding: Spacing.md,
     ...Shadow.sm,
   },
-
-  // Quick actions grid
   qaGrid: { flexDirection: 'row', gap: Spacing.md },
-
-  // Empty state
   emptyWrap: { alignItems: 'center', paddingVertical: Spacing.xl, gap: 10 },
   emptyText: { fontSize: 13 },
   addBtn: {
@@ -795,7 +784,6 @@ const s = StyleSheet.create({
     marginTop: 4,
   },
   addBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-
   seeMoreBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -804,8 +792,6 @@ const s = StyleSheet.create({
     paddingTop: 10,
   },
   seeMoreText: { fontSize: 12, fontWeight: '700' },
-
-  // Payment totals
   paymentTotals: {
     flexDirection: 'row',
     borderRadius: Radius.md,
