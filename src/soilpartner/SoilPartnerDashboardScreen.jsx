@@ -310,7 +310,7 @@ function PaymentRow({ payment, T }) {
         ) : null}
         {paidOn ? (
           <Text style={[pr.date, { color: '#16A34A' }]}>
-            Paid{' '}
+            Paid
             {new Date(paidOn).toLocaleDateString('en-IN', {
               day: 'numeric',
               month: 'short',
@@ -612,7 +612,10 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
                   farmer={f}
                   T={T}
                   onPress={() =>
-                    navigation.navigate('FarmerDetailScreen', { farmer: f })
+                    navigation.navigate('FarmerDetailScreen', {
+                      farmerId: f.id,
+                      farmer: f,
+                    })
                   }
                 />
               ))}

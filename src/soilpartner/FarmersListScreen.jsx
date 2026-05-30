@@ -1,6 +1,6 @@
 // src/screens/soilpartner/FarmersListScreen.jsx
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -11,10 +11,11 @@ import {
   TextInput,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Spacing, Radius, Shadow } from '../theme';
 import useTheme from '../hooks/useTheme';
 import { TopBar } from '../components/common';
@@ -23,18 +24,30 @@ import { fetchFarmers } from '../redux/actions/soilPartnerActions';
 const PRIMARY = '#16A34A';
 
 const STATUS_META = {
-  registered: { label: 'Registered', color: '#2563EB', bg: '#DBEAFE' },
-  re_registered: { label: 'Re-Registered', color: '#7C3AED', bg: '#EDE9FE' },
+  registered: {
+    label: 'Registered',
+    color: '#2563EB',
+    icon: 'account-check-outline',
+  },
+  re_registered: {
+    label: 'Re-Registered',
+    color: '#7C3AED',
+    icon: 'account-reactivate-outline',
+  },
   sample_collected: {
     label: 'Sample Collected',
     color: '#0891B2',
-    bg: '#CFFAFE',
+    icon: 'test-tube',
   },
-  testing_done: { label: 'Testing Done', color: '#D97706', bg: '#FEF3C7' },
+  testing_done: {
+    label: 'Testing Done',
+    color: '#D97706',
+    icon: 'flask-check-outline',
+  },
   report_delivered: {
     label: 'Report Delivered',
     color: '#16A34A',
-    bg: '#DCFCE7',
+    icon: 'file-check-outline',
   },
 };
 
@@ -43,8 +56,53 @@ function statusMeta(status) {
     STATUS_META[status] ?? {
       label: status ?? '—',
       color: '#94A3B8',
-      bg: '#F1F5F9',
+      icon: 'help-circle-outline',
     }
+  );
+}
+
+// ─── Avatar — shows photo if available, else initials ────────────────────────
+function Avatar({ name, color, size = 48, imageUri }) {
+  const initials = (name ?? 'F')
+    .split(' ')
+    .map(w => w[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+
+  if (imageUri) {
+    return (
+      <Image
+        source={{ uri: imageUri }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          borderWidth: 2,
+          borderColor: color + '50',
+        }}
+      />
+    );
+  }
+
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: color + '20',
+        borderColor: color + '40',
+        borderWidth: 1.5,
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+      }}
+    >
+      <Text style={{ color, fontSize: size * 0.34, fontWeight: '800' }}>
+        {initials}
+      </Text>
+    </View>
   );
 }
 
@@ -52,56 +110,34 @@ function statusMeta(status) {
 function StatusBadge({ status }) {
   const m = statusMeta(status);
   return (
-    <View style={[sb.wrap, { backgroundColor: m.bg }]}>
+    <View
+      style={[
+        sb.wrap,
+        { backgroundColor: m.color + '18', borderColor: m.color + '40' },
+      ]}
+    >
+      <Icon name={m.icon} size={9} color={m.color} />
       <Text style={[sb.text, { color: m.color }]}>{m.label}</Text>
     </View>
   );
 }
 const sb = StyleSheet.create({
-  wrap: { borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 },
-  text: { fontSize: 10, fontWeight: '800' },
-});
-
-// ─── Avatar initials ──────────────────────────────────────────────────────────
-function Avatar({ name, color, size = 42 }) {
-  const initials = (name ?? 'F')
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2);
-  return (
-    <View
-      style={[
-        av.circle,
-        {
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: color + '20',
-          borderColor: color + '40',
-        },
-      ]}
-    >
-      <Text style={[av.text, { color, fontSize: size * 0.34 }]}>
-        {initials}
-      </Text>
-    </View>
-  );
-}
-const av = StyleSheet.create({
-  circle: {
+  wrap: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    flexShrink: 0,
+    gap: 4,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
-  text: { fontWeight: '800' },
+  text: { fontSize: 9, fontWeight: '800' },
 });
 
 // ─── Farmer card ──────────────────────────────────────────────────────────────
 function FarmerCard({ farmer, T, onPress }) {
   const m = statusMeta(farmer.status);
+
   return (
     <TouchableOpacity
       style={[
@@ -111,13 +147,21 @@ function FarmerCard({ farmer, T, onPress }) {
       onPress={onPress}
       activeOpacity={0.82}
     >
-      {/* Left accent */}
+      {/* Left color accent */}
       <View style={[fc.accent, { backgroundColor: m.color }]} />
 
-      <View style={fc.row}>
-        <Avatar name={farmer.farmer_name} color={m.color} />
+      <View style={fc.inner}>
+        {/* Avatar */}
+        <Avatar
+          name={farmer.farmer_name}
+          color={m.color}
+          size={52}
+          imageUri={farmer.farmer_image}
+        />
 
+        {/* Info */}
         <View style={fc.info}>
+          {/* Name + status */}
           <View style={fc.nameRow}>
             <Text style={[fc.name, { color: T.text }]} numberOfLines={1}>
               {farmer.farmer_name}
@@ -125,93 +169,74 @@ function FarmerCard({ farmer, T, onPress }) {
             <StatusBadge status={farmer.status} />
           </View>
 
+          {/* Phone + location */}
           <View style={fc.metaRow}>
-            <MaterialCommunityIcons
-              name="phone-outline"
-              size={11}
-              color={T.muted ?? T.textSub}
-            />
-            <Text style={[fc.meta, { color: T.muted ?? T.textSub }]}>
-              {farmer.phone}
+            <Icon name="phone-outline" size={11} color={T.muted} />
+            <Text style={[fc.meta, { color: T.muted }]}>
+              {farmer.phone ?? '—'}
+            </Text>
+            <Text style={[fc.metaDivider, { color: T.muted }]}>·</Text>
+            <Icon name="map-marker-outline" size={11} color={T.muted} />
+            <Text style={[fc.meta, { color: T.muted }]} numberOfLines={1}>
+              {[farmer.village, farmer.district].filter(Boolean).join(', ')}
             </Text>
           </View>
 
-          <View style={fc.metaRow}>
-            <MaterialCommunityIcons
-              name="map-marker-outline"
-              size={11}
-              color={T.muted ?? T.textSub}
-            />
-            <Text
-              style={[fc.meta, { color: T.muted ?? T.textSub }]}
-              numberOfLines={1}
-            >
-              {farmer.village}, {farmer.district}, {farmer.state}
-            </Text>
-          </View>
-
+          {/* Chips */}
           <View style={fc.chipRow}>
-            <View
-              style={[
-                fc.chip,
-                {
-                  backgroundColor: T.bg,
-                  borderColor: T.border ?? T.cardBorder,
-                },
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="sprout-outline"
-                size={10}
-                color={PRIMARY}
-              />
-              <Text style={[fc.chipText, { color: PRIMARY }]}>
-                {farmer.crop}
-              </Text>
-            </View>
-            <View
-              style={[
-                fc.chip,
-                {
-                  backgroundColor: T.bg,
-                  borderColor: T.border ?? T.cardBorder,
-                },
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="calendar-outline"
-                size={10}
-                color={T.muted ?? T.textSub}
-              />
-              <Text style={[fc.chipText, { color: T.muted ?? T.textSub }]}>
-                {farmer.season_display ?? farmer.season}
-              </Text>
-            </View>
-            <View
-              style={[
-                fc.chip,
-                {
-                  backgroundColor: T.bg,
-                  borderColor: T.border ?? T.cardBorder,
-                },
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="map-outline"
-                size={10}
-                color={T.muted ?? T.textSub}
-              />
-              <Text style={[fc.chipText, { color: T.muted ?? T.textSub }]}>
-                {farmer.land_area} acres
-              </Text>
-            </View>
+            {farmer.crop ? (
+              <View
+                style={[
+                  fc.chip,
+                  {
+                    backgroundColor: PRIMARY + '10',
+                    borderColor: PRIMARY + '30',
+                  },
+                ]}
+              >
+                <Icon name="sprout-outline" size={9} color={PRIMARY} />
+                <Text style={[fc.chipTxt, { color: PRIMARY }]}>
+                  {farmer.crop}
+                </Text>
+              </View>
+            ) : null}
+            {farmer.season_display ?? farmer.season ? (
+              <View
+                style={[
+                  fc.chip,
+                  {
+                    backgroundColor: T.bg,
+                    borderColor: T.border ?? T.cardBorder,
+                  },
+                ]}
+              >
+                <Icon name="calendar-outline" size={9} color={T.muted} />
+                <Text style={[fc.chipTxt, { color: T.muted }]}>
+                  {farmer.season_display ?? farmer.season}
+                </Text>
+              </View>
+            ) : null}
+            {farmer.land_area ? (
+              <View
+                style={[
+                  fc.chip,
+                  { backgroundColor: '#F59E0B10', borderColor: '#F59E0B30' },
+                ]}
+              >
+                <Icon name="map-outline" size={9} color="#F59E0B" />
+                <Text style={[fc.chipTxt, { color: '#F59E0B' }]}>
+                  {farmer.land_area} ac
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
-        <MaterialCommunityIcons
+        <Icon
           name="chevron-right"
-          size={18}
-          color={T.muted ?? T.textSub}
+          size={16}
+          color={T.muted}
+          style={{ flexShrink: 0 }}
         />
       </View>
     </TouchableOpacity>
@@ -226,13 +251,13 @@ const fc = StyleSheet.create({
     ...Shadow.sm,
   },
   accent: { height: 3 },
-  row: {
+  inner: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: Spacing.md,
     gap: 12,
   },
-  info: { flex: 1, gap: 4 },
+  info: { flex: 1, gap: 5 },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -242,7 +267,8 @@ const fc = StyleSheet.create({
   name: { fontSize: 15, fontWeight: '800', flex: 1 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   meta: { fontSize: 11 },
-  chipRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginTop: 2 },
+  metaDivider: { fontSize: 11, marginHorizontal: 2 },
+  chipRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -252,23 +278,23 @@ const fc = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
-  chipText: { fontSize: 10, fontWeight: '600' },
+  chipTxt: { fontSize: 9, fontWeight: '600' },
 });
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 function EmptyState({ filtered, T, onAdd }) {
   return (
     <View style={es.wrap}>
-      <MaterialCommunityIcons
-        name={filtered ? 'magnify-close' : 'account-off-outline'}
-        size={52}
-        color={T.muted ?? T.textSub}
+      <Icon
+        name={filtered ? 'magnify-close' : 'account-group-outline'}
+        size={56}
+        color={T.muted}
         style={{ opacity: 0.3 }}
       />
       <Text style={[es.title, { color: T.text }]}>
         {filtered ? 'No matching farmers' : 'No farmers yet'}
       </Text>
-      <Text style={[es.sub, { color: T.muted ?? T.textSub }]}>
+      <Text style={[es.sub, { color: T.muted }]}>
         {filtered
           ? 'Try adjusting your search or filter'
           : 'Register your first farmer to get started'}
@@ -278,17 +304,17 @@ function EmptyState({ filtered, T, onAdd }) {
           style={[es.btn, { backgroundColor: PRIMARY }]}
           onPress={onAdd}
         >
-          <MaterialCommunityIcons name="account-plus" size={16} color="#fff" />
-          <Text style={es.btnText}>Add Farmer</Text>
+          <Icon name="account-plus-outline" size={16} color="#fff" />
+          <Text style={es.btnTxt}>Add Farmer</Text>
         </TouchableOpacity>
       )}
     </View>
   );
 }
 const es = StyleSheet.create({
-  wrap: { alignItems: 'center', paddingVertical: 48, gap: 12 },
+  wrap: { alignItems: 'center', paddingVertical: 52, gap: 10 },
   title: { fontSize: 16, fontWeight: '700' },
-  sub: { fontSize: 13, textAlign: 'center', maxWidth: 240 },
+  sub: { fontSize: 13, textAlign: 'center', maxWidth: 240, lineHeight: 18 },
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -298,8 +324,18 @@ const es = StyleSheet.create({
     paddingVertical: 10,
     marginTop: 4,
   },
-  btnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  btnTxt: { color: '#fff', fontSize: 13, fontWeight: '700' },
 });
+
+// ─── Status filter pills ──────────────────────────────────────────────────────
+const STATUS_FILTERS = [
+  { key: 'all', label: 'All', color: PRIMARY },
+  { key: 'registered', label: 'Registered', color: '#2563EB' },
+  { key: 're_registered', label: 'Re-Reg', color: '#7C3AED' },
+  { key: 'sample_collected', label: 'Sampled', color: '#0891B2' },
+  { key: 'testing_done', label: 'Tested', color: '#D97706' },
+  { key: 'report_delivered', label: 'Delivered', color: '#16A34A' },
+];
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 export default function FarmersListScreen({ navigation }) {
@@ -321,106 +357,145 @@ export default function FarmersListScreen({ navigation }) {
   }, [dispatch]);
 
   const filtered = farmers.filter(f => {
+    const q = search.trim().toLowerCase();
     const matchSearch =
-      !search.trim() ||
-      f.farmer_name?.toLowerCase().includes(search.toLowerCase()) ||
-      f.phone?.includes(search) ||
-      f.village?.toLowerCase().includes(search.toLowerCase()) ||
-      f.district?.toLowerCase().includes(search.toLowerCase()) ||
-      f.crop?.toLowerCase().includes(search.toLowerCase());
-
+      !q ||
+      f.farmer_name?.toLowerCase().includes(q) ||
+      f.phone?.includes(q) ||
+      f.village?.toLowerCase().includes(q) ||
+      f.district?.toLowerCase().includes(q) ||
+      f.crop?.toLowerCase().includes(q);
     const matchStatus = activeStatus === 'all' || f.status === activeStatus;
     return matchSearch && matchStatus;
   });
 
-  const statusFilters = [
-    { key: 'all', label: 'All' },
-    { key: 'registered', label: 'Registered' },
-    { key: 're_registered', label: 'Re-Reg' },
-    { key: 'sample_collected', label: 'Sampled' },
-    { key: 'testing_done', label: 'Tested' },
-    { key: 'report_delivered', label: 'Delivered' },
-  ];
+  // Summary counts per status
+  const counts = farmers.reduce((acc, f) => {
+    acc[f.status] = (acc[f.status] ?? 0) + 1;
+    return acc;
+  }, {});
 
   const renderHeader = () => (
     <View>
+      {/* Summary strip */}
+      {farmers.length > 0 && (
+        <View
+          style={[
+            s.summaryStrip,
+            { backgroundColor: T.card, borderColor: T.border ?? T.cardBorder },
+          ]}
+        >
+          {Object.entries(STATUS_META).map(([key, meta]) =>
+            counts[key] ? (
+              <View key={key} style={s.summaryItem}>
+                <Text style={[s.summaryNum, { color: meta.color }]}>
+                  {counts[key]}
+                </Text>
+                <Text
+                  style={[s.summaryLbl, { color: T.muted }]}
+                  numberOfLines={1}
+                >
+                  {meta.label.split(' ')[0]}
+                </Text>
+              </View>
+            ) : null,
+          )}
+        </View>
+      )}
+
       {/* Search bar */}
       <View
         style={[
           s.searchBar,
           {
             backgroundColor: T.inputBg ?? T.card,
-            borderColor: T.cardBorder ?? T.border,
+            borderColor: T.cardBorder ?? T.border ?? '#E2E8F0',
           },
         ]}
       >
-        <MaterialCommunityIcons
-          name="magnify"
-          size={20}
-          color={T.muted ?? T.textSub}
-        />
+        <Icon name="magnify" size={20} color={T.muted} />
         <TextInput
           style={[s.searchInput, { color: T.text }]}
-          placeholder="Search by name, phone, village, crop…"
-          placeholderTextColor={T.muted ?? T.textSub}
+          placeholder="Search name, phone, village, crop…"
+          placeholderTextColor={T.muted}
           value={search}
           onChangeText={setSearch}
           returnKeyType="search"
-          clearButtonMode="while-editing"
         />
         {search.length > 0 && (
           <TouchableOpacity
             onPress={() => setSearch('')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <MaterialCommunityIcons
-              name="close-circle"
-              size={16}
-              color={T.muted ?? T.textSub}
-            />
+            <Icon name="close-circle" size={16} color={T.muted} />
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Status filter pills */}
+      {/* Status filter pills — horizontal scroll */}
       <View style={s.filterRow}>
-        {statusFilters.map(f => {
+        {STATUS_FILTERS.map(f => {
           const active = activeStatus === f.key;
-          const m = f.key === 'all' ? { color: PRIMARY } : statusMeta(f.key);
+          const cnt = f.key === 'all' ? farmers.length : counts[f.key] ?? 0;
           return (
             <TouchableOpacity
               key={f.key}
               style={[
                 s.filterPill,
                 {
-                  backgroundColor: active ? m.color : T.card,
-                  borderColor: active ? m.color : T.border ?? T.cardBorder,
+                  backgroundColor: active ? f.color : T.card,
+                  borderColor: active
+                    ? f.color
+                    : T.border ?? T.cardBorder ?? '#E2E8F0',
                 },
               ]}
               onPress={() => setActiveStatus(f.key)}
             >
-              <Text style={[s.filterText, { color: active ? '#fff' : T.text }]}>
+              <Text style={[s.filterTxt, { color: active ? '#fff' : T.text }]}>
                 {f.label}
               </Text>
+              {cnt > 0 && (
+                <View
+                  style={[
+                    s.filterCount,
+                    {
+                      backgroundColor: active
+                        ? 'rgba(255,255,255,0.25)'
+                        : f.color + '20',
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      s.filterCountTxt,
+                      { color: active ? '#fff' : f.color },
+                    ]}
+                  >
+                    {cnt}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
       </View>
 
-      {/* Count */}
+      {/* Result count + add button */}
       <View style={s.countRow}>
-        <Text style={[s.countText, { color: T.muted ?? T.textSub }]}>
-          {filtered.length} of {farmersCount} farmers
+        <Text style={[s.countTxt, { color: T.muted }]}>
+          {filtered.length === farmersCount
+            ? `${farmersCount} farmers`
+            : `${filtered.length} of ${farmersCount}`}
         </Text>
         <TouchableOpacity
           style={[
-            s.addSmallBtn,
+            s.addBtn,
             { backgroundColor: PRIMARY + '15', borderColor: PRIMARY + '40' },
           ]}
           onPress={() => navigation.navigate('AddFarmerScreen')}
         >
-          <MaterialCommunityIcons name="plus" size={14} color={PRIMARY} />
-          <Text style={[s.addSmallText, { color: PRIMARY }]}>Add</Text>
+          <Icon name="plus" size={14} color={PRIMARY} />
+          <Text style={[s.addBtnTxt, { color: PRIMARY }]}>Add Farmer</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -447,14 +522,14 @@ export default function FarmersListScreen({ navigation }) {
 
       <FlatList
         data={filtered}
-        keyExtractor={item => item.id.toString()}
+        keyExtractor={item => String(item.id)}
         contentContainerStyle={s.list}
         ListHeaderComponent={renderHeader}
         ListEmptyComponent={
           farmersLoading ? (
             <ActivityIndicator
               color={PRIMARY}
-              style={{ paddingVertical: 32 }}
+              style={{ paddingVertical: 40 }}
             />
           ) : (
             <EmptyState
@@ -494,6 +569,26 @@ const s = StyleSheet.create({
   root: { flex: 1 },
   list: { padding: Spacing.lg, paddingTop: Spacing.sm },
 
+  // Summary strip
+  summaryStrip: {
+    flexDirection: 'row',
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    justifyContent: 'space-around',
+    ...Shadow.sm,
+  },
+  summaryItem: { alignItems: 'center', gap: 2 },
+  summaryNum: { fontSize: 20, fontWeight: '900' },
+  summaryLbl: {
+    fontSize: 9,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+
+  // Search
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -506,6 +601,7 @@ const s = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 14 },
 
+  // Filter pills
   filterRow: {
     flexDirection: 'row',
     gap: 8,
@@ -513,21 +609,27 @@ const s = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   filterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     borderRadius: Radius.full,
     borderWidth: 1,
-    paddingHorizontal: 12,
+    paddingHorizontal: 11,
     paddingVertical: 6,
   },
-  filterText: { fontSize: 11, fontWeight: '700' },
+  filterTxt: { fontSize: 11, fontWeight: '700' },
+  filterCount: { borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1 },
+  filterCountTxt: { fontSize: 9, fontWeight: '800' },
 
+  // Count row
   countRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: Spacing.md,
   },
-  countText: { fontSize: 12 },
-  addSmallBtn: {
+  countTxt: { fontSize: 12 },
+  addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -536,5 +638,5 @@ const s = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  addSmallText: { fontSize: 12, fontWeight: '700' },
+  addBtnTxt: { fontSize: 12, fontWeight: '700' },
 });

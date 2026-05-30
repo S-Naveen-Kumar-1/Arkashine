@@ -19,6 +19,26 @@ const init = {
   addFarmerError: null,
   addFarmerSuccess: false,
 
+  // Update status
+  updateStatusLoading: false,
+  updateStatusSuccess: false,
+  updateStatusError: null,
+
+  // Upload image
+  uploadImageLoading: false,
+  uploadImageSuccess: false,
+  uploadImageError: null,
+
+  // Update farmer details
+  updateFarmerLoading: false,
+  updateFarmerSuccess: false,
+  updateFarmerError: null,
+
+  // Aadhaar check
+  aadhaarCheck: null,
+  aadhaarCheckLoading: false,
+  aadhaarCheckError: null,
+
   // Payments
   payments: [],
   paymentsMeta: {
@@ -68,7 +88,7 @@ export default function soilPartnerReducer(state = init, action) {
         ...state,
         farmerDetailLoading: true,
         farmerDetailError: null,
-        farmerDetail: null,
+        // Keep existing farmerDetail so UI doesn't flash during refresh
       };
 
     case 'SP_FETCH_FARMER_DETAIL_REQUEST_SUCCESS': {
@@ -125,6 +145,172 @@ export default function soilPartnerReducer(state = init, action) {
         addFarmerSuccess: false,
       };
 
+    // ── Update farmer status ──────────────────────────────────────────────
+    case 'SP_UPDATE_STATUS_REQUEST':
+      return {
+        ...state,
+        updateStatusLoading: true,
+        updateStatusSuccess: false,
+        updateStatusError: null,
+      };
+
+    case 'SP_UPDATE_STATUS_REQUEST_SUCCESS': {
+      const d = action.payload?.data ?? action.payload;
+      // Optimistically update farmerDetail.status so UI reflects immediately
+      return {
+        ...state,
+        updateStatusLoading: false,
+        updateStatusSuccess: true,
+        updateStatusError: null,
+        farmerDetail: state.farmerDetail
+          ? {
+              ...state.farmerDetail,
+              status: d?.status ?? state.farmerDetail.status,
+            }
+          : state.farmerDetail,
+      };
+    }
+
+    case 'SP_UPDATE_STATUS_REQUEST_FAIL':
+      return {
+        ...state,
+        updateStatusLoading: false,
+        updateStatusSuccess: false,
+        updateStatusError:
+          action.error?.response?.data?.detail ??
+          action.error?.response?.data ??
+          action.error?.message ??
+          'Status update failed',
+      };
+
+    case 'SP_UPDATE_STATUS_RESET':
+      return {
+        ...state,
+        updateStatusLoading: false,
+        updateStatusSuccess: false,
+        updateStatusError: null,
+      };
+
+    // ── Upload farmer image ───────────────────────────────────────────────
+    case 'SP_UPLOAD_IMAGE_REQUEST':
+      return {
+        ...state,
+        uploadImageLoading: true,
+        uploadImageSuccess: false,
+        uploadImageError: null,
+      };
+
+    case 'SP_UPLOAD_IMAGE_REQUEST_SUCCESS': {
+      const d = action.payload?.data ?? action.payload;
+      return {
+        ...state,
+        uploadImageLoading: false,
+        uploadImageSuccess: true,
+        uploadImageError: null,
+        farmerDetail: state.farmerDetail
+          ? {
+              ...state.farmerDetail,
+              farmer_image: d?.farmer_image ?? state.farmerDetail.farmer_image,
+            }
+          : state.farmerDetail,
+      };
+    }
+
+    case 'SP_UPLOAD_IMAGE_REQUEST_FAIL':
+      return {
+        ...state,
+        uploadImageLoading: false,
+        uploadImageSuccess: false,
+        uploadImageError:
+          action.error?.response?.data?.detail ??
+          action.error?.message ??
+          'Image upload failed',
+      };
+
+    case 'SP_UPLOAD_IMAGE_RESET':
+      return {
+        ...state,
+        uploadImageLoading: false,
+        uploadImageSuccess: false,
+        uploadImageError: null,
+      };
+
+    // ── Update farmer details ─────────────────────────────────────────────
+    case 'SP_UPDATE_FARMER_REQUEST':
+      return {
+        ...state,
+        updateFarmerLoading: true,
+        updateFarmerSuccess: false,
+        updateFarmerError: null,
+      };
+
+    case 'SP_UPDATE_FARMER_REQUEST_SUCCESS': {
+      const d = action.payload?.data ?? action.payload;
+      return {
+        ...state,
+        updateFarmerLoading: false,
+        updateFarmerSuccess: true,
+        updateFarmerError: null,
+        farmerDetail: d ?? state.farmerDetail,
+        // Also update in the list if present
+        farmers: state.farmers.map(f => (f.id === d?.id ? { ...f, ...d } : f)),
+      };
+    }
+
+    case 'SP_UPDATE_FARMER_REQUEST_FAIL':
+      return {
+        ...state,
+        updateFarmerLoading: false,
+        updateFarmerSuccess: false,
+        updateFarmerError:
+          action.error?.response?.data ??
+          action.error?.message ??
+          'Update failed',
+      };
+
+    case 'SP_UPDATE_FARMER_RESET':
+      return {
+        ...state,
+        updateFarmerLoading: false,
+        updateFarmerSuccess: false,
+        updateFarmerError: null,
+      };
+
+    // ── Aadhaar check ─────────────────────────────────────────────────────
+    case 'SP_CHECK_AADHAAR_REQUEST':
+      return {
+        ...state,
+        aadhaarCheckLoading: true,
+        aadhaarCheck: null,
+        aadhaarCheckError: null,
+      };
+
+    case 'SP_CHECK_AADHAAR_REQUEST_SUCCESS': {
+      const d = action.payload?.data ?? action.payload;
+      return {
+        ...state,
+        aadhaarCheckLoading: false,
+        aadhaarCheck: d,
+        aadhaarCheckError: null,
+      };
+    }
+
+    case 'SP_CHECK_AADHAAR_REQUEST_FAIL':
+      return {
+        ...state,
+        aadhaarCheckLoading: false,
+        aadhaarCheck: null,
+        aadhaarCheckError: action.error?.message ?? 'Check failed',
+      };
+
+    case 'SP_CHECK_AADHAAR_RESET':
+      return {
+        ...state,
+        aadhaarCheck: null,
+        aadhaarCheckLoading: false,
+        aadhaarCheckError: null,
+      };
+
     // ── Payments ──────────────────────────────────────────────────────────
     case 'SP_FETCH_PAYMENTS_REQUEST':
       return { ...state, paymentsLoading: true, paymentsError: null };
@@ -156,14 +342,14 @@ export default function soilPartnerReducer(state = init, action) {
           'Failed to load payments',
       };
 
+    // ── Soil Partner Enquiry ──────────────────────────────────────────────
     case 'SP_ENQUIRY_REQUEST':
       return { ...state, status: 'loading', error: null };
 
-    case `SP_ENQUIRY_REQUEST_SUCCESS`:
+    case 'SP_ENQUIRY_REQUEST_SUCCESS':
       return { ...state, status: 'success', error: null };
 
-    case `${SP_ENQUIRY_REQUEST}_FAIL`: {
-      // API returns HTTP 409 for duplicate submissions
+    case 'SP_ENQUIRY_REQUEST_FAIL': {
       const is409 =
         action.error?.response?.status === 409 ||
         action.payload?.status === 409;
@@ -174,10 +360,7 @@ export default function soilPartnerReducer(state = init, action) {
       };
     }
 
-    case `SP_ENQUIRY_RESET`:
-      return { ...init };
-
-    case 'LOGOUT_REQUEST':
+    case 'SP_ENQUIRY_RESET':
       return { ...init };
 
     default:

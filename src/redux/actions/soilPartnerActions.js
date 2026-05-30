@@ -1,4 +1,5 @@
 // src/redux/actions/soilPartnerActions.js
+
 export const SP_ENQUIRY_REQUEST = 'SP_ENQUIRY_REQUEST';
 export const SP_ENQUIRY_SUCCESS = 'SP_ENQUIRY_SUCCESS';
 export const SP_ENQUIRY_FAIL = 'SP_ENQUIRY_FAIL';
@@ -9,54 +10,36 @@ export function fetchFarmers() {
   return {
     type: 'SP_FETCH_FARMERS_REQUEST',
     payload: {
-      request: {
-        url: '/api/mobile/farmers/',
-        method: 'GET',
-      },
+      request: { url: '/api/mobile/farmers/', method: 'GET' },
     },
   };
 }
 
 // ─── 2. Fetch single farmer detail ───────────────────────────────────────────
-// GET /api/mobile/farmers/{id}/
 export function fetchFarmerDetail(farmerId) {
+  console.log('Action: fetchFarmerDetail, farmerId:', farmerId);
   return {
     type: 'SP_FETCH_FARMER_DETAIL_REQUEST',
     payload: {
-      request: {
-        url: `/api/mobile/farmers/${farmerId}/`,
-        method: 'GET',
-      },
+      request: { url: `/api/mobile/farmers/${farmerId}/`, method: 'GET' },
     },
   };
 }
 
-// ─── 3. Add / register a farmer ───────────────────────────────────────────────
+// ─── 3. Add / register a farmer ──────────────────────────────────────────────
 export function addFarmer(farmerData) {
-  if (farmerData.farmer_image) {
-    const form = new FormData();
-    Object.entries(farmerData).forEach(([key, val]) => {
-      if (val != null) form.append(key, val);
-    });
-    return {
-      type: 'SP_ADD_FARMER_REQUEST',
-      payload: {
-        request: {
-          url: '/api/mobile/farmers/create/',
-          method: 'POST',
-          data: form,
-          headers: { 'Content-Type': 'multipart/form-data' },
-        },
-      },
-    };
-  }
+  const form = new FormData();
+  Object.entries(farmerData).forEach(([key, val]) => {
+    if (val != null && val !== '') form.append(key, val);
+  });
   return {
     type: 'SP_ADD_FARMER_REQUEST',
     payload: {
       request: {
         url: '/api/mobile/farmers/create/',
         method: 'POST',
-        data: farmerData,
+        data: form,
+        headers: { 'Content-Type': 'multipart/form-data' },
       },
     },
   };
@@ -67,7 +50,98 @@ export function resetAddFarmer() {
   return { type: 'SP_ADD_FARMER_RESET' };
 }
 
-// ─── 5. Fetch payment history ─────────────────────────────────────────────────
+// ─── 5. Update farmer status ──────────────────────────────────────────────────
+// POST /api/mobile/farmers/{id}/status/
+// body: { status: 'registered' | 're_registered' | 'sample_collected' | 'testing_done' | 'report_delivered' }
+export function updateFarmerStatus(farmerId, status) {
+  return {
+    type: 'SP_UPDATE_STATUS_REQUEST',
+    payload: {
+      request: {
+        url: `/api/mobile/farmers/${farmerId}/status/`,
+        method: 'POST',
+        data: { status },
+      },
+    },
+  };
+}
+
+export function resetUpdateStatus() {
+  return { type: 'SP_UPDATE_STATUS_RESET' };
+}
+
+// ─── 6. Upload / replace farmer image ────────────────────────────────────────
+// POST /api/mobile/farmers/{id}/image/
+// multipart/form-data, field: farmer_image
+export function uploadFarmerImage(farmerId, imageFile) {
+  const form = new FormData();
+  form.append('farmer_image', {
+    uri: imageFile.uri,
+    type: imageFile.type ?? 'image/jpeg',
+    name: imageFile.fileName ?? `farmer_${farmerId}.jpg`,
+  });
+  return {
+    type: 'SP_UPLOAD_IMAGE_REQUEST',
+    payload: {
+      request: {
+        url: `/api/mobile/farmers/${farmerId}/image/`,
+        method: 'POST',
+        data: form,
+        headers: { 'Content-Type': 'multipart/form-data' },
+      },
+    },
+  };
+}
+
+export function resetUploadImage() {
+  return { type: 'SP_UPLOAD_IMAGE_RESET' };
+}
+
+// ─── 7. Update farmer details (PATCH) ────────────────────────────────────────
+// PATCH /api/mobile/farmers/{id}/update/
+// All fields optional; send only changed fields
+export function updateFarmerDetails(farmerId, changes) {
+  const form = new FormData();
+  Object.entries(changes).forEach(([key, val]) => {
+    if (val != null && val !== '') form.append(key, val);
+  });
+  return {
+    type: 'SP_UPDATE_FARMER_REQUEST',
+    payload: {
+      request: {
+        url: `/api/mobile/farmers/${farmerId}/update/`,
+        method: 'PATCH',
+        data: form,
+        headers: { 'Content-Type': 'multipart/form-data' },
+      },
+    },
+  };
+}
+
+export function resetUpdateFarmer() {
+  return { type: 'SP_UPDATE_FARMER_RESET' };
+}
+
+// ─── 8. Check if Aadhaar already registered ──────────────────────────────────
+// GET /api/mobile/farmers/check-aadhaar/?aadhaar=XXXXXXXXXXXX
+export function checkAadhaar(aadhaar) {
+  return {
+    type: 'SP_CHECK_AADHAAR_REQUEST',
+    payload: {
+      request: {
+        url: '/api/mobile/farmers/check-aadhaar/',
+        method: 'GET',
+        params: { aadhaar },
+      },
+    },
+  };
+}
+
+export function resetCheckAadhaar() {
+  return { type: 'SP_CHECK_AADHAAR_RESET' };
+}
+
+// ─── 9. Fetch payment history ─────────────────────────────────────────────────
 export function fetchPayments(filters = {}) {
   const params = {};
   if (filters.status) params.status = filters.status;
@@ -75,7 +149,6 @@ export function fetchPayments(filters = {}) {
   if (filters.date_to) params.date_to = filters.date_to;
   if (filters.paid_from) params.paid_from = filters.paid_from;
   if (filters.paid_to) params.paid_to = filters.paid_to;
-
   return {
     type: 'SP_FETCH_PAYMENTS_REQUEST',
     payload: {
@@ -88,6 +161,7 @@ export function fetchPayments(filters = {}) {
   };
 }
 
+// ─── 10. Soil Partner enquiry ─────────────────────────────────────────────────
 export function submitSoilPartnerEnquiry(data) {
   return {
     type: SP_ENQUIRY_REQUEST,
@@ -101,7 +175,6 @@ export function submitSoilPartnerEnquiry(data) {
   };
 }
 
-// Reset form state (call after modal closes)
 export function resetSoilPartnerEnquiry() {
   return { type: SP_ENQUIRY_RESET };
 }

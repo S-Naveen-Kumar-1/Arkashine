@@ -1,8 +1,4 @@
 // src/screens/reports/SoilLifeDetailScreen.jsx
-//
-// Detail screen for SoilLIFE device (gas + environmental sensors)
-// Tabs: Overview | All Fields
-// Data: labeled_fields from API (CO₂, Methane, Ammonia, Nitrous Oxide, Temp, Humidity, etc.)
 
 import React, { useEffect, useState, useMemo } from 'react';
 import {
@@ -13,19 +9,19 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import Svg, { Path, Text as SvgText, G, Rect, Circle } from 'react-native-svg';
+import Svg, { Path, Text as SvgText, G } from 'react-native-svg';
 import { Radius, Spacing, Shadow } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import {
   fetchReadingDetail,
   clearSelectedReading,
-  fetchDeviceFieldSchema,
 } from '../redux/actions/reportsActions';
 import {
   SectionCard,
@@ -35,9 +31,10 @@ import {
   SCREEN_W,
 } from './readingDetailHelpers';
 
-const DEVICE_COLOR = '#D97706'; // amber for SoilLIFE
+const { width: SW } = Dimensions.get('window');
+const DEVICE_COLOR = '#D97706';
 
-// ─── Gas field metadata — icon, unit, ranges, color ─────────────────────────
+// ─── Field metadata ───────────────────────────────────────────────────────────
 const GAS_META = {
   'CO₂ (ppm)': {
     icon: 'molecule-co2',
@@ -123,224 +120,288 @@ function gasLevel(meta, value) {
   return { label: 'Normal', color: '#16A34A', bg: '#16A34A20' };
 }
 
-const TABS = ['Overview', 'All Fields'];
+const TABS = ['Overview', 'Chart', 'All Fields'];
 
-// ─── DonutPie — single-value fill donut ──────────────────────────────────────
-function GasDonut({ value, max, color, size = 72 }) {
+// ─── Mini donut (used in table rows) ─────────────────────────────────────────
+function MiniDonut({ value, max, color, size = 36 }) {
   const pct = value > 0 ? Math.min(value / max, 1) : 0;
   const cx = size / 2,
-    cy = size / 2,
-    R = size / 2 - 5,
-    ri = size / 2 - 17;
+    cy = size / 2;
+  const R = size / 2 - 3,
+    ri = size / 2 - 10;
 
-  function arcPath(startAng, sweep) {
+  function arc(startAng, sweep) {
+    const clamp = Math.min(sweep, 2 * Math.PI - 0.001);
     const x1 = cx + R * Math.cos(startAng),
       y1 = cy + R * Math.sin(startAng);
-    const x2 = cx + R * Math.cos(startAng + sweep),
-      y2 = cy + R * Math.sin(startAng + sweep);
+    const x2 = cx + R * Math.cos(startAng + clamp),
+      y2 = cy + R * Math.sin(startAng + clamp);
     const xi1 = cx + ri * Math.cos(startAng),
       yi1 = cy + ri * Math.sin(startAng);
-    const xi2 = cx + ri * Math.cos(startAng + sweep),
-      yi2 = cy + ri * Math.sin(startAng + sweep);
-    const lg = sweep > Math.PI ? 1 : 0;
+    const xi2 = cx + ri * Math.cos(startAng + clamp),
+      yi2 = cy + ri * Math.sin(startAng + clamp);
+    const lg = clamp > Math.PI ? 1 : 0;
     return `M${x1},${y1} A${R},${R},0,${lg},1,${x2},${y2} L${xi2},${yi2} A${ri},${ri},0,${lg},0,${xi1},${yi1} Z`;
   }
 
-  const bg = arcPath(0, 2 * Math.PI - 0.001);
-  const fill = pct > 0.005 ? arcPath(-Math.PI / 2, pct * 2 * Math.PI) : null;
+  const bgPath = arc(0, 2 * Math.PI - 0.001);
+  const fillPath = pct > 0.01 ? arc(-Math.PI / 2, pct * 2 * Math.PI) : null;
 
   return (
     <Svg width={size} height={size}>
-      <Path d={bg} fill="#E2E8F020" />
-      {fill && <Path d={fill} fill={color} />}
-      <SvgText
-        x={cx}
-        y={cy + 4}
-        textAnchor="middle"
-        fontSize={10}
-        fontWeight="800"
-        fill={color}
-      >
-        {value > 0 ? `${Math.round(pct * 100)}%` : '—'}
-      </SvgText>
+      <Path d={bgPath} fill="#E2E8F025" />
+      {fillPath && <Path d={fillPath} fill={color} />}
     </Svg>
   );
 }
 
-// ─── GasCard — individual sensor card ────────────────────────────────────────
-function GasCard({ label, value, meta, T }) {
-  const lvl = gasLevel(meta, value);
-  const hasData = value != null && value > 0;
-  const valStr = hasData ? Number(value).toFixed(value < 10 ? 1 : 0) : '—';
+// ─── Full combined pie chart (matches web screenshot) ────────────────────────
+function CombinedPieChart({ fields, T }) {
+  const data = fields.filter(f => (f.value ?? 0) > 0);
+  const total = data.reduce((s, d) => s + (d.value ?? 0), 0);
+
+  const SIZE = SW - Spacing.lg * 2;
+  const cx = SIZE / 2,
+    cy = SIZE * 0.45;
+  const R = SIZE * 0.35,
+    ri = SIZE * 0.16;
+
+  function arcPath(startAng, sweep) {
+    const clamp = Math.min(sweep, 2 * Math.PI - 0.001);
+    const x1 = cx + R * Math.cos(startAng),
+      y1 = cy + R * Math.sin(startAng);
+    const x2 = cx + R * Math.cos(startAng + clamp),
+      y2 = cy + R * Math.sin(startAng + clamp);
+    const xi1 = cx + ri * Math.cos(startAng),
+      yi1 = cy + ri * Math.sin(startAng);
+    const xi2 = cx + ri * Math.cos(startAng + clamp),
+      yi2 = cy + ri * Math.sin(startAng + clamp);
+    const lg = clamp > Math.PI ? 1 : 0;
+    return `M${x1},${y1} A${R},${R},0,${lg},1,${x2},${y2} L${xi2},${yi2} A${ri},${ri},0,${lg},0,${xi1},${yi1} Z`;
+  }
+
+  let ang = -Math.PI / 2;
+  const slices = data.map(d => {
+    const sweep = total > 0 ? (d.value / total) * 2 * Math.PI : 0;
+    const path = sweep > 0.005 ? arcPath(ang, sweep) : null;
+    ang += sweep;
+    return {
+      ...d,
+      path,
+      pct: total > 0 ? ((d.value / total) * 100).toFixed(1) : '0',
+    };
+  });
+
+  const svgH = cy * 2 + 20;
+
+  if (data.length === 0) {
+    return (
+      <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+        <Icon
+          name="chart-pie-outline"
+          size={48}
+          color={T.muted}
+          style={{ opacity: 0.3 }}
+        />
+        <Text style={{ color: T.muted, marginTop: 10, fontSize: 13 }}>
+          No data to chart
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      {/* Pie */}
+      <Svg width={SIZE} height={svgH} style={{ alignSelf: 'center' }}>
+        {/* Background ring */}
+        <Path
+          d={arcPath(0, 2 * Math.PI - 0.001)}
+          fill={T.border ? T.border + '30' : '#E2E8F030'}
+        />
+        {slices.map(
+          (sl, i) =>
+            sl.path && <Path key={i} d={sl.path} fill={sl.meta.color} />,
+        )}
+        {/* Center label */}
+        <SvgText
+          x={cx}
+          y={cy - 8}
+          textAnchor="middle"
+          fontSize={11}
+          fill={T.muted ?? '#94A3B8'}
+        >
+          All Values
+        </SvgText>
+        <SvgText
+          x={cx}
+          y={cy + 10}
+          textAnchor="middle"
+          fontSize={18}
+          fontWeight="900"
+          fill={T.text ?? '#111'}
+        >
+          {data.length}
+        </SvgText>
+        <SvgText
+          x={cx}
+          y={cy + 26}
+          textAnchor="middle"
+          fontSize={10}
+          fill={T.muted ?? '#94A3B8'}
+        >
+          sensors
+        </SvgText>
+      </Svg>
+
+      {/* Legend — 2-column grid */}
+      <View style={cpc.legendGrid}>
+        {slices.map((sl, i) => (
+          <View
+            key={i}
+            style={[
+              cpc.legendItem,
+              { backgroundColor: T.card, borderColor: T.border ?? '#E2E8F0' },
+            ]}
+          >
+            <View style={[cpc.dot, { backgroundColor: sl.meta.color }]} />
+            <View style={{ flex: 1 }}>
+              <Text
+                style={[cpc.legendLabel, { color: T.text }]}
+                numberOfLines={1}
+              >
+                {sl.label}
+              </Text>
+              <Text style={[cpc.legendVal, { color: sl.meta.color }]}>
+                {Number(sl.value).toFixed(sl.value < 10 ? 1 : 0)} {sl.meta.unit}
+                <Text style={[cpc.legendPct, { color: T.muted }]}>
+                  {' '}
+                  · {sl.pct}%
+                </Text>
+              </Text>
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+const cpc = StyleSheet.create({
+  legendGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: Spacing.md,
+  },
+  legendItem: {
+    width: '47%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 10,
+    ...Shadow.sm,
+  },
+  dot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  legendLabel: { fontSize: 11, fontWeight: '700' },
+  legendVal: { fontSize: 12, fontWeight: '900', marginTop: 1 },
+  legendPct: { fontSize: 10, fontWeight: '400' },
+});
+
+// ─── Table row (like web — field name | value | mini pie | range) ─────────────
+function FieldTableRow({ field, T, isLast }) {
+  const meta = field.meta;
+  const lvl = gasLevel(meta, field.value);
+  const hasData = (field.value ?? 0) > 0;
+  const valStr = hasData
+    ? Number(field.value).toFixed(field.value < 10 ? 1 : 0)
+    : '0.0';
 
   return (
     <View
       style={[
-        gc.card,
-        {
-          backgroundColor: T.card,
-          borderColor: T.border,
-          borderTopColor: meta.color,
-          borderTopWidth: 3,
+        ftr.row,
+        !isLast && {
+          borderBottomColor: (T.border ?? '#E2E8F0') + '60',
+          borderBottomWidth: 0.5,
         },
       ]}
     >
-      <View style={gc.top}>
-        <View style={[gc.icoWrap, { backgroundColor: meta.color + '18' }]}>
-          <Icon name={meta.icon} size={18} color={meta.color} />
+      {/* Field name */}
+      <View style={ftr.nameCol}>
+        <View style={[ftr.iconWrap, { backgroundColor: meta.color + '18' }]}>
+          <Icon name={meta.icon} size={12} color={meta.color} />
         </View>
-        <GasDonut
-          value={value ?? 0}
+        <Text style={[ftr.name, { color: T.text }]} numberOfLines={2}>
+          {field.label}
+        </Text>
+      </View>
+
+      {/* Value */}
+      <View style={ftr.valCol}>
+        <Text style={[ftr.val, { color: hasData ? meta.color : T.muted }]}>
+          {valStr}
+        </Text>
+        <Text style={[ftr.unit, { color: T.muted }]}>{meta.unit}</Text>
+      </View>
+
+      {/* Mini pie */}
+      <View style={ftr.pieCol}>
+        <MiniDonut
+          value={field.value ?? 0}
           max={meta.max}
           color={meta.color}
-          size={56}
+          size={38}
         />
       </View>
-      <Text style={[gc.valTxt, { color: hasData ? meta.color : T.muted }]}>
-        {valStr}
-        {hasData && (
-          <Text style={[gc.unitTxt, { color: T.muted }]}> {meta.unit}</Text>
-        )}
-      </Text>
-      <Text style={[gc.label, { color: T.muted }]} numberOfLines={2}>
-        {label}
-      </Text>
-      <View style={[gc.badge, { backgroundColor: lvl.bg }]}>
-        <Text style={[gc.badgeTxt, { color: lvl.color }]}>{lvl.label}</Text>
+
+      {/* Detection range */}
+      <View style={ftr.rangeCol}>
+        <Text style={[ftr.range, { color: T.muted }]}>
+          {meta.low} – {meta.max}
+        </Text>
+        <Text style={[ftr.rangeUnit, { color: T.muted }]}>{meta.unit}</Text>
+        <View style={[ftr.badge, { backgroundColor: lvl.bg }]}>
+          <Text style={[ftr.badgeTxt, { color: lvl.color }]}>{lvl.label}</Text>
+        </View>
       </View>
     </View>
   );
 }
-
-const gc = StyleSheet.create({
-  card: {
-    width: '47%',
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    padding: 12,
-    marginBottom: Spacing.sm,
-    ...Shadow.sm,
-  },
-  top: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  icoWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  valTxt: { fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
-  unitTxt: { fontSize: 11, fontWeight: '400' },
-  label: { fontSize: 11, fontWeight: '600', marginTop: 2, marginBottom: 6 },
-  badge: {
-    borderRadius: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    alignSelf: 'flex-start',
-  },
-  badgeTxt: { fontSize: 9, fontWeight: '700' },
-});
-
-// ─── GasBarChart — horizontal bar per field ───────────────────────────────────
-function GasBarChart({ fields, T }) {
-  const maxVal = Math.max(...fields.map(f => f.value ?? 0), 1);
-  return (
-    <View style={{ gap: 10 }}>
-      {fields.map((f, i) => {
-        const meta = GAS_META[f.label] ?? DEFAULT_GAS;
-        const pct =
-          (f.value ?? 0) > 0 ? Math.min(1, (f.value ?? 0) / meta.max) : 0;
-        const lvl = gasLevel(meta, f.value);
-        return (
-          <View
-            key={i}
-            style={[
-              gbar.row,
-              { borderLeftColor: meta.color, borderLeftWidth: 3 },
-            ]}
-          >
-            <View style={gbar.rowLeft}>
-              <View style={gbar.rowTop}>
-                <Text style={[gbar.label, { color: T.text }]}>{f.label}</Text>
-                <View style={[gbar.badge, { backgroundColor: lvl.bg }]}>
-                  <Text style={[gbar.badgeTxt, { color: lvl.color }]}>
-                    {lvl.label}
-                  </Text>
-                </View>
-              </View>
-              <View
-                style={[gbar.track, { backgroundColor: T.border ?? '#E2E8F0' }]}
-              >
-                <View
-                  style={[
-                    gbar.fill,
-                    {
-                      width: `${Math.round(pct * 100)}%`,
-                      backgroundColor: meta.color,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={[gbar.range, { color: T.muted }]}>
-                Normal: {meta.low}–{meta.high} {meta.unit}
-              </Text>
-            </View>
-            <View style={gbar.right}>
-              <Text
-                style={[
-                  gbar.val,
-                  { color: (f.value ?? 0) > 0 ? meta.color : T.muted },
-                ]}
-              >
-                {(f.value ?? 0) > 0
-                  ? Number(f.value).toFixed(f.value < 10 ? 1 : 0)
-                  : '—'}
-              </Text>
-              <Text style={[gbar.unit, { color: T.muted }]}>{meta.unit}</Text>
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-const gbar = StyleSheet.create({
+const ftr = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'transparent',
-    paddingLeft: 10,
-    gap: 10,
+    paddingVertical: 10,
+    gap: 6,
   },
-  rowLeft: { flex: 1, gap: 5 },
-  rowTop: {
-    flexDirection: 'row',
+  nameCol: { flex: 2.2, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  iconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  label: { fontSize: 12, fontWeight: '700', flex: 1 },
-  badge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
-  badgeTxt: { fontSize: 9, fontWeight: '700' },
-  track: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  fill: { height: 6, borderRadius: 3 },
-  range: { fontSize: 9 },
-  right: { alignItems: 'flex-end', minWidth: 48 },
-  val: { fontSize: 16, fontWeight: '900', letterSpacing: -0.5 },
+  name: { fontSize: 11, fontWeight: '600', flex: 1 },
+  valCol: { flex: 1, alignItems: 'flex-end' },
+  val: { fontSize: 13, fontWeight: '900' },
   unit: { fontSize: 9, marginTop: 1 },
+  pieCol: { width: 42, alignItems: 'center' },
+  rangeCol: { flex: 1.4, alignItems: 'flex-end', gap: 2 },
+  range: { fontSize: 9, fontWeight: '600' },
+  rangeUnit: { fontSize: 8 },
+  badge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  badgeTxt: { fontSize: 8, fontWeight: '700' },
 });
 
-// ─── AlertBanner — shows active high/low readings ───────────────────────────
+// ─── Alert banner ─────────────────────────────────────────────────────────────
 function AlertBanner({ fields, T }) {
   const alerts = fields.filter(f => {
-    const meta = GAS_META[f.label] ?? DEFAULT_GAS;
     const v = f.value ?? 0;
-    return v > 0 && (v < meta.low || v > meta.high);
+    return v > 0 && (v < f.meta.low || v > f.meta.high);
   });
   if (alerts.length === 0) return null;
   return (
@@ -361,7 +422,6 @@ function AlertBanner({ fields, T }) {
     </View>
   );
 }
-
 const ab = StyleSheet.create({
   box: {
     flexDirection: 'row',
@@ -375,7 +435,208 @@ const ab = StyleSheet.create({
   txt: { fontSize: 12, fontWeight: '600', flex: 1, lineHeight: 16 },
 });
 
-// ─── Main Screen ─────────────────────────────────────────────────────────────
+// ─── GasCard (overview grid) ──────────────────────────────────────────────────
+function GasCard({ label, value, meta, T }) {
+  const lvl = gasLevel(meta, value);
+  const hasData = value != null && value > 0;
+  const valStr = hasData ? Number(value).toFixed(value < 10 ? 1 : 0) : '—';
+  const pct = hasData ? Math.min((value / meta.max) * 100, 100) : 0;
+
+  return (
+    <View
+      style={[
+        gc.card,
+        {
+          backgroundColor: T.card,
+          borderColor: T.border ?? '#E2E8F0',
+          borderTopColor: meta.color,
+          borderTopWidth: 3,
+        },
+      ]}
+    >
+      <View style={gc.top}>
+        <View style={[gc.icoWrap, { backgroundColor: meta.color + '18' }]}>
+          <Icon name={meta.icon} size={16} color={meta.color} />
+        </View>
+        <MiniDonut
+          value={value ?? 0}
+          max={meta.max}
+          color={meta.color}
+          size={48}
+        />
+      </View>
+      <Text style={[gc.valTxt, { color: hasData ? meta.color : T.muted }]}>
+        {valStr}
+        {hasData && (
+          <Text style={[gc.unitTxt, { color: T.muted }]}> {meta.unit}</Text>
+        )}
+      </Text>
+      <Text style={[gc.label, { color: T.muted }]} numberOfLines={2}>
+        {label}
+      </Text>
+      {/* Mini bar */}
+      <View
+        style={[gc.track, { backgroundColor: (T.border ?? '#E2E8F0') + '80' }]}
+      >
+        <View
+          style={[
+            gc.fill,
+            { width: `${Math.round(pct)}%`, backgroundColor: meta.color },
+          ]}
+        />
+      </View>
+      <View style={gc.footer}>
+        <View style={[gc.badge, { backgroundColor: lvl.bg }]}>
+          <Text style={[gc.badgeTxt, { color: lvl.color }]}>{lvl.label}</Text>
+        </View>
+        <Text style={[gc.rangeHint, { color: T.muted }]}>
+          {meta.low}–{meta.high}
+        </Text>
+      </View>
+    </View>
+  );
+}
+const gc = StyleSheet.create({
+  card: {
+    width: '47%',
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: Spacing.sm,
+    ...Shadow.sm,
+  },
+  top: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  icoWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  valTxt: { fontSize: 20, fontWeight: '900', letterSpacing: -0.5 },
+  unitTxt: { fontSize: 10, fontWeight: '400' },
+  label: { fontSize: 10, fontWeight: '600', marginTop: 2, marginBottom: 6 },
+  track: { height: 4, borderRadius: 2, overflow: 'hidden', marginBottom: 6 },
+  fill: { height: 4, borderRadius: 2 },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  badge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  badgeTxt: { fontSize: 8, fontWeight: '700' },
+  rangeHint: { fontSize: 8 },
+});
+
+// ─── Image card ───────────────────────────────────────────────────────────────
+function ImageCard({ imageUri, T }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!imageUri || failed) {
+    return (
+      <View
+        style={[
+          img.placeholder,
+          { backgroundColor: T.card, borderColor: T.border ?? '#E2E8F0' },
+        ]}
+      >
+        <Icon
+          name="image-off-outline"
+          size={32}
+          color={T.muted}
+          style={{ opacity: 0.35 }}
+        />
+        <Text style={[img.placeholderTxt, { color: T.muted }]}>
+          No image uploaded
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[img.wrap, { borderColor: T.border ?? '#E2E8F0' }]}>
+      <Image
+        source={{ uri: imageUri }}
+        style={img.image}
+        resizeMode="cover"
+        onError={() => setFailed(true)}
+      />
+    </View>
+  );
+}
+const img = StyleSheet.create({
+  wrap: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: Spacing.md,
+    ...Shadow.sm,
+  },
+  image: { width: '100%', height: 200 },
+  placeholder: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    height: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: Spacing.md,
+  },
+  placeholderTxt: { fontSize: 12, fontWeight: '600' },
+});
+
+// ─── Table header ─────────────────────────────────────────────────────────────
+function TableHeader({ T }) {
+  return (
+    <View
+      style={[
+        th.row,
+        {
+          borderBottomColor: T.border ?? '#E2E8F0',
+          borderBottomWidth: 1,
+          backgroundColor: T.bg,
+        },
+      ]}
+    >
+      <Text style={[th.cell, { flex: 2.2, color: T.muted }]}>Field Name</Text>
+      <Text style={[th.cell, { flex: 1, textAlign: 'right', color: T.muted }]}>
+        Value
+      </Text>
+      <Text
+        style={[th.cell, { width: 42, textAlign: 'center', color: T.muted }]}
+      >
+        Pie
+      </Text>
+      <Text
+        style={[th.cell, { flex: 1.4, textAlign: 'right', color: T.muted }]}
+      >
+        Range
+      </Text>
+    </View>
+  );
+}
+const th = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 6,
+  },
+  cell: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+});
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function SoilLifeDetailScreen({ navigation, route }) {
   const dispatch = useDispatch();
   const theme = useTheme();
@@ -400,7 +661,6 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
     return () => dispatch(clearSelectedReading());
   }, [deviceId, readingId, dispatch]);
 
-  // Build field list from labeled_fields
   const fields = useMemo(() => {
     if (!reading) return [];
     const lf = reading.labeled_fields ?? {};
@@ -424,7 +684,7 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
       f.label,
     ),
   );
-  const topFields = fields.slice(0, 4);
+  const top4 = fields.slice(0, 4);
 
   if (selectedReadingLoading && !reading) {
     return (
@@ -436,9 +696,7 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
         />
         <View style={s.center}>
           <ActivityIndicator size="large" color={DEVICE_COLOR} />
-          <Text style={{ color: T.muted, marginTop: 12, fontSize: 13 }}>
-            Loading…
-          </Text>
+          <Text style={{ color: T.muted, marginTop: 12 }}>Loading…</Text>
         </View>
       </SafeAreaView>
     );
@@ -462,15 +720,17 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
   }
 
   const recordedAt = new Date(reading.created_at);
+  const hasImage = !!reading.image_path;
 
   const renderTab = () => {
     switch (activeTab) {
+      // ── Overview ──────────────────────────────────────────────────────────
       case 0:
         return (
           <>
-            {/* Mini stat row */}
+            {/* Mini stats */}
             <View style={s.statRow}>
-              {topFields.map((f, i) => (
+              {top4.map(f => (
                 <MiniStat
                   key={f.label}
                   label={f.label.split(' ')[0]}
@@ -484,7 +744,10 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
             {/* Alert banner */}
             <AlertBanner fields={fields} T={T} />
 
-            {/* Gas sensors — 2-col grid */}
+            {/* Device image */}
+            <ImageCard imageUri={reading.image_path} T={T} />
+
+            {/* Gas sensors grid */}
             <SectionCard
               title="Gas Sensors"
               icon="cloud-outline"
@@ -492,7 +755,7 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
               T={T}
             >
               <View style={s.cardGrid}>
-                {gasFields.map((f, i) => (
+                {gasFields.map(f => (
                   <GasCard
                     key={f.label}
                     label={f.label}
@@ -504,7 +767,7 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
               </View>
             </SectionCard>
 
-            {/* Environmental */}
+            {/* Environmental grid */}
             {envFields.length > 0 && (
               <SectionCard
                 title="Environmental"
@@ -513,7 +776,7 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
                 T={T}
               >
                 <View style={s.cardGrid}>
-                  {envFields.map((f, i) => (
+                  {envFields.map(f => (
                     <GasCard
                       key={f.label}
                       label={f.label}
@@ -562,16 +825,80 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
           </>
         );
 
+      // ── Chart ─────────────────────────────────────────────────────────────
       case 1:
         return (
           <SectionCard
-            title="All sensor readings"
-            icon="format-list-bulleted"
+            title="All Values"
+            icon="chart-pie"
             color={DEVICE_COLOR}
             T={T}
           >
-            <GasBarChart fields={fields} T={T} />
+            <CombinedPieChart fields={fields} T={T} />
           </SectionCard>
+        );
+
+      // ── All Fields table (mirrors web) ────────────────────────────────────
+      case 2:
+        return (
+          <View
+            style={[
+              s.tableCard,
+              { backgroundColor: T.card, borderColor: T.border ?? '#E2E8F0' },
+            ]}
+          >
+            {/* Table header */}
+            <View
+              style={[
+                s.tableHeader,
+                {
+                  borderBottomColor: T.border ?? '#E2E8F0',
+                  backgroundColor: DEVICE_COLOR + '10',
+                },
+              ]}
+            >
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+              >
+                <View
+                  style={[
+                    s.tableHeaderIco,
+                    { backgroundColor: DEVICE_COLOR + '20' },
+                  ]}
+                >
+                  <Icon name="table" size={13} color={DEVICE_COLOR} />
+                </View>
+                <Text style={[s.tableHeaderTxt, { color: T.text }]}>
+                  All Sensor Readings
+                </Text>
+              </View>
+              <View
+                style={[
+                  s.tableHeaderBadge,
+                  {
+                    backgroundColor: DEVICE_COLOR + '18',
+                    borderColor: DEVICE_COLOR + '40',
+                  },
+                ]}
+              >
+                <Text style={[s.tableHeaderBadgeTxt, { color: DEVICE_COLOR }]}>
+                  {fields.length} fields
+                </Text>
+              </View>
+            </View>
+
+            <View style={s.tableBody}>
+              <TableHeader T={T} />
+              {fields.map((f, i) => (
+                <FieldTableRow
+                  key={f.label}
+                  field={f}
+                  T={T}
+                  isLast={i === fields.length - 1}
+                />
+              ))}
+            </View>
+          </View>
         );
 
       default:
@@ -585,6 +912,7 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
         barStyle={T.statusBar ?? 'light-content'}
         backgroundColor={T.bg}
       />
+
       <TopBar
         title={`Reading #${readingId}`}
         subtitle={`${deviceName} · ${recordedAt.toLocaleDateString('en-IN', {
@@ -596,12 +924,12 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
         theme={theme}
       />
 
-      {/* Header accent strip */}
+      {/* Accent strip */}
       <View
         style={[
           s.accentStrip,
           {
-            backgroundColor: DEVICE_COLOR + '18',
+            backgroundColor: DEVICE_COLOR + '15',
             borderBottomColor: DEVICE_COLOR + '30',
           },
         ]}
@@ -609,12 +937,13 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
         <View style={[s.accentIco, { backgroundColor: DEVICE_COLOR + '25' }]}>
           <Icon name="leaf-circle-outline" size={18} color={DEVICE_COLOR} />
         </View>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={[s.accentTitle, { color: T.text }]}>SoilLIFE</Text>
           <Text style={[s.accentSub, { color: T.muted }]}>
             Gas & Environmental Monitor · {fields.length} sensors
           </Text>
         </View>
+   
       </View>
 
       {/* Tab bar */}
@@ -665,7 +994,7 @@ export default function SoilLifeDetailScreen({ navigation, route }) {
 const s = StyleSheet.create({
   root: { flex: 1 },
   scroll: { padding: Spacing.lg, paddingTop: Spacing.md },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
 
   accentStrip: {
     flexDirection: 'row',
@@ -681,9 +1010,20 @@ const s = StyleSheet.create({
     borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   accentTitle: { fontSize: 13, fontWeight: '800' },
   accentSub: { fontSize: 10, marginTop: 1 },
+  imgChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  imgChipTxt: { fontSize: 10, fontWeight: '600' },
 
   tabBar: { flexDirection: 'row', borderBottomWidth: 1 },
   tab: {
@@ -700,6 +1040,43 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 0,
   },
+
+  // Table
+  tableCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    overflow: 'hidden',
+    ...Shadow.sm,
+    marginBottom: Spacing.md,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: Spacing.md,
+    paddingVertical: 11,
+    borderBottomWidth: 0.5,
+  },
+  tableHeaderIco: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tableHeaderTxt: {
+    fontSize: 13,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  tableHeaderBadge: {
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  tableHeaderBadgeTxt: { fontSize: 10, fontWeight: '700' },
+  tableBody: { padding: Spacing.md },
 });

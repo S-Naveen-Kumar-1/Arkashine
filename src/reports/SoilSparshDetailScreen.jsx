@@ -1,8 +1,4 @@
 // src/screens/reports/SoilSparshDetailScreen.jsx
-//
-// Detail screen for SoilSparsh device (soil + atmospheric sensors)
-// Tabs: Overview | All Fields
-// Data: labeled_fields (Soil Temp, Soil Moisture, Atmos Temp, Atmos Humidity, Light Intensity)
 
 import React, { useEffect, useState, useMemo } from 'react';
 import {
@@ -13,11 +9,13 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import Svg, { Path, Text as SvgText, G, Rect } from 'react-native-svg';
+import Svg, { Path, Text as SvgText } from 'react-native-svg';
 import { Radius, Spacing, Shadow } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
@@ -33,7 +31,8 @@ import {
   SCREEN_W,
 } from './readingDetailHelpers';
 
-const DEVICE_COLOR = '#0891B2'; // cyan for SoilSparsh
+const { width: SW } = Dimensions.get('window');
+const DEVICE_COLOR = '#0891B2';
 
 // ─── Field metadata ───────────────────────────────────────────────────────────
 const FIELD_META = {
@@ -121,65 +120,383 @@ function fieldLevel(meta, value) {
   return { label: 'Optimal', color: '#16A34A', bg: '#16A34A20' };
 }
 
-const TABS = ['Overview', 'All Fields'];
+const TABS = ['Overview', 'Chart', 'All Fields'];
 
-// ─── GaugeArc — semicircle gauge ─────────────────────────────────────────────
-function GaugeArc({ value, meta, size = 90 }) {
-  const pct = value > 0 ? Math.min(value / meta.max, 1) : 0;
+// ─── Mini donut ───────────────────────────────────────────────────────────────
+function MiniDonut({ value, max, color, size = 40 }) {
+  const pct = value > 0 ? Math.min(value / max, 1) : 0;
   const cx = size / 2,
-    cy = size * 0.72;
-  const R = size * 0.42,
-    ri = size * 0.28;
-  const startAng = Math.PI,
-    endAng = 2 * Math.PI; // semicircle bottom
+    cy = size / 2;
+  const R = size / 2 - 3,
+    ri = size / 2 - 11;
 
-  function arcPt(ang, r) {
-    return [cx + r * Math.cos(ang), cy + r * Math.sin(ang)];
+  function arc(startAng, sweep) {
+    const clamp = Math.min(sweep, 2 * Math.PI - 0.001);
+    const x1 = cx + R * Math.cos(startAng),
+      y1 = cy + R * Math.sin(startAng);
+    const x2 = cx + R * Math.cos(startAng + clamp),
+      y2 = cy + R * Math.sin(startAng + clamp);
+    const xi1 = cx + ri * Math.cos(startAng),
+      yi1 = cy + ri * Math.sin(startAng);
+    const xi2 = cx + ri * Math.cos(startAng + clamp),
+      yi2 = cy + ri * Math.sin(startAng + clamp);
+    const lg = clamp > Math.PI ? 1 : 0;
+    return `M${x1},${y1} A${R},${R},0,${lg},1,${x2},${y2} L${xi2},${yi2} A${ri},${ri},0,${lg},0,${xi1},${yi1} Z`;
   }
 
-  const [ox1, oy1] = arcPt(startAng, R);
-  const [ox2, oy2] = arcPt(endAng - 0.001, R);
-  const [ix1, iy1] = arcPt(startAng, ri);
-  const [ix2, iy2] = arcPt(endAng - 0.001, ri);
-  const bgPath = `M${ox1},${oy1} A${R},${R},0,0,1,${ox2},${oy2} L${ix2},${iy2} A${ri},${ri},0,0,0,${ix1},${iy1} Z`;
-
-  const fillAng = startAng + pct * Math.PI;
-  const [fx2, fy2] = arcPt(fillAng, R);
-  const [fix2, fiy2] = arcPt(fillAng, ri);
-  const fillPath =
-    pct > 0.01
-      ? `M${ox1},${oy1} A${R},${R},0,${
-          pct > 0.5 ? 1 : 0
-        },1,${fx2},${fy2} L${fix2},${fiy2} A${ri},${ri},0,${
-          pct > 0.5 ? 1 : 0
-        },0,${ix1},${iy1} Z`
-      : null;
-
   return (
-    <Svg width={size} height={size * 0.75}>
-      <Path d={bgPath} fill="#E2E8F025" />
-      {fillPath && <Path d={fillPath} fill={meta.color} />}
-      <SvgText
-        x={cx}
-        y={cy - 2}
-        textAnchor="middle"
-        fontSize={13}
-        fontWeight="900"
-        fill={meta.color}
-      >
-        {value > 0 ? `${Math.round(pct * 100)}%` : '—'}
-      </SvgText>
+    <Svg width={size} height={size}>
+      <Path d={arc(0, 2 * Math.PI - 0.001)} fill="#E2E8F025" />
+      {pct > 0.01 && (
+        <Path d={arc(-Math.PI / 2, pct * 2 * Math.PI)} fill={color} />
+      )}
     </Svg>
   );
 }
+
+// ─── Combined pie chart ───────────────────────────────────────────────────────
+function CombinedPieChart({ fields, T }) {
+  const data = fields.filter(f => (f.value ?? 0) > 0);
+  const total = data.reduce((s, d) => s + (d.value ?? 0), 0);
+
+  const SIZE = SW - Spacing.lg * 2;
+  const cx = SIZE / 2,
+    cy = SIZE * 0.42;
+  const R = SIZE * 0.33,
+    ri = SIZE * 0.14;
+
+  function arcPath(startAng, sweep) {
+    const clamp = Math.min(sweep, 2 * Math.PI - 0.001);
+    const x1 = cx + R * Math.cos(startAng),
+      y1 = cy + R * Math.sin(startAng);
+    const x2 = cx + R * Math.cos(startAng + clamp),
+      y2 = cy + R * Math.sin(startAng + clamp);
+    const xi1 = cx + ri * Math.cos(startAng),
+      yi1 = cy + ri * Math.sin(startAng);
+    const xi2 = cx + ri * Math.cos(startAng + clamp),
+      yi2 = cy + ri * Math.sin(startAng + clamp);
+    const lg = clamp > Math.PI ? 1 : 0;
+    return `M${x1},${y1} A${R},${R},0,${lg},1,${x2},${y2} L${xi2},${yi2} A${ri},${ri},0,${lg},0,${xi1},${yi1} Z`;
+  }
+
+  let ang = -Math.PI / 2;
+  const slices = data.map(d => {
+    const sweep = total > 0 ? (d.value / total) * 2 * Math.PI : 0;
+    const path = sweep > 0.005 ? arcPath(ang, sweep) : null;
+    ang += sweep;
+    return {
+      ...d,
+      path,
+      pct: total > 0 ? ((d.value / total) * 100).toFixed(1) : '0',
+    };
+  });
+
+  if (data.length === 0) {
+    return (
+      <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+        <Icon
+          name="chart-pie-outline"
+          size={48}
+          color={T.muted}
+          style={{ opacity: 0.3 }}
+        />
+        <Text style={{ color: T.muted, marginTop: 10, fontSize: 13 }}>
+          No data to chart
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      <Svg width={SIZE} height={cy * 2 + 20} style={{ alignSelf: 'center' }}>
+        <Path
+          d={arcPath(0, 2 * Math.PI - 0.001)}
+          fill={T.border ? T.border + '30' : '#E2E8F030'}
+        />
+        {slices.map(
+          (sl, i) =>
+            sl.path && <Path key={i} d={sl.path} fill={sl.meta.color} />,
+        )}
+        <SvgText
+          x={cx}
+          y={cy - 8}
+          textAnchor="middle"
+          fontSize={11}
+          fill={T.muted ?? '#94A3B8'}
+        >
+          All Values
+        </SvgText>
+        <SvgText
+          x={cx}
+          y={cy + 10}
+          textAnchor="middle"
+          fontSize={18}
+          fontWeight="900"
+          fill={T.text ?? '#111'}
+        >
+          {data.length}
+        </SvgText>
+        <SvgText
+          x={cx}
+          y={cy + 26}
+          textAnchor="middle"
+          fontSize={10}
+          fill={T.muted ?? '#94A3B8'}
+        >
+          sensors
+        </SvgText>
+      </Svg>
+
+      {/* Legend grid */}
+      <View style={cpc.grid}>
+        {slices.map((sl, i) => (
+          <View
+            key={i}
+            style={[
+              cpc.item,
+              { backgroundColor: T.card, borderColor: T.border ?? '#E2E8F0' },
+            ]}
+          >
+            <View style={[cpc.dot, { backgroundColor: sl.meta.color }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={[cpc.lbl, { color: T.text }]} numberOfLines={1}>
+                {sl.label}
+              </Text>
+              <Text style={[cpc.val, { color: sl.meta.color }]}>
+                {Number(sl.value).toFixed(sl.value < 10 ? 1 : 0)} {sl.meta.unit}
+                <Text style={[cpc.pct, { color: T.muted }]}> · {sl.pct}%</Text>
+              </Text>
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+const cpc = StyleSheet.create({
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: Spacing.md,
+  },
+  item: {
+    width: '47%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 10,
+    ...Shadow.sm,
+  },
+  dot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
+  lbl: { fontSize: 11, fontWeight: '700' },
+  val: { fontSize: 12, fontWeight: '900', marginTop: 1 },
+  pct: { fontSize: 10, fontWeight: '400' },
+});
+
+// ─── Table row (Field | Value | Mini pie | Range) ─────────────────────────────
+function FieldTableRow({ field, T, isLast }) {
+  const meta = field.meta;
+  const lvl = fieldLevel(meta, field.value);
+  const hasData = (field.value ?? 0) > 0;
+  const valStr = hasData
+    ? Number(field.value).toFixed(field.value < 10 ? 1 : 0)
+    : '0.0';
+
+  return (
+    <View
+      style={[
+        ftr.row,
+        !isLast && {
+          borderBottomColor: (T.border ?? '#E2E8F0') + '60',
+          borderBottomWidth: 0.5,
+        },
+      ]}
+    >
+      <View style={ftr.nameCol}>
+        <View style={[ftr.ico, { backgroundColor: meta.color + '18' }]}>
+          <Icon name={meta.icon} size={11} color={meta.color} />
+        </View>
+        <Text style={[ftr.name, { color: T.text }]} numberOfLines={2}>
+          {field.label}
+        </Text>
+      </View>
+      <View style={ftr.valCol}>
+        <Text style={[ftr.val, { color: hasData ? meta.color : T.muted }]}>
+          {valStr}
+        </Text>
+        <Text style={[ftr.unit, { color: T.muted }]}>{meta.unit}</Text>
+      </View>
+      <View style={ftr.pieCol}>
+        <MiniDonut
+          value={field.value ?? 0}
+          max={meta.max}
+          color={meta.color}
+          size={36}
+        />
+      </View>
+      <View style={ftr.rangeCol}>
+        <Text style={[ftr.range, { color: T.muted }]}>
+          {meta.low}–{meta.max}
+        </Text>
+        <Text style={[ftr.rangeUnit, { color: T.muted }]}>{meta.unit}</Text>
+        <View style={[ftr.badge, { backgroundColor: lvl.bg }]}>
+          <Text style={[ftr.badgeTxt, { color: lvl.color }]}>{lvl.label}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+const ftr = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    gap: 6,
+  },
+  nameCol: { flex: 2.2, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  ico: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  name: { fontSize: 11, fontWeight: '600', flex: 1 },
+  valCol: { flex: 1, alignItems: 'flex-end' },
+  val: { fontSize: 13, fontWeight: '900' },
+  unit: { fontSize: 9, marginTop: 1 },
+  pieCol: { width: 40, alignItems: 'center' },
+  rangeCol: { flex: 1.4, alignItems: 'flex-end', gap: 2 },
+  range: { fontSize: 9, fontWeight: '600' },
+  rangeUnit: { fontSize: 8 },
+  badge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  badgeTxt: { fontSize: 8, fontWeight: '700' },
+});
+
+function TableHeader({ T }) {
+  return (
+    <View
+      style={[
+        th.row,
+        { borderBottomColor: T.border ?? '#E2E8F0', borderBottomWidth: 1 },
+      ]}
+    >
+      <Text style={[th.cell, { flex: 2.2, color: T.muted }]}>Field Name</Text>
+      <Text style={[th.cell, { flex: 1, textAlign: 'right', color: T.muted }]}>
+        Value
+      </Text>
+      <Text
+        style={[th.cell, { width: 40, textAlign: 'center', color: T.muted }]}
+      >
+        Pie
+      </Text>
+      <Text
+        style={[th.cell, { flex: 1.4, textAlign: 'right', color: T.muted }]}
+      >
+        Range
+      </Text>
+    </View>
+  );
+}
+const th = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 6,
+  },
+  cell: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+});
+
+// ─── Image card ───────────────────────────────────────────────────────────────
+function ImageCard({ imageUri, T }) {
+  const [failed, setFailed] = useState(false);
+  if (!imageUri || failed) {
+    return (
+      <View
+        style={[
+          imgc.placeholder,
+          { backgroundColor: T.card, borderColor: T.border ?? '#E2E8F0' },
+        ]}
+      >
+        <Icon
+          name="image-off-outline"
+          size={30}
+          color={T.muted}
+          style={{ opacity: 0.3 }}
+        />
+        <Text style={[imgc.placeholderTxt, { color: T.muted }]}>
+          No image uploaded
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <View style={[imgc.wrap, { borderColor: T.border ?? '#E2E8F0' }]}>
+      <Image
+        source={{ uri: imageUri }}
+        style={imgc.img}
+        resizeMode="cover"
+        onError={() => setFailed(true)}
+      />
+      <View
+        style={[
+          imgc.footer,
+          { backgroundColor: T.card, borderTopColor: T.border ?? '#E2E8F0' },
+        ]}
+      >
+        <Icon name="image-outline" size={13} color={T.muted} />
+        <Text style={[imgc.footerTxt, { color: T.muted }]}>Device Image</Text>
+      </View>
+    </View>
+  );
+}
+const imgc = StyleSheet.create({
+  wrap: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: Spacing.md,
+    ...Shadow.sm,
+  },
+  img: { width: '100%', height: 200 },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 10,
+    borderTopWidth: 0.5,
+  },
+  footerTxt: { fontSize: 11, fontWeight: '600' },
+  placeholder: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    height: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: Spacing.md,
+  },
+  placeholderTxt: { fontSize: 12, fontWeight: '600' },
+});
 
 // ─── SensorCard ───────────────────────────────────────────────────────────────
 function SensorCard({ label, value, meta, T, wide = false }) {
   const lvl = fieldLevel(meta, value);
   const hasData = value != null && value > 0;
-  const valStr = hasData
-    ? Number(value).toFixed(value < 10 ? 1 : value < 1000 ? 0 : 0)
-    : '—';
+  const valStr = hasData ? Number(value).toFixed(value < 10 ? 1 : 0) : '—';
+  const pct = hasData ? Math.min((value / meta.max) * 100, 100) : 0;
 
   return (
     <View
@@ -198,9 +515,12 @@ function SensorCard({ label, value, meta, T, wide = false }) {
         <View style={[sc.icoWrap, { backgroundColor: meta.color + '18' }]}>
           <Icon name={meta.icon} size={16} color={meta.color} />
         </View>
-        <View style={[sc.badge, { backgroundColor: lvl.bg }]}>
-          <Text style={[sc.badgeTxt, { color: lvl.color }]}>{lvl.label}</Text>
-        </View>
+        <MiniDonut
+          value={value ?? 0}
+          max={meta.max}
+          color={meta.color}
+          size={44}
+        />
       </View>
       <Text style={[sc.val, { color: hasData ? meta.color : T.muted }]}>
         {valStr}
@@ -211,27 +531,27 @@ function SensorCard({ label, value, meta, T, wide = false }) {
       <Text style={[sc.label, { color: T.muted }]} numberOfLines={2}>
         {label}
       </Text>
-      {/* Progress bar */}
-      <View style={[sc.track, { backgroundColor: T.border ?? '#E2E8F0' }]}>
+      <View
+        style={[sc.track, { backgroundColor: (T.border ?? '#E2E8F0') + '80' }]}
+      >
         <View
           style={[
             sc.fill,
-            {
-              width: `${Math.round(
-                Math.min(hasData ? (value / meta.max) * 100 : 0, 100),
-              )}%`,
-              backgroundColor: meta.color,
-            },
+            { width: `${Math.round(pct)}%`, backgroundColor: meta.color },
           ]}
         />
       </View>
-      <Text style={[sc.range, { color: T.muted }]}>
-        Optimal: {meta.low}–{meta.high} {meta.unit}
-      </Text>
+      <View style={sc.footer}>
+        <View style={[sc.badge, { backgroundColor: lvl.bg }]}>
+          <Text style={[sc.badgeTxt, { color: lvl.color }]}>{lvl.label}</Text>
+        </View>
+        <Text style={[sc.rangeHint, { color: T.muted }]}>
+          {meta.low}–{meta.high} {meta.unit}
+        </Text>
+      </View>
     </View>
   );
 }
-
 const sc = StyleSheet.create({
   card: {
     borderRadius: Radius.lg,
@@ -242,9 +562,9 @@ const sc = StyleSheet.create({
   },
   top: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    alignItems: 'flex-start',
+    marginBottom: 8,
   },
   icoWrap: {
     width: 32,
@@ -253,30 +573,28 @@ const sc = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badge: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
-  badgeTxt: { fontSize: 9, fontWeight: '700' },
-  val: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
-  unit: { fontSize: 12, fontWeight: '400' },
-  label: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 2,
-    marginBottom: 8,
-    color: '#94A3B8',
+  val: { fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
+  unit: { fontSize: 10, fontWeight: '400' },
+  label: { fontSize: 10, fontWeight: '600', marginTop: 2, marginBottom: 8 },
+  track: { height: 4, borderRadius: 2, overflow: 'hidden', marginBottom: 6 },
+  fill: { height: 4, borderRadius: 2 },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  track: { height: 5, borderRadius: 3, overflow: 'hidden', marginBottom: 4 },
-  fill: { height: 5, borderRadius: 3 },
-  range: { fontSize: 9 },
+  badge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  badgeTxt: { fontSize: 8, fontWeight: '700' },
+  rangeHint: { fontSize: 8 },
 });
 
-// ─── CompareRow — soil vs atmos comparison ────────────────────────────────────
+// ─── Temperature compare card ─────────────────────────────────────────────────
 function CompareCard({ soilField, atmosField, T }) {
   if (!soilField || !atmosField) return null;
   const sm = soilField.meta,
     am = atmosField.meta;
   const sv = soilField.value ?? 0,
     av = atmosField.value ?? 0;
-
   return (
     <View
       style={[
@@ -312,7 +630,6 @@ function CompareCard({ soilField, atmosField, T }) {
     </View>
   );
 }
-
 const cmp = StyleSheet.create({
   card: {
     borderRadius: Radius.lg,
@@ -338,109 +655,7 @@ const cmp = StyleSheet.create({
   diffVal: { fontSize: 11, fontWeight: '700' },
 });
 
-// ─── AllFieldsBar chart ───────────────────────────────────────────────────────
-function AllFieldsDetail({ fields, T }) {
-  return (
-    <View style={{ gap: 12 }}>
-      {fields.map((f, i) => {
-        const meta = f.meta;
-        const lvl = fieldLevel(meta, f.value);
-        const pct =
-          (f.value ?? 0) > 0 ? Math.min(1, (f.value ?? 0) / meta.max) : 0;
-        const hasData = (f.value ?? 0) > 0;
-        return (
-          <View
-            key={i}
-            style={[
-              afd.row,
-              {
-                backgroundColor: T.card,
-                borderColor: T.border ?? '#E2E8F0',
-                borderLeftColor: meta.color,
-              },
-            ]}
-          >
-            <View style={[afd.icoWrap, { backgroundColor: meta.color + '18' }]}>
-              <Icon name={meta.icon} size={16} color={meta.color} />
-            </View>
-            <View style={afd.middle}>
-              <View style={afd.topRow}>
-                <Text style={[afd.label, { color: T.text }]}>{f.label}</Text>
-                <View style={[afd.badge, { backgroundColor: lvl.bg }]}>
-                  <Text style={[afd.badgeTxt, { color: lvl.color }]}>
-                    {lvl.label}
-                  </Text>
-                </View>
-              </View>
-              <View
-                style={[afd.track, { backgroundColor: T.border ?? '#E2E8F0' }]}
-              >
-                <View
-                  style={[
-                    afd.fill,
-                    {
-                      width: `${Math.round(pct * 100)}%`,
-                      backgroundColor: meta.color,
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={[afd.range, { color: T.muted }]}>
-                Range: {meta.low}–{meta.high} {meta.unit} · Max: {meta.max}
-              </Text>
-            </View>
-            <View style={afd.right}>
-              <Text
-                style={[afd.val, { color: hasData ? meta.color : T.muted }]}
-              >
-                {hasData ? Number(f.value).toFixed(f.value < 100 ? 1 : 0) : '—'}
-              </Text>
-              <Text style={[afd.unit, { color: T.muted }]}>{meta.unit}</Text>
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-const afd = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderLeftWidth: 3,
-    padding: 12,
-    ...Shadow.sm,
-  },
-  icoWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  middle: { flex: 1, gap: 5 },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  label: { fontSize: 12, fontWeight: '700', flex: 1 },
-  badge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
-  badgeTxt: { fontSize: 9, fontWeight: '700' },
-  track: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  fill: { height: 6, borderRadius: 3 },
-  range: { fontSize: 9 },
-  right: { alignItems: 'flex-end', minWidth: 52 },
-  val: { fontSize: 18, fontWeight: '900', letterSpacing: -0.5 },
-  unit: { fontSize: 9, marginTop: 1 },
-});
-
-// ─── Main Screen ─────────────────────────────────────────────────────────────
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function SoilSparshDetailScreen({ navigation, route }) {
   const dispatch = useDispatch();
   const theme = useTheme();
@@ -453,7 +668,6 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
     deviceName,
     reading: passed,
   } = route.params;
-
   const { selectedReading, selectedReadingLoading } = useSelector(
     s => s.reports,
   );
@@ -478,9 +692,9 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
   const soilFields = fields.filter(f => f.meta.group === 'soil');
   const atmosFields = fields.filter(f => f.meta.group === 'atmos');
   const top4 = fields.slice(0, 4);
-
   const soilTemp = fields.find(f => f.label === 'Soil Temp (°C)');
   const atmosTemp = fields.find(f => f.label === 'Atmos Temp (°C)');
+  const hasImage = !!reading?.image_path;
 
   if (selectedReadingLoading && !reading) {
     return (
@@ -492,9 +706,7 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
         />
         <View style={s.center}>
           <ActivityIndicator size="large" color={DEVICE_COLOR} />
-          <Text style={{ color: T.muted, marginTop: 12, fontSize: 13 }}>
-            Loading…
-          </Text>
+          <Text style={{ color: T.muted, marginTop: 12 }}>Loading…</Text>
         </View>
       </SafeAreaView>
     );
@@ -521,12 +733,12 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
 
   const renderTab = () => {
     switch (activeTab) {
+      // ── Overview ──────────────────────────────────────────────────────────
       case 0:
         return (
           <>
-            {/* Mini stats */}
             <View style={s.statRow}>
-              {top4.map((f, i) => (
+              {top4.map(f => (
                 <MiniStat
                   key={f.label}
                   label={f.label.split(' ')[0]}
@@ -537,7 +749,10 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
               ))}
             </View>
 
-            {/* Temperature comparison */}
+            {/* Device image */}
+            <ImageCard imageUri={reading.image_path} T={T} />
+
+            {/* Temperature compare */}
             {soilTemp && atmosTemp && (
               <CompareCard soilField={soilTemp} atmosField={atmosTemp} T={T} />
             )}
@@ -630,8 +845,79 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
           </>
         );
 
+      // ── Chart ─────────────────────────────────────────────────────────────
       case 1:
-        return <AllFieldsDetail fields={fields} T={T} />;
+        return (
+          <SectionCard
+            title="All Values"
+            icon="chart-pie"
+            color={DEVICE_COLOR}
+            T={T}
+          >
+            <CombinedPieChart fields={fields} T={T} />
+          </SectionCard>
+        );
+
+      // ── All Fields table ──────────────────────────────────────────────────
+      case 2:
+        return (
+          <View
+            style={[
+              s.tableCard,
+              { backgroundColor: T.card, borderColor: T.border ?? '#E2E8F0' },
+            ]}
+          >
+            <View
+              style={[
+                s.tableHdr,
+                {
+                  borderBottomColor: T.border ?? '#E2E8F0',
+                  backgroundColor: DEVICE_COLOR + '10',
+                },
+              ]}
+            >
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+              >
+                <View
+                  style={[
+                    s.tableHdrIco,
+                    { backgroundColor: DEVICE_COLOR + '20' },
+                  ]}
+                >
+                  <Icon name="table" size={13} color={DEVICE_COLOR} />
+                </View>
+                <Text style={[s.tableHdrTxt, { color: T.text }]}>
+                  All Sensor Readings
+                </Text>
+              </View>
+              <View
+                style={[
+                  s.tableHdrBadge,
+                  {
+                    backgroundColor: DEVICE_COLOR + '18',
+                    borderColor: DEVICE_COLOR + '40',
+                  },
+                ]}
+              >
+                <Text style={[s.tableHdrBadgeTxt, { color: DEVICE_COLOR }]}>
+                  {fields.length} fields
+                </Text>
+              </View>
+            </View>
+            <View style={s.tableBody}>
+              <TableHeader T={T} />
+              {fields.map((f, i) => (
+                <FieldTableRow
+                  key={f.label}
+                  field={f}
+                  T={T}
+                  isLast={i === fields.length - 1}
+                />
+              ))}
+            </View>
+          </View>
+        );
 
       default:
         return null;
@@ -644,6 +930,7 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
         barStyle={T.statusBar ?? 'light-content'}
         backgroundColor={T.bg}
       />
+
       <TopBar
         title={`Reading #${readingId}`}
         subtitle={`${deviceName} · ${recordedAt.toLocaleDateString('en-IN', {
@@ -655,7 +942,7 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
         theme={theme}
       />
 
-      {/* Header accent strip */}
+      {/* Accent strip */}
       <View
         style={[
           s.accentStrip,
@@ -674,21 +961,7 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
             Soil & Atmospheric Monitor · {fields.length} sensors
           </Text>
         </View>
-        {reading.tag ? (
-          <View
-            style={[
-              s.tagChip,
-              {
-                backgroundColor: DEVICE_COLOR + '20',
-                borderColor: DEVICE_COLOR + '40',
-              },
-            ]}
-          >
-            <Text style={[s.tagTxt, { color: DEVICE_COLOR }]}>
-              #{reading.tag}
-            </Text>
-          </View>
-        ) : null}
+     
       </View>
 
       {/* Tab bar */}
@@ -739,7 +1012,7 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
 const s = StyleSheet.create({
   root: { flex: 1 },
   scroll: { padding: Spacing.lg, paddingTop: Spacing.md },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
 
   accentStrip: {
     flexDirection: 'row',
@@ -759,6 +1032,7 @@ const s = StyleSheet.create({
   },
   accentTitle: { fontSize: 13, fontWeight: '800' },
   accentSub: { fontSize: 10, marginTop: 1 },
+  accentRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   tagChip: {
     borderRadius: Radius.full,
     borderWidth: 1,
@@ -766,6 +1040,16 @@ const s = StyleSheet.create({
     paddingVertical: 4,
   },
   tagTxt: { fontSize: 11, fontWeight: '700' },
+  imgChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  imgChipTxt: { fontSize: 10, fontWeight: '600' },
 
   tabBar: { flexDirection: 'row', borderBottomWidth: 1 },
   tab: {
@@ -783,4 +1067,41 @@ const s = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
+
+  tableCard: {
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    overflow: 'hidden',
+    ...Shadow.sm,
+    marginBottom: Spacing.md,
+  },
+  tableHdr: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: Spacing.md,
+    paddingVertical: 11,
+    borderBottomWidth: 0.5,
+  },
+  tableHdrIco: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tableHdrTxt: {
+    fontSize: 13,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  tableHdrBadge: {
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  tableHdrBadgeTxt: { fontSize: 10, fontWeight: '700' },
+  tableBody: { padding: Spacing.md },
 });
