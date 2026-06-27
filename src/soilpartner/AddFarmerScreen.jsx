@@ -1,12 +1,19 @@
 // src/screens/soilpartner/AddFarmerScreen.jsx
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from 'react';
 import {
   View,
   Text,
   StyleSheet,
   StatusBar,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
@@ -21,6 +28,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
+import Geolocation from '@react-native-community/geolocation';
 import { Spacing, Radius, Shadow } from '../theme';
 import useTheme from '../hooks/useTheme';
 import { TopBar } from '../components/common';
@@ -30,8 +38,50 @@ import {
   checkAadhaar,
   resetCheckAadhaar,
   updateFarmerStatus,
+  resetUpdateStatus,
 } from '../redux/actions/soilPartnerActions';
 import { showMessage } from 'react-native-flash-message';
+
+// ─── All Indian States + UTs ──────────────────────────────────────────────────
+const INDIAN_STATES = [
+  'Andhra Pradesh',
+  'Arunachal Pradesh',
+  'Assam',
+  'Bihar',
+  'Chhattisgarh',
+  'Goa',
+  'Gujarat',
+  'Haryana',
+  'Himachal Pradesh',
+  'Jharkhand',
+  'Karnataka',
+  'Kerala',
+  'Madhya Pradesh',
+  'Maharashtra',
+  'Manipur',
+  'Meghalaya',
+  'Mizoram',
+  'Nagaland',
+  'Odisha',
+  'Punjab',
+  'Rajasthan',
+  'Sikkim',
+  'Tamil Nadu',
+  'Telangana',
+  'Tripura',
+  'Uttar Pradesh',
+  'Uttarakhand',
+  'West Bengal',
+  // Union Territories
+  'Andaman and Nicobar Islands',
+  'Chandigarh',
+  'Dadra and Nagar Haveli and Daman and Diu',
+  'Delhi',
+  'Jammu and Kashmir',
+  'Ladakh',
+  'Lakshadweep',
+  'Puducherry',
+];
 
 const SEASONS = [
   { value: 'kharif', label: 'Kharif', icon: 'weather-rainy' },
@@ -43,44 +93,49 @@ const PRIMARY = '#16A34A';
 
 // ─── Permission helper ────────────────────────────────────────────────────────
 async function requestAndroidPermission(type) {
-  // type: 'camera' | 'gallery'
   try {
     if (Platform.OS !== 'android') return true;
-
     if (type === 'camera') {
-      const granted = await PermissionsAndroid.request(
+      const g = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.CAMERA,
         {
           title: 'Camera Permission',
-          message: 'This app needs camera access to take a farmer photo.',
+          message: 'Needed to take a farmer photo.',
           buttonNeutral: 'Ask Me Later',
           buttonNegative: 'Deny',
           buttonPositive: 'Allow',
         },
       );
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
+      return g === PermissionsAndroid.RESULTS.GRANTED;
     }
-
     if (type === 'gallery') {
-      // Android 13+ uses READ_MEDIA_IMAGES; older uses READ_EXTERNAL_STORAGE
-      const permission =
+      const perm =
         parseInt(Platform.Version, 10) >= 33
           ? PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES
           : PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE;
-
-      const status = await PermissionsAndroid.check(permission);
-      if (status) return true; // already granted
-
-      const granted = await PermissionsAndroid.request(permission, {
+      if (await PermissionsAndroid.check(perm)) return true;
+      const g = await PermissionsAndroid.request(perm, {
         title: 'Gallery Permission',
-        message: 'This app needs gallery access to choose a farmer photo.',
+        message: 'Needed to choose a farmer photo.',
         buttonNeutral: 'Ask Me Later',
         buttonNegative: 'Deny',
         buttonPositive: 'Allow',
       });
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
+      return g === PermissionsAndroid.RESULTS.GRANTED;
     }
-
+    if (type === 'location') {
+      const g = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'Location Permission',
+          message: 'Needed to auto-fill coordinates.',
+          buttonNeutral: 'Ask Me Later',
+          buttonNegative: 'Deny',
+          buttonPositive: 'Allow',
+        },
+      );
+      return g === PermissionsAndroid.RESULTS.GRANTED;
+    }
     return true;
   } catch (err) {
     console.warn('Permission error:', err);
@@ -88,58 +143,29 @@ async function requestAndroidPermission(type) {
   }
 }
 
-// ─── Core photo picker ────────────────────────────────────────────────────────
+// ─── Photo picker ─────────────────────────────────────────────────────────────
 async function pickPhoto(source) {
-  // 1. Request permission on Android
-  const hasPermission = await requestAndroidPermission(source);
-  if (!hasPermission) {
-    Alert.alert(
-      'Permission Required',
-      source === 'camera'
-        ? 'Camera access was denied. Please enable it in Settings → Apps → Permissions.'
-        : 'Gallery access was denied. Please enable it in Settings → Apps → Permissions.',
-      [{ text: 'OK' }],
-    );
-    return null;
-  }
-
-  // 2. Image picker options
-  const options = {
+  const opts = {
     mediaType: 'photo',
     quality: 0.8,
     maxWidth: 800,
     maxHeight: 800,
-    includeBase64: false,
-    saveToPhotos: false,
   };
 
   try {
     const result =
       source === 'camera'
-        ? await launchCamera(options)
-        : await launchImageLibrary(options);
+        ? await launchCamera(opts)
+        : await launchImageLibrary(opts);
 
-    // User cancelled — not an error
-    if (result.didCancel) return null;
-
-    // Picker-level error
-    if (result.errorCode) {
-      const messages = {
-        camera_unavailable: 'Camera is not available on this device.',
-        permission: 'Permission denied. Please check your device settings.',
-        others: result.errorMessage ?? 'Could not open picker.',
-      };
-      Alert.alert('Error', messages[result.errorCode] ?? messages.others);
-      return null;
+    if (!result.didCancel && result.assets?.[0]) {
+      return result.assets[0];
     }
 
-    // Successful pick
-    const asset = result.assets?.[0];
-    if (!asset) return null;
-    return asset;
-  } catch (err) {
-    console.error('Image picker error:', err);
-    Alert.alert('Error', 'Could not open the photo picker. Please try again.');
+    return null;
+  } catch (error) {
+    console.log('Image Picker Error:', error);
+    Alert.alert('Error', 'Could not open camera/gallery');
     return null;
   }
 }
@@ -222,6 +248,259 @@ const inp = StyleSheet.create({
   input: { flex: 1, fontSize: 14, paddingVertical: 10 },
 });
 
+// ─── SelectButton — tappable field that opens a picker modal ─────────────────
+function SelectButton({ value, placeholder, onPress, T, error, icon }) {
+  const hasValue = !!value;
+  return (
+    <TouchableOpacity
+      style={[
+        sb.wrap,
+        {
+          backgroundColor: T.inputBg ?? T.card,
+          borderColor: error
+            ? '#EF4444'
+            : T.cardBorder ?? T.border ?? '#E2E8F0',
+        },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      {icon && (
+        <Icon
+          name={icon}
+          size={15}
+          color={hasValue ? PRIMARY : T.muted}
+          style={{ marginRight: 6 }}
+        />
+      )}
+      <Text
+        style={[sb.txt, { color: hasValue ? T.text : T.muted, flex: 1 }]}
+        numberOfLines={1}
+      >
+        {value || placeholder}
+      </Text>
+      <Icon
+        name={hasValue ? 'close-circle' : 'chevron-down'}
+        size={16}
+        color={T.muted}
+      />
+    </TouchableOpacity>
+  );
+}
+const sb = StyleSheet.create({
+  wrap: {
+    borderRadius: Radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    minHeight: 46,
+    borderWidth: 1,
+  },
+  txt: { fontSize: 14 },
+});
+
+// ─── SearchablePickerModal — generic searchable list modal ───────────────────
+function SearchablePickerModal({
+  visible,
+  title,
+  items,
+  selected,
+  onSelect,
+  onClose,
+  T,
+}) {
+  const [query, setQuery] = useState('');
+  const inputRef = useRef(null);
+
+  // Reset query when opened
+  useEffect(() => {
+    if (visible) {
+      setQuery('');
+      setTimeout(() => inputRef.current?.focus(), 150);
+    }
+  }, [visible]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter(i => i.toLowerCase().includes(q));
+  }, [query, items]);
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <View style={spm.overlay}>
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          onPress={onClose}
+          activeOpacity={1}
+        />
+        <View style={[spm.sheet, { backgroundColor: T.card }]}>
+          {/* Handle */}
+          <View
+            style={[spm.handle, { backgroundColor: T.border ?? '#E2E8F0' }]}
+          />
+
+          {/* Header */}
+          <View style={spm.header}>
+            <Text style={[spm.title, { color: T.text }]}>{title}</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Icon name="close" size={22} color={T.muted} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Search bar */}
+          <View
+            style={[
+              spm.searchBar,
+              { backgroundColor: T.bg, borderColor: T.border ?? '#E2E8F0' },
+            ]}
+          >
+            <Icon name="magnify" size={18} color={T.muted} />
+            <TextInput
+              ref={inputRef}
+              style={[spm.searchInput, { color: T.text }]}
+              placeholder={`Search ${title.toLowerCase()}…`}
+              placeholderTextColor={T.muted}
+              value={query}
+              onChangeText={setQuery}
+              autoCorrect={false}
+            />
+            {query.length > 0 && (
+              <TouchableOpacity onPress={() => setQuery('')}>
+                <Icon name="close-circle" size={16} color={T.muted} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Count */}
+          <Text style={[spm.count, { color: T.muted }]}>
+            {filtered.length} {filtered.length === 1 ? 'result' : 'results'}
+          </Text>
+
+          {/* List */}
+          <FlatList
+            data={filtered}
+            keyExtractor={item => item}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => {
+              const isSelected = item === selected;
+              return (
+                <TouchableOpacity
+                  style={[
+                    spm.item,
+                    {
+                      backgroundColor: isSelected
+                        ? PRIMARY + '12'
+                        : 'transparent',
+                      borderColor: isSelected
+                        ? PRIMARY + '40'
+                        : (T.border ?? '#E2E8F0') + '60',
+                    },
+                  ]}
+                  onPress={() => {
+                    onSelect(item);
+                    onClose();
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      spm.itemTxt,
+                      {
+                        color: isSelected ? PRIMARY : T.text,
+                        fontWeight: isSelected ? '800' : '500',
+                      },
+                    ]}
+                  >
+                    {item}
+                  </Text>
+                  {isSelected && (
+                    <Icon name="check-circle" size={18} color={PRIMARY} />
+                  )}
+                </TouchableOpacity>
+              );
+            }}
+            ListEmptyComponent={
+              <View style={spm.empty}>
+                <Icon
+                  name="magnify-close"
+                  size={36}
+                  color={T.muted}
+                  style={{ opacity: 0.3 }}
+                />
+                <Text style={[spm.emptyTxt, { color: T.muted }]}>
+                  No results for "{query}"
+                </Text>
+              </View>
+            }
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+const spm = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    maxHeight: '82%',
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    marginBottom: 12,
+  },
+  title: { fontSize: 18, fontWeight: '900' },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: Spacing.lg,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    height: 44,
+    marginBottom: 8,
+  },
+  searchInput: { flex: 1, fontSize: 14 },
+  count: { fontSize: 11, paddingHorizontal: Spacing.lg, marginBottom: 4 },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 13,
+    borderBottomWidth: 0.5,
+  },
+  itemTxt: { fontSize: 15, flex: 1 },
+  empty: { alignItems: 'center', paddingVertical: 40, gap: 10 },
+  emptyTxt: { fontSize: 14 },
+});
+
 // ─── Card ─────────────────────────────────────────────────────────────────────
 function Card({ title, icon, color = PRIMARY, children, T }) {
   return (
@@ -276,7 +555,7 @@ const cd = StyleSheet.create({
   body: { padding: Spacing.md },
 });
 
-// ─── DuplicateAadhaarModal ────────────────────────────────────────────────────
+// ─── Duplicate Aadhaar modal ──────────────────────────────────────────────────
 function DuplicateAadhaarModal({
   visible,
   existingFarmer,
@@ -309,7 +588,9 @@ function DuplicateAadhaarModal({
               {existingFarmer.name}
             </Text>
             <Text style={[dup.infoDetail, { color: T.muted }]}>
-              {existingFarmer.village} · {existingFarmer.phone}
+              {[existingFarmer.village, existingFarmer.phone]
+                .filter(Boolean)
+                .join(' · ')}
             </Text>
             <View
               style={[
@@ -327,12 +608,30 @@ function DuplicateAadhaarModal({
               {existingFarmer.reset_hint}
             </Text>
           ) : null}
+          <View
+            style={[
+              dup.questionBox,
+              { backgroundColor: '#2563EB10', borderColor: '#2563EB30' },
+            ]}
+          >
+            <Icon name="help-circle-outline" size={16} color="#2563EB" />
+            <Text style={[dup.questionTxt, { color: T.text }]}>
+              Do you want to re-register this farmer? Their status will be
+              updated to{' '}
+              <Text style={{ fontWeight: '900', color: '#7C3AED' }}>
+                Re-Registered
+              </Text>
+              .
+            </Text>
+          </View>
           <View style={dup.actions}>
             <TouchableOpacity
               style={[dup.cancelBtn, { borderColor: T.border ?? '#E2E8F0' }]}
               onPress={onCancel}
             >
-              <Text style={[dup.cancelTxt, { color: T.muted }]}>Go Back</Text>
+              <Text style={[dup.cancelTxt, { color: T.muted }]}>
+                No, Go Back
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -351,7 +650,7 @@ function DuplicateAadhaarModal({
                     size={16}
                     color="#fff"
                   />
-                  <Text style={dup.reregTxt}>Re-Register</Text>
+                  <Text style={dup.reregTxt}>Yes, Re-Register</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -396,7 +695,7 @@ const dup = StyleSheet.create({
     borderRadius: Radius.lg,
     borderWidth: 1,
     padding: 14,
-    marginBottom: 10,
+    marginBottom: 12,
     alignItems: 'center',
     gap: 4,
   },
@@ -413,31 +712,42 @@ const dup = StyleSheet.create({
   hint: {
     fontSize: 11,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     fontStyle: 'italic',
   },
+  questionBox: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 16,
+  },
+  questionTxt: { flex: 1, fontSize: 13, lineHeight: 18 },
   actions: { flexDirection: 'row', gap: 10, width: '100%' },
   cancelBtn: {
     flex: 1,
     borderRadius: Radius.lg,
     borderWidth: 1,
-    paddingVertical: 12,
+    paddingVertical: 13,
     alignItems: 'center',
   },
-  cancelTxt: { fontSize: 14, fontWeight: '700' },
+  cancelTxt: { fontSize: 13, fontWeight: '700' },
   reregBtn: {
     flex: 1,
     borderRadius: Radius.lg,
-    paddingVertical: 12,
+    paddingVertical: 13,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  reregTxt: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  reregTxt: { color: '#fff', fontSize: 13, fontWeight: '800' },
 });
 
-// ─── PhotoPickerModal ─────────────────────────────────────────────────────────
+// ─── Photo picker modal ───────────────────────────────────────────────────────
 function PhotoPickerModal({ visible, onPick, onClose, T }) {
   return (
     <Modal
@@ -549,6 +859,7 @@ export default function AddFarmerScreen({ navigation }) {
     aadhaarCheckLoading,
     updateStatusLoading,
     updateStatusSuccess,
+    updateStatusError,
   } = useSelector(s => s.soilPartner ?? {});
 
   const [form, setForm] = useState({
@@ -563,18 +874,23 @@ export default function AddFarmerScreen({ navigation }) {
     season: '',
     mobile: '',
     email: '',
+    latitude: '',
+    longitude: '',
   });
   const [errors, setErrors] = useState({});
   const [photo, setPhoto] = useState(null);
   const [aadhaarDirty, setAadhaarDirty] = useState(false);
   const [dupModalOpen, setDupModalOpen] = useState(false);
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
-  const [pickerBusy, setPickerBusy] = useState(false); // prevents double-tap
+  const [statePickerOpen, setStatePickerOpen] = useState(false);
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const [locLoading, setLocLoading] = useState(false);
   const aadhaarTimer = useRef(null);
+  const reregHandled = useRef(false);
 
   const set = (key, val) => setForm(prev => ({ ...prev, [key]: val }));
 
-  // ── Side effects ────────────────────────────────────────────────────────────
+  // ── Side effects ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (addFarmerSuccess) {
       showMessage({
@@ -601,21 +917,37 @@ export default function AddFarmerScreen({ navigation }) {
   }, [aadhaarCheck]);
 
   useEffect(() => {
-    if (updateStatusSuccess && dupModalOpen) {
+    if (updateStatusSuccess && dupModalOpen && !reregHandled.current) {
+      reregHandled.current = true;
       showMessage({
         message: 'Farmer re-registered successfully!',
         type: 'success',
       });
       dispatch(resetCheckAadhaar());
+      dispatch(resetUpdateStatus());
       setDupModalOpen(false);
       navigation.goBack();
     }
   }, [updateStatusSuccess]);
 
-  // ── Aadhaar debounce ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (updateStatusError && dupModalOpen) {
+      showMessage({
+        message:
+          typeof updateStatusError === 'string'
+            ? updateStatusError
+            : 'Re-registration failed',
+        type: 'danger',
+      });
+      dispatch(resetUpdateStatus());
+    }
+  }, [updateStatusError]);
+
+  // ── Aadhaar ───────────────────────────────────────────────────────────────
   const handleAadhaarChange = useCallback(val => {
     set('aadhaar_number', val);
     setAadhaarDirty(true);
+    reregHandled.current = false;
     const clean = val.replace(/\s/g, '');
     if (aadhaarTimer.current) clearTimeout(aadhaarTimer.current);
     if (clean.length === 12) {
@@ -628,31 +960,52 @@ export default function AddFarmerScreen({ navigation }) {
     }
   }, []);
 
-  // ── Photo picker ─────────────────────────────────────────────────────────────
+  // ── Location ──────────────────────────────────────────────────────────────
+  const handleUseMyLocation = useCallback(async () => {
+    const ok = await requestAndroidPermission('location');
+    if (!ok) {
+      Alert.alert(
+        'Permission Required',
+        'Location access denied. Enable in Settings.',
+      );
+      return;
+    }
+    setLocLoading(true);
+    Geolocation.getCurrentPosition(
+      pos => {
+        set('latitude', pos.coords.latitude.toFixed(6));
+        set('longitude', pos.coords.longitude.toFixed(6));
+        setLocLoading(false);
+        showMessage({ message: 'Location filled!', type: 'success' });
+      },
+      err => {
+        setLocLoading(false);
+        Alert.alert('Location Error', err.message ?? 'Could not get location.');
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+    );
+  }, []);
+
+  // ── Photo ─────────────────────────────────────────────────────────────────
   const handlePhotoPick = useCallback(
     async source => {
-      if (pickerBusy) return; // prevent double-tap race
+      if (pickerBusy) return;
       setPickerBusy(true);
       setPhotoModalOpen(false);
-
-      // Small delay so the modal animation finishes before the picker opens
-      // (prevents a known iOS black-screen glitch when modal + picker overlap)
-      await new Promise(resolve =>
-        setTimeout(resolve, Platform.OS === 'ios' ? 350 : 150),
-      );
-
+      await new Promise(r => setTimeout(r, Platform.OS === 'ios' ? 350 : 150));
       const asset = await pickPhoto(source);
       setPickerBusy(false);
-
       if (asset) setPhoto(asset);
     },
     [pickerBusy],
   );
 
-  // ── Re-register ──────────────────────────────────────────────────────────────
+  // ── Re-register ───────────────────────────────────────────────────────────
   const handleReRegister = useCallback(() => {
-    if (aadhaarCheck?.id)
+    if (aadhaarCheck?.id) {
+      reregHandled.current = false;
       dispatch(updateFarmerStatus(aadhaarCheck.id, 're_registered'));
+    }
   }, [aadhaarCheck]);
 
   const handleDupCancel = () => {
@@ -660,7 +1013,7 @@ export default function AddFarmerScreen({ navigation }) {
     dispatch(resetCheckAadhaar());
   };
 
-  // ── Validation ───────────────────────────────────────────────────────────────
+  // ── Validation ────────────────────────────────────────────────────────────
   const validate = () => {
     const e = {};
     if (!form.farmer_name.trim()) e.farmer_name = 'Required';
@@ -668,13 +1021,17 @@ export default function AddFarmerScreen({ navigation }) {
     if (!form.aadhaar_number.trim()) e.aadhaar_number = 'Required';
     else if (form.aadhaar_number.replace(/\s/g, '').length !== 12)
       e.aadhaar_number = 'Must be 12 digits';
-    if (!form.state.trim()) e.state = 'Required';
+    if (!form.state) e.state = 'Select a state';
     if (!form.district.trim()) e.district = 'Required';
     if (!form.village.trim()) e.village = 'Required';
     if (!form.land_area) e.land_area = 'Required';
     else if (isNaN(Number(form.land_area))) e.land_area = 'Must be a number';
     if (!form.crop.trim()) e.crop = 'Required';
     if (!form.season) e.season = 'Select a season';
+    if (form.latitude && isNaN(Number(form.latitude)))
+      e.latitude = 'Must be a number';
+    if (form.longitude && isNaN(Number(form.longitude)))
+      e.longitude = 'Must be a number';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -686,17 +1043,17 @@ export default function AddFarmerScreen({ navigation }) {
     }
     if (!validate()) return;
     const payload = { ...form, land_area: Number(form.land_area) };
-    if (photo) {
+    if (form.latitude) payload.latitude = Number(form.latitude);
+    if (form.longitude) payload.longitude = Number(form.longitude);
+    if (photo)
       payload.farmer_image = {
         uri: photo.uri,
         type: photo.type ?? 'image/jpeg',
         name: photo.fileName ?? `farmer_${Date.now()}.jpg`,
       };
-    }
     dispatch(addFarmer(payload));
   };
 
-  // ── Aadhaar suffix icon ──────────────────────────────────────────────────────
   const aadhaarSuffix = () => {
     if (form.aadhaar_number.replace(/\s/g, '').length !== 12) return null;
     if (aadhaarCheckLoading)
@@ -728,7 +1085,7 @@ export default function AddFarmerScreen({ navigation }) {
     return null;
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[s.root, { backgroundColor: T.bg }]}>
       <StatusBar
@@ -806,7 +1163,7 @@ export default function AddFarmerScreen({ navigation }) {
             </View>
           </View>
 
-          {/* ── Basic info ─────────────────────────────────── */}
+          {/* ── Basic Information ───────────────────────────── */}
           <Card
             title="Basic Information"
             icon="account-outline"
@@ -865,7 +1222,6 @@ export default function AddFarmerScreen({ navigation }) {
                 />
               </View>
             </View>
-
             <FieldLabel label="Aadhaar Number" required T={T} />
             <Input
               value={form.aadhaar_number}
@@ -895,6 +1251,7 @@ export default function AddFarmerScreen({ navigation }) {
                 <Text style={[s.aadhaarBannerTxt, { color: '#F59E0B' }]}>
                   Aadhaar already registered — tap to re-register
                 </Text>
+                <Icon name="chevron-right" size={14} color="#F59E0B" />
               </TouchableOpacity>
             )}
             {aadhaarCheck && !aadhaarCheck.exists && (
@@ -912,25 +1269,53 @@ export default function AddFarmerScreen({ navigation }) {
             )}
           </Card>
 
-          {/* ── Location ───────────────────────────────────── */}
+          {/* ── Location ────────────────────────────────────── */}
           <Card
             title="Location"
             icon="map-marker-outline"
             color="#2563EB"
             T={T}
           >
-            <View style={s.row}>
-              <View style={s.col}>
-                <FieldLabel label="State" required T={T} />
-                <Input
-                  value={form.state}
-                  onChangeText={v => set('state', v)}
-                  placeholder="e.g. Karnataka"
-                  T={T}
-                  error={errors.state}
-                />
-                {errors.state && <Text style={s.err}>{errors.state}</Text>}
-              </View>
+            {/* State — searchable picker */}
+            <FieldLabel label="State" required T={T} />
+            <SelectButton
+              value={form.state}
+              placeholder="Select state…"
+              onPress={() => setStatePickerOpen(true)}
+              T={T}
+              error={!!errors.state}
+              icon="map-outline"
+            />
+            {/* Clear state chip */}
+            {form.state ? (
+              <TouchableOpacity
+                style={[
+                  s.selectedChip,
+                  {
+                    backgroundColor: PRIMARY + '12',
+                    borderColor: PRIMARY + '30',
+                  },
+                ]}
+                onPress={() => setStatePickerOpen(true)}
+              >
+                <Icon name="map-outline" size={12} color={PRIMARY} />
+                <Text style={[s.selectedChipTxt, { color: PRIMARY }]}>
+                  {form.state}
+                </Text>
+                <TouchableOpacity
+                  onPress={() => set('state', '')}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Icon name="close-circle" size={14} color={PRIMARY} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ) : null}
+            {errors.state && (
+              <Text style={[s.err, { marginBottom: 8 }]}>{errors.state}</Text>
+            )}
+
+            {/* District + Village */}
+            <View style={[s.row, { marginTop: 10 }]}>
               <View style={s.col}>
                 <FieldLabel label="District" required T={T} />
                 <Input
@@ -944,19 +1329,93 @@ export default function AddFarmerScreen({ navigation }) {
                   <Text style={s.err}>{errors.district}</Text>
                 )}
               </View>
+              <View style={s.col}>
+                <FieldLabel label="Village" required T={T} />
+                <Input
+                  value={form.village}
+                  onChangeText={v => set('village', v)}
+                  placeholder="Village name"
+                  T={T}
+                  error={errors.village}
+                />
+                {errors.village && <Text style={s.err}>{errors.village}</Text>}
+              </View>
             </View>
-            <FieldLabel label="Village" required T={T} />
-            <Input
-              value={form.village}
-              onChangeText={v => set('village', v)}
-              placeholder="Village name"
-              T={T}
-              error={errors.village}
-            />
-            {errors.village && <Text style={s.err}>{errors.village}</Text>}
+
+            {/* Lat / Lng */}
+            <View style={s.row}>
+              <View style={s.col}>
+                <FieldLabel label="Latitude" T={T} />
+                <Input
+                  value={form.latitude}
+                  onChangeText={v => set('latitude', v)}
+                  placeholder="e.g. 18.5204"
+                  keyboardType="decimal-pad"
+                  T={T}
+                  error={errors.latitude}
+                  suffix={
+                    form.latitude ? (
+                      <Icon
+                        name="crosshairs-gps"
+                        size={14}
+                        color="#16A34A"
+                        style={{ marginLeft: 4 }}
+                      />
+                    ) : null
+                  }
+                />
+                {errors.latitude && (
+                  <Text style={s.err}>{errors.latitude}</Text>
+                )}
+              </View>
+              <View style={s.col}>
+                <FieldLabel label="Longitude" T={T} />
+                <Input
+                  value={form.longitude}
+                  onChangeText={v => set('longitude', v)}
+                  placeholder="e.g. 73.8567"
+                  keyboardType="decimal-pad"
+                  T={T}
+                  error={errors.longitude}
+                  suffix={
+                    form.longitude ? (
+                      <Icon
+                        name="crosshairs-gps"
+                        size={14}
+                        color="#16A34A"
+                        style={{ marginLeft: 4 }}
+                      />
+                    ) : null
+                  }
+                />
+                {errors.longitude && (
+                  <Text style={s.err}>{errors.longitude}</Text>
+                )}
+              </View>
+            </View>
+
+            {/* Use My Location */}
+            <TouchableOpacity
+              style={[
+                s.locationBtn,
+                { backgroundColor: '#2563EB12', borderColor: '#2563EB40' },
+              ]}
+              onPress={handleUseMyLocation}
+              disabled={locLoading}
+              activeOpacity={0.8}
+            >
+              {locLoading ? (
+                <ActivityIndicator size="small" color="#2563EB" />
+              ) : (
+                <Icon name="crosshairs-gps" size={16} color="#2563EB" />
+              )}
+              <Text style={[s.locationBtnTxt, { color: '#2563EB' }]}>
+                {locLoading ? 'Getting location…' : 'Use My Location'}
+              </Text>
+            </TouchableOpacity>
           </Card>
 
-          {/* ── Farm details ────────────────────────────────── */}
+          {/* ── Farm Details ─────────────────────────────────── */}
           <Card
             title="Farm Details"
             icon="sprout-outline"
@@ -1062,7 +1521,16 @@ export default function AddFarmerScreen({ navigation }) {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Modals */}
+      {/* ── Modals ─────────────────────────────────────────── */}
+      <SearchablePickerModal
+        visible={statePickerOpen}
+        title="State / UT"
+        items={INDIAN_STATES}
+        selected={form.state}
+        onSelect={v => set('state', v)}
+        onClose={() => setStatePickerOpen(false)}
+        T={T}
+      />
       <DuplicateAadhaarModal
         visible={dupModalOpen}
         existingFarmer={aadhaarCheck?.exists ? aadhaarCheck : null}
@@ -1088,7 +1556,6 @@ const s = StyleSheet.create({
   col: { flex: 1 },
   err: { color: '#EF4444', fontSize: 11, marginTop: 3 },
 
-  // Photo section
   photoSection: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1140,7 +1607,6 @@ const s = StyleSheet.create({
   },
   removeTxt: { color: '#EF4444', fontSize: 12, fontWeight: '700' },
 
-  // Aadhaar banner
   aadhaarBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1152,7 +1618,31 @@ const s = StyleSheet.create({
   },
   aadhaarBannerTxt: { fontSize: 12, fontWeight: '600', flex: 1 },
 
-  // Season
+  selectedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginTop: 8,
+  },
+  selectedChipTxt: { fontSize: 13, fontWeight: '700' },
+
+  locationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    paddingVertical: 11,
+    marginTop: 4,
+  },
+  locationBtnTxt: { fontSize: 13, fontWeight: '700' },
+
   seasonRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },
   seasonBtn: {
     flex: 1,
@@ -1163,7 +1653,6 @@ const s = StyleSheet.create({
   },
   seasonTxt: { fontSize: 12 },
 
-  // Submit
   submitBtn: {
     flexDirection: 'row',
     alignItems: 'center',

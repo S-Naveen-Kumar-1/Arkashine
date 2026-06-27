@@ -69,14 +69,14 @@ const DAILY_TIPS = [
     title: 'Nutrient Balance',
     description:
       'Use balanced fertilizers with nitrogen, phosphorus, and potassium.',
-    icon: 'leaf-circle',
+    icon: 'leaf',
     color: '#EC4899',
   },
   {
     id: 7,
     title: 'Weed Management',
     description: 'Remove weeds regularly to reduce crop competition.',
-    icon: 'botanicals',
+    icon: 'grass',
     color: '#14B8A6',
   },
   {
@@ -99,11 +99,10 @@ const DAILY_TIPS = [
     id: 10,
     title: 'Mulching Benefits',
     description: 'Apply mulch to retain soil moisture and reduce weed growth.',
-    icon: 'tree-outline',
+    icon: 'forest',
     color: '#8B4513',
   },
 ];
-
 // Function to get random tip
 const getRandomTip = () => {
   const randomIndex = Math.floor(Math.random() * DAILY_TIPS.length);

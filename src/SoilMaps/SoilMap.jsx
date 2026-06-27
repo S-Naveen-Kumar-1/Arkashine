@@ -636,6 +636,7 @@ function SoilResultSheet({
   onClose,
   onNutrientSelect,
   selectedNutrient,
+  onProceed,
 }) {
   const slideAnim = useRef(new Animated.Value(SCREEN_H)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -789,6 +790,25 @@ function SoilResultSheet({
             </View>
           )}
         </ScrollView>
+        {/* Upsell CTA */}
+        <View style={rs.upsellCard}>
+          <View style={rs.upsellLeft}>
+            <Text style={rs.upsellEmoji}>🔬</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={rs.upsellTitle}>Want lab-accurate results?</Text>
+              <Text style={rs.upsellSub}>
+                Get a certified soil test with crop-specific recommendations
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={rs.upsellBtn}
+            onPress={onProceed}
+            activeOpacity={0.8}
+          >
+            <Text style={rs.upsellBtnTxt}>Explore →</Text>
+          </TouchableOpacity>
+        </View>
       </Animated.View>
     </Animated.View>
   );
@@ -885,6 +905,51 @@ const rs = StyleSheet.create({
   },
   envVal: { fontSize: 14, fontWeight: '800' },
   envLabel: { color: '#64748B', fontSize: 10, marginTop: 2, fontWeight: '600' },
+  upsellCard: {
+    flexDirection: 'column',
+    gap: SP.sm,
+    backgroundColor: 'rgba(34,197,94,0.07)',
+    borderRadius: R.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.25)',
+    padding: SP.md,
+    marginTop: SP.sm,
+    marginBottom: SP.lg,
+  },
+  upsellLeft: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SP.sm,
+  },
+  upsellEmoji: {
+    fontSize: 28,
+    marginTop: 2,
+  },
+  upsellTitle: {
+    color: C.white,
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+  },
+  upsellSub: {
+    color: C.muted,
+    fontSize: 12,
+    marginTop: 3,
+    lineHeight: 17,
+  },
+  upsellBtn: {
+    backgroundColor: C.primary,
+    borderRadius: R.md,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upsellBtnTxt: {
+    color: C.bg,
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
 });
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -908,7 +973,7 @@ export function MapScreen({ navigation }) {
   const [isAnalysing, setIsAnalysing] = useState(false);
   const [soilData, setSoilData] = useState(null);
   const [selectedNutrient, setSelectedNutrient] = useState(null);
-
+  const [mapLoading, setMapLoading] = useState(true);
   useEffect(() => {
     fetchLocation();
     return () => {
@@ -1002,6 +1067,7 @@ export function MapScreen({ navigation }) {
     }
     if (data.type === 'MAP_READY') {
       mapReady.current = true;
+      setMapLoading(false); // ← add this line
       if (cachedLoc.current)
         webViewRef.current?.postMessage(
           JSON.stringify({ type: 'SET_LOCATION', ...cachedLoc.current }),
@@ -1134,7 +1200,21 @@ export function MapScreen({ navigation }) {
       setIsAnalysing(false);
     }
   };
-
+  // ── Go to current location ────────────────────────────────────────────────
+  const goToCurrentLocation = () => {
+    if (cachedLoc.current) {
+      webViewRef.current?.postMessage(
+        JSON.stringify({
+          type: 'FLY_TO',
+          lat: cachedLoc.current.lat,
+          lng: cachedLoc.current.lng,
+          zoom: 16,
+        }),
+      );
+    } else {
+      fetchLocation();
+    }
+  };
   // ── UI helpers ────────────────────────────────────────────────────────────
   const statusText = isClosed
     ? '✓ Polygon closed — tap Analyse'
@@ -1175,7 +1255,28 @@ export function MapScreen({ navigation }) {
         bounces={false}
         scrollEnabled={false}
       />
-
+      {/* Map Loading Overlay */}
+      {mapLoading && (
+        <View style={s.mapLoadOverlay}>
+          <View style={s.mapLoadCard}>
+            <ActivityIndicator size="large" color={C.primary} />
+            <Text style={s.mapLoadTitle}>Loading Map</Text>
+            <Text style={s.mapLoadSub}>Preparing satellite view…</Text>
+            {/* Animated dots */}
+            <View style={s.mapLoadDots}>
+              {[0, 1, 2].map(i => (
+                <View
+                  key={i}
+                  style={[
+                    s.mapLoadDot,
+                    { opacity: 0.3 + i * 0.25, backgroundColor: C.primary },
+                  ]}
+                />
+              ))}
+            </View>
+          </View>
+        </View>
+      )}
       {/* ── TOP BAR: back button + search ── */}
       <View style={s.topBar}>
         {/* Back button */}
@@ -1298,6 +1399,21 @@ export function MapScreen({ navigation }) {
           </View> */}
         </>
       )}
+      {/* Current Location FAB */}
+      <TouchableOpacity
+        style={s.locFab}
+        onPress={goToCurrentLocation}
+        activeOpacity={0.75}
+      >
+        <Text
+          style={[
+            s.locFabIco,
+            { color: locStatus === 'denied' ? C.warning : C.primary },
+          ]}
+        >
+          {locStatus === 'loading' ? '⟳' : '◎'}
+        </Text>
+      </TouchableOpacity>
 
       {/* Bottom bar */}
       <View style={s.bar}>
@@ -1360,6 +1476,7 @@ export function MapScreen({ navigation }) {
             setSoilData(null);
             setSelectedNutrient(null);
           }}
+          onProceed={() => navigation?.navigate('ProductsListingScreen')} // ← add this
         />
       )}
     </SafeAreaView>
@@ -1369,7 +1486,39 @@ export function MapScreen({ navigation }) {
 // ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
-
+  // Map loading overlay
+  mapLoadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: C.bg,
+    zIndex: 200,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapLoadCard: {
+    alignItems: 'center',
+    gap: SP.sm,
+  },
+  mapLoadTitle: {
+    color: C.white,
+    fontSize: 20,
+    fontWeight: '900',
+    marginTop: SP.sm,
+    letterSpacing: 0.4,
+  },
+  mapLoadSub: {
+    color: C.muted,
+    fontSize: 13,
+  },
+  mapLoadDots: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: SP.sm,
+  },
+  mapLoadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 99,
+  },
   // Top bar
   topBar: {
     position: 'absolute',
@@ -1522,7 +1671,29 @@ const s = StyleSheet.create({
     elevation: 8,
   },
   locIco: { fontSize: 24, fontWeight: '700' },
-
+  // Location FAB
+  locFab: {
+    position: 'absolute',
+    bottom: 110,
+    right: SP.md,
+    width: 50,
+    height: 50,
+    backgroundColor: C.card,
+    borderRadius: R.lg,
+    borderWidth: 1.5,
+    borderColor: C.borderLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: C.primary,
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 10,
+    zIndex: 95,
+  },
+  locFabIco: {
+    fontSize: 24,
+    fontWeight: '700',
+  },
   // Bottom bar
   bar: {
     position: 'absolute',

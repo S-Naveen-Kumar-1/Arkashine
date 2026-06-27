@@ -149,6 +149,10 @@ function PDFDownloadButton({
       const base64 = Buffer.from(pdfData, 'binary').toString('base64');
       const filePath = `${RNFS.DocumentDirectoryPath}/${fileName}_${readingId}.pdf`;
       await RNFS.writeFile(filePath, base64, 'base64');
+      console.log('response', response);
+      console.log('pdfData', pdfData);
+      console.log('filePath', filePath);
+      console.log('DocumentDirectoryPath', RNFS.DocumentDirectoryPath);
       await Share.open({
         url: `file://${filePath}`,
         type: 'application/pdf',

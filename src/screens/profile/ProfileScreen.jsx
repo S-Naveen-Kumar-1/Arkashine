@@ -203,7 +203,7 @@ const spb = StyleSheet.create({
     paddingVertical: 11,
     marginTop: 12,
     marginBottom: 2,
-    ...Shadow.sm,
+    // ...Shadow.sm,
   },
   iconWrap: {
     width: 40,
@@ -412,7 +412,7 @@ const faqItem = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 12,
     overflow: 'hidden',
-    ...Shadow.sm,
+    // ...Shadow.sm,
   },
   header: {
     flexDirection: 'row',
@@ -692,7 +692,7 @@ const helpModal = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
     gap: 12,
-    ...Shadow.sm,
+    // ...Shadow.sm,
   },
   contactIcon: {
     width: 40,
@@ -886,7 +886,7 @@ export default function ProfileScreen({ navigation }) {
               style={[
                 s.statCard,
                 { backgroundColor: T.card, borderColor: T.cardBorder },
-                Shadow.sm,
+                // Shadow.sm,
               ]}
             >
               <View style={[s.statIcon, { backgroundColor: st.color + '18' }]}>
@@ -908,7 +908,7 @@ export default function ProfileScreen({ navigation }) {
           style={[
             s.settingsCard,
             { backgroundColor: T.card, borderColor: T.cardBorder },
-            Shadow.sm,
+            // Shadow.sm,
           ]}
         >
           {APP_SETTINGS.map((item, i) => (
@@ -958,7 +958,6 @@ export default function ProfileScreen({ navigation }) {
           style={[
             s.settingsCard,
             { backgroundColor: T.card, borderColor: T.cardBorder },
-            Shadow.sm,
           ]}
         >
           {ACCOUNT_ITEMS.map((item, i) => (

@@ -1411,7 +1411,17 @@ export default function FarmerDetailScreen({ navigation, route }) {
                   imageUri={farmer.farmer_image}
                 />
               )}
-
+              {hasImage && !imageLoading && (
+                <TouchableOpacity
+                  style={[
+                    s.deleteBtn,
+                    {   backgroundColor: T.card, borderColor: '#EF444440' },
+                  ]}
+                  onPress={handlePhotoDelete}
+                >
+                  <Icon name="trash-can-outline" size={11} color="#EF4444" />
+                </TouchableOpacity>
+              )}
               {/* Camera button */}
               <TouchableOpacity
                 style={[
@@ -1428,17 +1438,6 @@ export default function FarmerDetailScreen({ navigation, route }) {
               </TouchableOpacity>
 
               {/* Delete button — only shown when image exists */}
-              {hasImage && !imageLoading && (
-                <TouchableOpacity
-                  style={[
-                    s.deleteBtn,
-                    { backgroundColor: '#EF444418', borderColor: '#EF444440' },
-                  ]}
-                  onPress={handlePhotoDelete}
-                >
-                  <Icon name="trash-can-outline" size={11} color="#EF4444" />
-                </TouchableOpacity>
-              )}
             </View>
 
             {/* Info */}
@@ -1952,8 +1951,8 @@ const s = StyleSheet.create({
   // Delete button — top right of avatar, red
   deleteBtn: {
     position: 'absolute',
-    top: -2,
-    right: -2,
+    bottom: -2,
+    left: -6,
     width: 22,
     height: 22,
     borderRadius: 11,

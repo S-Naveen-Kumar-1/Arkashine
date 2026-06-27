@@ -28,7 +28,7 @@ export default function LoginScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
   const { loading, error } = useSelector(s => s.auth);
-
+  const submitting = useRef(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -63,7 +63,12 @@ export default function LoginScreen({ navigation }) {
   };
 
   const handleLogin = async () => {
-    if (!validate()) return;
+    if (submitting.current) return; 
+    submitting.current = true; 
+    if (!validate()) {
+      submitting.current = false; 
+      return;
+    }
     try {
       const result = await dispatch(loginUser({ username, password }));
       const data = result?.payload?.data ?? result?.payload;
@@ -87,6 +92,8 @@ export default function LoginScreen({ navigation }) {
       }
     } catch (err) {
       showMessage({ message: 'Login failed', type: 'danger' });
+    } finally {
+      submitting.current = false; 
     }
   };
 

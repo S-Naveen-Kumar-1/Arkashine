@@ -536,7 +536,6 @@ const gc = StyleSheet.create({
 // ─── Image card ───────────────────────────────────────────────────────────────
 function ImageCard({ imageUri, T }) {
   const [failed, setFailed] = useState(false);
-
   if (!imageUri || failed) {
     return (
       <View

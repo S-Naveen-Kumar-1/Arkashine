@@ -9,6 +9,7 @@ import {
   TextInput,
   ActivityIndicator,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
   Dimensions,
 } from 'react-native';
@@ -228,7 +229,7 @@ export default function RegisterScreen({ navigation }) {
       {/* Decorative blob */}
       <View style={[s.blob, { backgroundColor: T.primaryDim }]} />
 
-      {/* Header */}
+      {/* Header — outside KAV so it never moves */}
       <View style={[s.header, { borderBottomColor: T.cardBorder }]}>
         <TouchableOpacity
           style={[
@@ -266,12 +267,18 @@ export default function RegisterScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
+      {/* KAV wraps only the scrollable content */}
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={s.kav}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -10}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <View style={s.body}>
+        <ScrollView
+          contentContainerStyle={s.body}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
           {/* API error banner */}
           {error ? (
             <View
@@ -346,50 +353,46 @@ export default function RegisterScreen({ navigation }) {
               </View>
             </View>
 
-            {/* Row 2: Phone + Email */}
-            <View style={s.row}>
-              <View style={{ flex: 1 }}>
-                <Field
-                  label="PHONE"
-                  icon="phone-outline"
-                  value={phone}
-                  onChange={v => {
-                    setPhone(v);
-                    if (errors.phone) setErrors(p => ({ ...p, phone: null }));
-                  }}
-                  placeholder="+91 98765..."
-                  error={errors.phone}
-                  isFocused={focused === 'phone'}
-                  onFocus={() => setFocused('phone')}
-                  onBlur={() => setFocused(null)}
-                  inputRef={phoneRef}
-                  keyboardType="phone-pad"
-                  returnKeyType="done"
-                  onSubmitEditing={() => emailRef.current?.focus()}
-                  T={T}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Field
-                  label="EMAIL"
-                  icon="email-outline"
-                  value={email}
-                  onChange={v => {
-                    setEmail(v);
-                    if (errors.email) setErrors(p => ({ ...p, email: null }));
-                  }}
-                  placeholder="you@example.com"
-                  error={errors.email}
-                  isFocused={focused === 'email'}
-                  onFocus={() => setFocused('email')}
-                  onBlur={() => setFocused(null)}
-                  inputRef={emailRef}
-                  keyboardType="email-address"
-                  onSubmitEditing={() => usernameRef.current?.focus()}
-                  T={T}
-                />
-              </View>
-            </View>
+            {/* Phone */}
+            <Field
+              label="PHONE"
+              icon="phone-outline"
+              value={phone}
+              onChange={v => {
+                setPhone(v);
+                if (errors.phone) setErrors(p => ({ ...p, phone: null }));
+              }}
+              placeholder="987654321"
+              error={errors.phone}
+              isFocused={focused === 'phone'}
+              onFocus={() => setFocused('phone')}
+              onBlur={() => setFocused(null)}
+              inputRef={phoneRef}
+              keyboardType="phone-pad"
+              returnKeyType="done"
+              onSubmitEditing={() => emailRef.current?.focus()}
+              T={T}
+            />
+
+            {/* Email */}
+            <Field
+              label="EMAIL"
+              icon="email-outline"
+              value={email}
+              onChange={v => {
+                setEmail(v);
+                if (errors.email) setErrors(p => ({ ...p, email: null }));
+              }}
+              placeholder="you@example.com"
+              error={errors.email}
+              isFocused={focused === 'email'}
+              onFocus={() => setFocused('email')}
+              onBlur={() => setFocused(null)}
+              inputRef={emailRef}
+              keyboardType="email-address"
+              onSubmitEditing={() => usernameRef.current?.focus()}
+              T={T}
+            />
 
             {/* Username */}
             <Field
@@ -413,68 +416,61 @@ export default function RegisterScreen({ navigation }) {
             {/* Divider */}
             <View style={[s.divider, { backgroundColor: T.cardBorder }]} />
 
-            {/* Row 3: Password + Confirm */}
-            <View style={s.row}>
-              <View style={{ flex: 1 }}>
-                <Field
-                  label="PASSWORD"
-                  icon="lock-outline"
-                  value={pass}
-                  onChange={v => {
-                    setPass(v);
-                    if (errors.pass) setErrors(p => ({ ...p, pass: null }));
-                  }}
-                  placeholder="Min 6 chars"
-                  error={errors.pass}
-                  isFocused={focused === 'pass'}
-                  onFocus={() => setFocused('pass')}
-                  onBlur={() => setFocused(null)}
-                  secureTextEntry={!showPass}
-                  rightEl={eyeToggle}
-                  inputRef={passRef}
-                  returnKeyType="next"
-                  onSubmitEditing={() => confirmRef.current?.focus()}
-                  T={T}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Field
-                  label="CONFIRM"
-                  icon="lock-check-outline"
-                  value={confirm}
-                  onChange={v => {
-                    setConfirm(v);
-                    if (errors.confirm)
-                      setErrors(p => ({ ...p, confirm: null }));
-                  }}
-                  placeholder="Re-enter"
-                  error={errors.confirm}
-                  isFocused={focused === 'confirm'}
-                  onFocus={() => setFocused('confirm')}
-                  onBlur={() => setFocused(null)}
-                  secureTextEntry={!showPass}
-                  rightEl={
-                    confirm.length > 0 ? (
-                      <MaterialCommunityIcons
-                        name={
-                          pass === confirm
-                            ? 'check-circle-outline'
-                            : 'close-circle-outline'
-                        }
-                        size={16}
-                        color={
-                          pass === confirm ? T.primary : T.red || '#EF4444'
-                        }
-                      />
-                    ) : null
-                  }
-                  inputRef={confirmRef}
-                  returnKeyType="done"
-                  onSubmitEditing={handleRegister}
-                  T={T}
-                />
-              </View>
-            </View>
+            {/* Password */}
+            <Field
+              label="PASSWORD"
+              icon="lock-outline"
+              value={pass}
+              onChange={v => {
+                setPass(v);
+                if (errors.pass) setErrors(p => ({ ...p, pass: null }));
+              }}
+              placeholder="Min 6 chars"
+              error={errors.pass}
+              isFocused={focused === 'pass'}
+              onFocus={() => setFocused('pass')}
+              onBlur={() => setFocused(null)}
+              secureTextEntry={!showPass}
+              rightEl={eyeToggle}
+              inputRef={passRef}
+              returnKeyType="next"
+              onSubmitEditing={() => confirmRef.current?.focus()}
+              T={T}
+            />
+
+            {/* Confirm Password */}
+            <Field
+              label="CONFIRM PASSWORD"
+              icon="lock-check-outline"
+              value={confirm}
+              onChange={v => {
+                setConfirm(v);
+                if (errors.confirm) setErrors(p => ({ ...p, confirm: null }));
+              }}
+              placeholder="Re-enter"
+              error={errors.confirm}
+              isFocused={focused === 'confirm'}
+              onFocus={() => setFocused('confirm')}
+              onBlur={() => setFocused(null)}
+              secureTextEntry={!showPass}
+              rightEl={
+                confirm.length > 0 ? (
+                  <MaterialCommunityIcons
+                    name={
+                      pass === confirm
+                        ? 'check-circle-outline'
+                        : 'close-circle-outline'
+                    }
+                    size={16}
+                    color={pass === confirm ? T.primary : T.red || '#EF4444'}
+                  />
+                ) : null
+              }
+              inputRef={confirmRef}
+              returnKeyType="done"
+              onSubmitEditing={handleRegister}
+              T={T}
+            />
 
             {/* Strength bar */}
             {pass.length > 0 && (
@@ -541,7 +537,7 @@ export default function RegisterScreen({ navigation }) {
               </Text>
             </Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -590,12 +586,11 @@ const s = StyleSheet.create({
 
   kav: { flex: 1 },
 
+  // contentContainerStyle — no flex:1, no justifyContent
   body: {
-    flex: 1,
     paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 10,
-    justifyContent: 'center',
+    paddingTop: 16,
+    paddingBottom: 32,
     gap: 12,
   },
 
@@ -670,6 +665,6 @@ const s = StyleSheet.create({
   },
 
   // Sign in link
-  signinLink: { alignItems: 'center', paddingVertical: 4 },
+  signinLink: { alignItems: 'center', paddingVertical: 8 },
   signinText: { fontSize: 13 },
 });

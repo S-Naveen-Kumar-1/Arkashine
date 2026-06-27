@@ -169,7 +169,7 @@ export function downloadSoilDetailPDF(
     payload: {
       request: {
         method: 'GET',
-        url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/recommendation-pdf/`,
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/pdf/`,
         responseType: 'arraybuffer',
 
         headers: {

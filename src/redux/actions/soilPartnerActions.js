@@ -185,7 +185,7 @@ export function deleteFarmerImage(farmerId) {
     type: 'SP_DELETE_IMAGE_REQUEST',
     payload: {
       request: {
-        url: `/api/mobile/farmers/${farmerId}/image/`,
+        url: `/api/mobile/farmers/${farmerId}/image/delete/`,
         method: 'DELETE',
       },
     },

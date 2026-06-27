@@ -64,7 +64,7 @@ export function ProductsListingScreen({ navigation }) {
   // Track which products the user has subscribed to (for UI feedback)
   const [subscribedIds, setSubscribedIds] = useState(new Set());
 
-  console.log(devices,"check user devices..")
+  console.log(devices, 'check user devices..');
   // -------------------------------------------------------------------------
   // Derived data
   // -------------------------------------------------------------------------
