@@ -1,12 +1,14 @@
 // src/screens/reports/SoilSaathiDetailScreen.jsx
 //
-// Tabs: Overview | Nutrients | Chart | Recommendations
+// Tabs: Overview | Chart | Recommendations
 // Fixes:
 //   • Tabs use ScrollView so long labels never clip
 //   • Redux selector keys match soilsaathiReducer exactly
 //   • PDF fetched with auth token via axios/fetch, saved with react-native-blob-util
 //   • Charts: NPK donut, full all-nutrients bar, soil nutrient grid
 //   • Richer UI throughout
+//   • Fixed PDF download for Android
+//   • Removed Nutrients tab (charts already in Chart tab)
 
 import React, {
   useEffect,
@@ -65,7 +67,7 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEVICE_COLOR = '#16A34A';
-const TABS = ['Overview', 'Nutrients', 'Chart', 'Recs'];
+const TABS = ['Overview', 'Chart', 'Recs']; // Removed 'Nutrients'
 
 const FERT_META = {
   urea: { icon: 'water-outline', color: '#2563EB' },
@@ -127,6 +129,8 @@ function parseFertLine(line) {
   return null;
 }
 
+// ─── PDFDownloadButton - FIXED FOR ANDROID ───────────────────────────────────
+
 function PDFDownloadButton({
   deviceId,
   readingId,
@@ -142,26 +146,51 @@ function PDFDownloadButton({
   const handleDownload = async () => {
     try {
       setDownloading(true);
+
       const response = await dispatch(action(deviceId, readingId));
       const pdfData = response?.payload?.data;
-      if (!pdfData) throw new Error('No PDF received');
+
+      if (!pdfData) {
+        throw new Error('No PDF data received');
+      }
 
       const base64 = Buffer.from(pdfData, 'binary').toString('base64');
-      const filePath = `${RNFS.DocumentDirectoryPath}/${fileName}_${readingId}.pdf`;
+
+      // For Android, use downloads directory for better compatibility
+      let filePath;
+      if (Platform.OS === 'android') {
+        filePath = `${RNFS.DownloadDirectoryPath}/${fileName}_${readingId}.pdf`;
+      } else {
+        filePath = `${RNFS.DocumentDirectoryPath}/${fileName}_${readingId}.pdf`;
+      }
+
       await RNFS.writeFile(filePath, base64, 'base64');
-      console.log('response', response);
-      console.log('pdfData', pdfData);
-      console.log('filePath', filePath);
-      console.log('DocumentDirectoryPath', RNFS.DocumentDirectoryPath);
+
+      const fileExists = await RNFS.exists(filePath);
+      if (!fileExists) {
+        throw new Error('File was not created successfully');
+      }
+
+      console.log('PDF saved at:', filePath);
+      console.log('File exists:', fileExists);
+
+      // Share the PDF
       await Share.open({
         url: `file://${filePath}`,
         type: 'application/pdf',
-        title,
+        title: title,
         failOnCancel: false,
       });
     } catch (error) {
-      console.log('PDF Download Error:', error);
-      Alert.alert('Error', 'Could not download PDF. Please try again.');
+      console.error('PDF Download Error:', error);
+
+      let errorMsg = 'Could not download PDF. Please try again.';
+      if (error.message && error.message.includes('null object reference')) {
+        errorMsg =
+          'Android sharing error. Please check if you have a PDF viewer installed.';
+      }
+
+      Alert.alert('Download Error', errorMsg);
     } finally {
       setDownloading(false);
     }
@@ -1483,45 +1512,28 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
   const reduxSchema = schemaSlot?.schema ?? null;
   const schema = passedSchema ?? reduxSchema;
 
-  // ── soilsaathi Redux state — keys match soilsaathiReducer exactly ────────────
-  //
-  // Reducer state shape (from soilsaathiReducer.js):
-  //   recommendations   → set by SOIL_RECS_REQUEST_SUCCESS   (the full API response object)
-  //   recsStatus        → 'idle' | 'loading' | 'success' | 'error'
-  //   recsError         → string | null
-  //   aiRecommendations → set by SOIL_AI_RECS_REQUEST_SUCCESS
-  //   aiRecsStatus      → 'idle' | 'loading' | 'success' | 'error'
-  //   aiRecsError       → string | null
+  // ── soilsaathi Redux state ─────────────────────────────────────────────────
   const soilState = useSelector(s => s.soilsaathi ?? {});
-  const soilRecs = soilState.recommendations; // full recs API response
+  const soilRecs = soilState.recommendations;
   const soilRecsLoading = soilState.recsStatus === 'loading';
   const soilRecsError =
     soilState.recsStatus === 'error' ? soilState.recsError : null;
-  const soilAIRecs = soilState.aiRecommendations; // full AI API response
+  const soilAIRecs = soilState.aiRecommendations;
   const soilAIRecsLoading = soilState.aiRecsStatus === 'loading';
   const soilAIRecsError =
     soilState.aiRecsStatus === 'error' ? soilState.aiRecsError : null;
 
   const reading = selectedReading ?? passed;
   const [activeTab, setActiveTab] = useState(0);
-
   useEffect(() => {
     dispatch(fetchReadingDetail(deviceId, readingId));
     if (!schema && !schemaSlot?.loading)
       dispatch(fetchDeviceFieldSchema(deviceType));
+    dispatch(getSoilRecommendations(deviceId, readingId));
+    dispatch(getSoilAIRecommendations(deviceId, readingId));
+
     return () => dispatch(clearSelectedReading());
   }, [deviceId, readingId, deviceType, dispatch]);
-
-  useEffect(() => {
-    if (activeTab !== 3) return;
-    // Only dispatch if not already fetched or in flight — use status fields from reducer
-    if (soilState.recsStatus === 'idle')
-      dispatch(getSoilRecommendations(deviceId, readingId));
-    if (soilState.aiRecsStatus === 'idle')
-      dispatch(getSoilAIRecommendations(deviceId, readingId));
-  }, [activeTab]);
-
-  // ── Field lists ─────────────────────────────────────────────────────────────
 
   const soilPrimary = useMemo(() => {
     const lbl = k => schema?.[k] ?? k;
@@ -1675,7 +1687,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
 
     const total = data.reduce((s, d) => s + d.v, 0);
 
-    const SIZE = CONTENT_W - Spacing.lg * 2; // full-width pie
+    const SIZE = CONTENT_W - Spacing.lg * 2;
     const cx = SIZE / 2,
       cy = SIZE / 2;
     const R = SIZE / 2 - 10,
@@ -1686,7 +1698,6 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
       const sweep = total > 0 ? (d.v / total) * 2 * Math.PI : 0;
       const path =
         sweep > 0.005 ? buildDonutPath(cx, cy, R, ri, ang, sweep) : null;
-      // label position — midpoint of arc
       const mid = ang + sweep / 2;
       const lR = (R + ri) / 2;
       const lx = cx + lR * Math.cos(mid);
@@ -1707,7 +1718,6 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
         {/* Pie */}
         <View style={{ alignItems: 'center', marginBottom: Spacing.md }}>
           <Svg width={SIZE} height={SIZE}>
-            {/* background ring */}
             <Path
               d={buildDonutPath(cx, cy, R, ri, 0, 2 * Math.PI - 0.001)}
               fill={T.border + '40'}
@@ -1715,7 +1725,6 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
             {slices.map((sl, i) =>
               sl.path ? <Path key={i} d={sl.path} fill={sl.color} /> : null,
             )}
-            {/* center label */}
             <SvgText
               x={cx}
               y={cy - 10}
@@ -1786,6 +1795,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
     pctBadge: { borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
     pctTxt: { fontSize: 9, fontWeight: '700' },
   });
+
   const recordedAt = new Date(reading.created_at);
   const phVal = reading.ph ?? 0;
   const ecVal = reading.ec ?? 0;
@@ -1818,7 +1828,6 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
               ))}
             </View>
 
-            {/* ← replaces NPKPieSection SectionCard */}
             <SectionCard
               title="All values"
               icon="chart-pie"
@@ -1864,53 +1873,12 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
         );
       }
 
-      // Nutrients
-      case 1:
-        return (
-          <>
-            <SectionCard
-              title="Primary nutrients"
-              icon="flask-outline"
-              color={DEVICE_COLOR}
-              T={T}
-            >
-              {soilPrimary.map(n => (
-                <NutrientRow
-                  key={n.key}
-                  label={n.label}
-                  value={n.v}
-                  unit={n.unit}
-                  dataKey={n.key}
-                  T={T}
-                />
-              ))}
-            </SectionCard>
-            <SectionCard
-              title="Secondary & micro nutrients"
-              icon="atom"
-              color="#7C3AED"
-              T={T}
-            >
-              {soilSecondary.map(n => (
-                <NutrientRow
-                  key={n.key}
-                  label={n.label}
-                  value={n.v}
-                  unit={n.unit}
-                  dataKey={n.key}
-                  T={T}
-                />
-              ))}
-            </SectionCard>
-          </>
-        );
-
       // Chart
-      case 2:
+      case 1:
         return <ChartTabView reading={reading} T={T} />;
 
       // Recommendations
-      case 3: {
+      case 2: {
         const cropFert = soilRecs?.recommendations?.crop_fertilizer ?? [];
         const fymGroups = soilRecs?.recommendations?.fym ?? [];
 
@@ -2047,7 +2015,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
         theme={theme}
       />
 
-      {/* ── Scrollable tab bar (prevents clipping) ── */}
+      {/* ── Scrollable tab bar ── */}
       <View
         style={[
           s.tabBarWrap,

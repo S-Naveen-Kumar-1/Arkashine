@@ -40,6 +40,7 @@ import PhBottleDetailScreen from './reports/PhBottleDetailScreen';
 import ForgotPasswordScreen from './screens/profile/ForgotPasswordModal';
 import SoilPartnerInfoScreen from './screens/profile/SoilPartnerInfoScreen';
 import SoilPartnerEnquiryScreen from './screens/profile/SoilPartnerEnquiryScreen';
+import AssessmentScreen from './CarbonCredit/AssessmentScreen';
 export const AppStack = () => {
   return (
     <NavigationContainer>
@@ -325,6 +326,12 @@ export const AppStack = () => {
           component={SoilSparshDetailScreen}
           options={{ headerShown: false }}
         />
+          <Stack.Screen
+          name="AssessmentScreen"
+          component={AssessmentScreen}
+          options={{ headerShown: false }}
+        />
+        
       </Stack.Navigator>
     </NavigationContainer>
   );

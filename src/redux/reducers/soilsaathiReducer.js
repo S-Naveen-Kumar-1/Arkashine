@@ -40,27 +40,11 @@ const init = {
   list: [],
   listMeta: { count: 0, totalPages: 1, page: 1 },
 
-  // ── Fertilizer recommendations ───────────────────────────────────────────────
-  // Shape after success:
-  // {
-  //   device_id, reading_id, reading_date, crop_type,
-  //   npk: { nitrogen, phosphorous, potassium, ph, ec, oc },
-  //   recommendations: {
-  //     crop_fertilizer: [["For 1st year", "Urea : …", …], …],
-  //     fym:             [["Soil remedy: …", …]]
-  //   }
-  // }
   recsStatus: 'idle', // 'idle' | 'loading' | 'success' | 'error'
   recsError: null,
   recommendations: null,
 
-  // ── AI crop recommendation ────────────────────────────────────────────────────
-  // Shape after success:
-  // {
-  //   device_id, reading_id, reading_date,
-  //   recommended_crop: "muskmelon",
-  //   input_nutrients: { nitrogen, phosphorous, potassium, ph }
-  // }
+
   aiRecsStatus: 'idle', // 'idle' | 'loading' | 'success' | 'error'
   aiRecsError: null,
   aiRecommendations: null,

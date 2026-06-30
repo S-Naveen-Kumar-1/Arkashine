@@ -1612,7 +1612,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - react-native-webview (13.16.1):
+  - react-native-webview (13.17.0):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2043,7 +2043,7 @@ PODS:
     - Yoga
   - RNFS (2.20.0):
     - React-Core
-  - RNGestureHandler (2.31.2):
+  - RNGestureHandler (2.32.0):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2065,7 +2065,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - RNScreens (4.25.1):
+  - RNScreens (4.25.2):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2087,9 +2087,9 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
-    - RNScreens/common (= 4.25.1)
+    - RNScreens/common (= 4.25.2)
     - Yoga
-  - RNScreens/common (4.25.1):
+  - RNScreens/common (4.25.2):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2532,7 +2532,7 @@ SPEC CHECKSUMS:
   react-native-maps: 3c765513d6993ab5f330fb170ebb57caf2f2048d
   react-native-netinfo: 7e0b1936e928fa8ddb60da9e572a33767db7805f
   react-native-safe-area-context: 5727bd761ca52fa393b40989a6483bf859622136
-  react-native-webview: 0ed52ddb2eafc64a502871218440b8b4d37961c3
+  react-native-webview: c1d5662acf0cb081169cb337847bba193adfd838
   React-NativeModulesApple: 5ba0903927f6b8d335a091700e9fda143980f819
   React-networking: 3a4b7f9ed2b2d1c0441beacb79674323a24bcca6
   React-oscompat: ff26abf0ae3e3fdbe47b44224571e3fc7226a573
@@ -2569,8 +2569,8 @@ SPEC CHECKSUMS:
   ReactNativeDependencies: ef79cfe16a5077feaa956f18e4ae10fb1c4ba273
   RNCAsyncStorage: 7a5a6094f9f6b9158e72f1855cd86e769413d851
   RNFS: 89de7d7f4c0f6bafa05343c578f61118c8282ed8
-  RNGestureHandler: b4f6de20b30325ee40b693f558ad02213201ce91
-  RNScreens: 4d43bcfdf8817289ee1950ad8c218148fafc8ce1
+  RNGestureHandler: da4fb36c32e8ac2b9e85cacd828aab4014fe4b16
+  RNScreens: d73d7ef79ae7b465a3f816288a7b6d895a873d56
   RNShare: bedb237f4fc22851d14d4d30dee152950b289274
   RNSVG: 77d8775159dbdc228febb75b67bc1d5733c0d2d8
   RNVectorIcons: 4351544f100d4f12cac156a7c13399e60bab3e26

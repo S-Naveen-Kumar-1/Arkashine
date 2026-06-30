@@ -143,7 +143,7 @@ export const PRODUCTS = [
     category: 'Environment',
     tag: 'Carbon Credits',
     active: false,
-    route: null,
+    route: "AssessmentScreen",
     stats: { tests: 0, lastUsed: 'Coming soon' },
   },
 

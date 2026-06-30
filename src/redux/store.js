@@ -16,17 +16,19 @@ import soilsaathiReducer from './reducers/soilsaathiReducer';
 import calibrationReducer from './reducers/calibrationReducer';
 import reportsReducer from './reducers/reportsReducer';
 import soilPartnerReducer from './reducers/soilPartnerReducer';
+import carbonReducer from './reducers/CarbonReducer';
 
 const rootReducer = combineReducers({
-  auth:        authReducer,
-  ble:         bleReducer,
-  phtest:      phTestReducer,
-  theme:       themeReducer,
+  auth: authReducer,
+  ble: bleReducer,
+  phtest: phTestReducer,
+  theme: themeReducer,
   calibration: calibrationReducer,
   userDevices: deviceReducer,
-  soilsaathi:  soilsaathiReducer,
-  reports:     reportsReducer,
-  soilPartner: soilPartnerReducer, 
+  soilsaathi: soilsaathiReducer,
+  reports: reportsReducer,
+  soilPartner: soilPartnerReducer,
+  carbon: carbonReducer,
 });
 
 // ─── Axios client ─────────────────────────────────────────────────────────────
@@ -75,7 +77,7 @@ client.interceptors.request.use(
 // _failedQueue holds requests that came in while refresh was in progress.
 
 let _isRefreshing = false;
-let _failedQueue  = [];
+let _failedQueue = [];
 
 function processQueue(error, token = null) {
   _failedQueue.forEach(p => {
