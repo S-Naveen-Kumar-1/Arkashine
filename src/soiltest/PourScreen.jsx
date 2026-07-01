@@ -5,7 +5,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   Animated,
   Easing,
@@ -16,6 +15,7 @@ import { AppButton, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Radius, Typography, Shadow } from '../theme';
 import { cmdStartSoilTest } from '../redux/actions/bleActions';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function PourScreen({ navigation }) {
   const dispatch = useDispatch();

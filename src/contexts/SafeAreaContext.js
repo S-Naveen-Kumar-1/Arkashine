@@ -1,6 +1,6 @@
 import React, { createContext } from 'react';
-import { SafeAreaView } from 'react-native';
 import { C } from '../utils/colors';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const SafeAreaContext = createContext(null);
 

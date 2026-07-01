@@ -1669,7 +1669,9 @@ const s = StyleSheet.create({
     marginBottom: Spacing.xs,
   },
   progressWrapper: {
-    marginRight: 20,
+    paddingLeft:10,
+    paddingRight:10
+    // marginRight: 20,
     // marginTop: Spacing.lg,
   },
 
@@ -1680,9 +1682,9 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: Radius.lg,
     padding:10,
-    marginBottom:100
+    marginBottom:20
   },
-  progressStepWrapper: { alignItems: 'center', width: '20%' },
+  progressStepWrapper: { alignItems: 'center', width: '18%' },
   progressDot: {
     width: 26,
     height: 26,

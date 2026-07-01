@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  SafeAreaView,
   StatusBar,
   Animated,
   View,
@@ -11,6 +10,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useDispatch } from 'react-redux';
 import { C } from '../utils/colors';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export function SplashScreen({ navigation }) {
   const dispatch = useDispatch();

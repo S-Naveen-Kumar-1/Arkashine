@@ -5,7 +5,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ScrollView,
 } from 'react-native';
@@ -15,6 +14,7 @@ import { AppButton, TopBar } from '../components/common';
 import { Spacing, Radius, Shadow, Typography } from '../theme';
 import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 const STEPS = [
   {
     icon: 'sprout',

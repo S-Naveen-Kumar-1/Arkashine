@@ -6,7 +6,6 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
   Switch,
@@ -21,6 +20,7 @@ import { logoutUser, toggleTheme } from '../../redux/actions';
 import useTheme from '../../hooks/useTheme';
 import { Spacing, Radius, Shadow, Typography } from '../../theme';
 import { TextInput } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Enable LayoutAnimation for Android
 if (

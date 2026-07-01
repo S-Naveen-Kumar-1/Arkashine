@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  SafeAreaView,
   TextInput,
   FlatList,
   ActivityIndicator,
@@ -21,6 +20,7 @@ import Geolocation from '@react-native-community/geolocation';
 import { WebView } from 'react-native-webview';
 import { predictSoil } from '../redux/actions/soilsaathiActions';
 import { useDispatch } from 'react-redux';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
