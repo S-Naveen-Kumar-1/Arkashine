@@ -62,6 +62,10 @@ export default function PourScreen({ navigation }) {
     ).start();
   }, []);
 
+  const startCalibrate = async () => {
+    navigation.replace('SoilCalibrationScreen');
+  };
+
   const startMotor = async () => {
     // ✅ reset
     await dispatch({ type: 'TEST_RESET' });
@@ -153,31 +157,52 @@ export default function PourScreen({ navigation }) {
               },
             ]}
           />
-
-          <View style={{ flex: 1 }}>
-            <Text style={[s.waitTitle, { color: T.text }]}>
-              Waiting for detection...
-            </Text>
-            <Text style={[s.waitSub, { color: T.muted }]}>
-              Device will auto-detect the poured solution
-            </Text>
-          </View>
+          <Text style={[s.waitTitle, { color: T.text }]}>
+            Waiting for sample
+          </Text>
+          <Text style={[s.waitSub, { color: T.textSub }]}>
+            Pour sample into device
+          </Text>
         </View>
 
-        {/* 🧪 DEV BUTTON */}
-        <AppButton
-          label="Start Motor"
-          onPress={startMotor}
-          color={T.primary}
-          textColor={T.primary}
-          outlined
-          style={{
-            marginTop: 28,
-            backgroundColor: T.primaryDim,
-            borderColor: T.primary,
-            opacity: 0.9,
-          }}
-        />
+        {/* 🧪 BUTTON ROW - FLEX LAYOUT */}
+        <View style={s.buttonRow}>
+          <View style={s.buttonWrapper}>
+            <AppButton
+              label="Calibrate Device"
+              onPress={startCalibrate}
+              color={T.primary}
+              textColor={T.primary}
+              outlined
+              style={[
+                s.flexButton,
+                {
+                  backgroundColor: T.primaryDim,
+                  borderColor: T.primary,
+                  opacity: 0.9,
+                },
+              ]}
+            />
+          </View>
+
+          <View style={s.buttonWrapper}>
+            <AppButton
+              label="Start Soil Test"
+              onPress={startMotor}
+              color={T.primary}
+              textColor={T.primary}
+              outlined
+              style={[
+                s.flexButton,
+                {
+                  backgroundColor: T.primaryDim,
+                  borderColor: T.primary,
+                  opacity: 0.9,
+                },
+              ]}
+            />
+          </View>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -250,6 +275,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     width: '100%',
+    marginBottom: 32,
   },
 
   pulseDot: {
@@ -266,5 +292,21 @@ const s = StyleSheet.create({
   waitSub: {
     fontSize: 12,
     marginTop: 2,
+  },
+
+  // ✅ NEW: Button row styles
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 12,
+  },
+
+  buttonWrapper: {
+    flex: 1,
+  },
+
+  flexButton: {
+    width: '100%',
   },
 });

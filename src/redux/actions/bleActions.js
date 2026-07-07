@@ -343,7 +343,6 @@ function parsePayload(jsonStr, dispatch) {
   }
 
   // 6. {"CALIBERATE":"PH"|"EC","STATUS":"DONE","value":"4.00","pHVoltage":...}
-
   if (parsed.CALIBERATE && parsed.STATUS === 'DONE') {
     const type = parsed.CALIBERATE;
     const value = parseFloat(parsed.value);
@@ -450,6 +449,110 @@ function parsePayload(jsonStr, dispatch) {
       payload: { data: 'stopped' },
     });
 
+  // ─── Soil calibration messages ─────────────────────────────────────────────
+  // App → Device:
+  //   {SOILCALIBRATION:"START", nutrients:["N","P"], point:"min"}
+  //   {SOILCALIBRATION:"STOP"}
+  //   {SOILCALIBRATIONSTATUS:true}
+  //   {SOILCALIBRATIONDATA:"GET"}
+  //
+  // Device → App:
+  //   {SOILCALIBRATION:"STARTED"}
+  //   {SOILCALIBRATIONSTATUS:"IDLE"|"READING"|"DONE"|"ERROR"}
+  //   {SOILCALIBRATE:{point,nutrients,status:"DONE",results:{...}}}
+  //   {SOILCALIBRATION:"COMPLETE"}
+  //   {SOILCALIBRATIONDATA:{...full table...}}
+
+  if (parsed.SOILCALIBRATION === 'STARTED') {
+    dispatch(ac.log('CAL', '← SOILCALIBRATION STARTED'));
+    dispatch({ type: 'SOIL_CALIBRATION_START', payload: { data: 'started' } });
+    return null;
+  }
+
+  if (parsed.SOILCALIBRATION === 'STOPPED') {
+    dispatch(ac.log('CAL', '← SOILCALIBRATION STOPPED'));
+    dispatch({ type: 'SOIL_CALIBRATION_STOPPED', payload: { data: 'stopped' } });
+    return null;
+  }
+
+  if (parsed.SOILCALIBRATION === 'COMPLETE') {
+    dispatch(ac.log('CAL', '← SOILCALIBRATION COMPLETE'));
+    dispatch({ type: 'SOIL_CALIBRATION_COMPLETE', payload: { data: 'complete' } });
+    return null;
+  }
+
+  if (parsed.SOILCALIBRATIONSTATUS !== undefined) {
+    dispatch(
+      ac.log('CAL', `← SOILCALIBRATIONSTATUS: ${parsed.SOILCALIBRATIONSTATUS}`),
+    );
+    dispatch({
+      type: 'SOIL_CALIBRATION_STATUS',
+      payload: { status: parsed.SOILCALIBRATIONSTATUS },
+    });
+    // Also mirror into the shared BLE calibration-status slot (used by PH/EC UI too)
+    dispatch(ac.calibrationStatus(parsed.SOILCALIBRATIONSTATUS));
+    return null;
+  }
+
+  // Batch calibration result — supports both the new multi-nutrient shape
+  // ({point, nutrients, status:'DONE', results:{...}}) and, for backward
+  // compatibility, an older single-nutrient shape ({nutrient, point, data}).
+  if (parsed.SOILCALIBRATE && parsed.SOILCALIBRATE.status === 'DONE') {
+    const point = parsed.SOILCALIBRATE.point;
+    const nutrients =
+      parsed.SOILCALIBRATE.nutrients ??
+      (parsed.SOILCALIBRATE.nutrient ? [parsed.SOILCALIBRATE.nutrient] : []);
+    const results =
+      parsed.SOILCALIBRATE.results ??
+      (parsed.SOILCALIBRATE.nutrient
+        ? {
+            [parsed.SOILCALIBRATE.nutrient]: {
+              saved: true,
+              values: parsed.SOILCALIBRATE.data ?? null,
+              error: null,
+            },
+          }
+        : {});
+
+    dispatch(
+      ac.log(
+        'CAL',
+        `← SOILCALIBRATE DONE point=${point} nutrients=${nutrients.join(',')}`,
+      ),
+    );
+    dispatch({
+      type: 'SOIL_CALIBRATION_RESULT',
+      payload: { point, nutrients, results, error: null },
+    });
+    return null;
+  }
+
+  if (parsed.SOILCALIBRATE && parsed.SOILCALIBRATE.status === 'ERROR') {
+    dispatch(
+      ac.log('CAL', `← SOILCALIBRATE ERROR: ${parsed.ERROR ?? 'unknown'}`),
+    );
+    dispatch({
+      type: 'SOIL_CALIBRATION_RESULT',
+      payload: {
+        point: parsed.SOILCALIBRATE.point,
+        nutrients: parsed.SOILCALIBRATE.nutrients ?? [],
+        results: {},
+        error: parsed.ERROR ?? 'Calibration failed',
+      },
+    });
+    return null;
+  }
+
+  if (parsed.SOILCALIBRATIONDATA !== undefined) {
+    dispatch(ac.log('CAL', '← SOILCALIBRATIONDATA received'));
+    dispatch({
+      type: 'SOIL_CALIBRATION_DATA',
+      payload: parsed.SOILCALIBRATIONDATA,
+    });
+    return null;
+  }
+
+  // ─── Soil final result ───────────────────────────────────────────────────
   if (parsed.FINALSOILRESULT && typeof parsed.FINALSOILRESULT === 'object') {
     dispatch({
       type: 'SOIL_BLE_RESULT',
@@ -681,3 +784,24 @@ export const cmdCheckSoilSensorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILSENSORSTATUS: 'CHECKSOILSENSORSTATUS' }, dispatch);
 export const cmdGetSoilResult = () => dispatch =>
   _sendJSON({ SOILRESULT: 'GET' }, dispatch);
+
+// ─── Soil calibration commands ─────────────────────────────────────────────────
+export const cmdStartSoilCalibration = (nutrients, point, value) => dispatch =>
+  _sendJSON(
+    {
+      SOILCALIBRATION: 'START',
+      nutrients, // e.g. ['N', 'P', 'K']
+      point, // 'blank' | 'min' | 'mid' | 'max'
+      ...(value != null ? { value } : {}),
+    },
+    dispatch,
+  );
+
+export const cmdStopSoilCalibration = () => dispatch =>
+  _sendJSON({ SOILCALIBRATION: 'STOP' }, dispatch);
+
+export const cmdCheckSoilCalibrationStatus = () => dispatch =>
+  _sendJSON({ SOILCALIBRATIONSTATUS: true }, dispatch);
+
+export const cmdGetSoilCalibrationData = () => dispatch =>
+  _sendJSON({ SOILCALIBRATIONDATA: 'GET' }, dispatch);

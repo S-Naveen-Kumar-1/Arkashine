@@ -41,6 +41,8 @@ import ForgotPasswordScreen from './screens/profile/ForgotPasswordModal';
 import SoilPartnerInfoScreen from './screens/profile/SoilPartnerInfoScreen';
 import SoilPartnerEnquiryScreen from './screens/profile/SoilPartnerEnquiryScreen';
 import AssessmentScreen from './CarbonCredit/AssessmentScreen';
+import CalibrationScreen from './soiltest/CalibrationScreen';
+import CalibrationResultScreen from './soiltest/CalibrationResultScreen';
 export const AppStack = () => {
   return (
     <NavigationContainer>
@@ -326,9 +328,21 @@ export const AppStack = () => {
           component={SoilSparshDetailScreen}
           options={{ headerShown: false }}
         />
-          <Stack.Screen
+        <Stack.Screen
           name="AssessmentScreen"
           component={AssessmentScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="SoilCalibrationScreen"
+          component={CalibrationScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="CalibrationResultScreen"
+          component={CalibrationResultScreen}
           options={{ headerShown: false }}
         />
         

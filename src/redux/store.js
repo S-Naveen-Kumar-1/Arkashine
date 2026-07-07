@@ -4,8 +4,8 @@ import { applyMiddleware, combineReducers, legacy_createStore } from 'redux';
 import { thunk } from 'redux-thunk';
 import axios from 'axios';
 import axiosMiddleware from 'redux-axios-middleware';
-
 import { BASE_URL } from '../ApiConfig';
+
 
 import authReducer from './reducers/authReducer';
 import bleReducer from './reducers/bleReducer';
