@@ -14,6 +14,7 @@ import { Radius, Shadow, Typography } from '../../theme';
 
 import Svg, { Circle } from 'react-native-svg';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+
 // ── AppButton ─────────────────────────────────────────────────────────────────
 export function AppButton({
   label,
@@ -26,6 +27,8 @@ export function AppButton({
   style,
   size = 'md',
   icon,
+  iconSize = 20,
+  iconPosition = 'left',
 }) {
   const height = size === 'lg' ? 56 : size === 'sm' ? 38 : 48;
   const fontSize = size === 'lg' ? 17 : size === 'sm' ? 13 : 15;
@@ -34,6 +37,36 @@ export function AppButton({
   const border = outlined
     ? { borderWidth: 1.5, borderColor: color || '#22C55E' }
     : {};
+
+  // ─── Render icon helper ────────────────────────────────────────────────
+  const renderIcon = () => {
+    if (!icon) return null;
+
+    // If icon is already a React element, render it directly
+    if (React.isValidElement(icon)) {
+      return icon;
+    }
+
+    // If icon is a string
+    if (typeof icon === 'string') {
+      // Check if it's an emoji (contains Unicode emoji range)
+      const isEmoji = /[\u{1F300}-\u{1FAFF}]/u.test(icon) || 
+                      /[\u2600-\u27BF]/.test(icon) ||
+                      /[\u{1F600}-\u{1F64F}]/u.test(icon) ||
+                      /[\u{1F680}-\u{1F6FF}]/u.test(icon) ||
+                      /[\u{1F700}-\u{1F77F}]/u.test(icon) ||
+                      icon.length === 1;
+
+      if (isEmoji) {
+        return <Text style={[c.iconEmoji, { fontSize: iconSize + 4 }]}>{icon}</Text>;
+      }
+
+      // Otherwise treat as MaterialCommunityIcons name
+      return <Icon name={icon} size={iconSize} color={txt} style={c.icon} />;
+    }
+
+    return null;
+  };
 
   return (
     <TouchableOpacity
@@ -52,10 +85,9 @@ export function AppButton({
         <ActivityIndicator color={txt} size="small" />
       ) : (
         <>
-          {icon ? (
-            <Text style={{ fontSize: 18, marginRight: 8 }}>{icon}</Text>
-          ) : null}
+          {icon && iconPosition === 'left' && renderIcon()}
           <Text style={[c.btnText, { color: txt, fontSize }]}>{label}</Text>
+          {icon && iconPosition === 'right' && renderIcon()}
         </>
       )}
     </TouchableOpacity>
@@ -107,7 +139,13 @@ export function LabeledInput({
           },
         ]}
       >
-        {icon ? <Text style={c.inputIcon}>{icon}</Text> : null}
+        {icon ? (
+          typeof icon === 'string' ? (
+            <Icon name={icon} size={20} color={T.muted || '#94A3B8'} style={c.inputIcon} />
+          ) : (
+            icon
+          )
+        ) : null}
         <TextInput
           style={[c.input, { color: T.text || '#F1F5F9', flex: 1 }]}
           value={value}
@@ -206,7 +244,7 @@ export function ProgressRing({
       toValue: pct,
       duration: 500,
       easing: Easing.out(Easing.ease),
-       useNativeDriver: false, 
+      useNativeDriver: false,
     }).start();
   }, [pct]);
 
@@ -286,7 +324,14 @@ export function DayCard({ day, action, qty, type, icon, theme }) {
       </View>
       <View style={{ flex: 1, marginLeft: 12 }}>
         <Text style={[c.dayAction, { color: T.text }]}>
-          {icon} {action}
+          {icon ? (
+            typeof icon === 'string' ? (
+              <Icon name={icon} size={16} color={tColor} />
+            ) : (
+              icon
+            )
+          ) : null}
+          {' '}{action}
         </Text>
         <Text style={[c.dayQty, { color: T.textSub }]}>{qty}</Text>
       </View>
@@ -320,7 +365,7 @@ export function TopBar({ title, onBack, rightIcon, onRight, theme, onHome }) {
             {onHome ? (
               <Icon name="home-outline" size={22} color={T.primary} />
             ) : (
-              <Text style={{ color: T.primary, fontSize: 22 }}>←</Text>
+              <Icon name="arrow-left" size={22} color={T.primary} />
             )}
           </TouchableOpacity>
         )}
@@ -370,7 +415,7 @@ export function Dropdown({ label, options, value, onSelect, theme }) {
         <Text style={{ color: value ? T.text : T.muted, fontSize: 15 }}>
           {value || `Select ${label}`}
         </Text>
-        <Text style={{ color: T.muted }}>{open ? '▲' : '▼'}</Text>
+        <Icon name={open ? 'chevron-up' : 'chevron-down'} size={20} color={T.muted} />
       </TouchableOpacity>
       {open && (
         <View
@@ -404,6 +449,66 @@ export function Dropdown({ label, options, value, onSelect, theme }) {
   );
 }
 
+// ── IconButton ────────────────────────────────────────────────────────────────
+export function IconButton({
+  name,
+  onPress,
+  size = 24,
+  color,
+  style,
+  disabled,
+}) {
+  return (
+    <TouchableOpacity
+      style={[c.iconBtn, style]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.7}
+    >
+      <Icon name={name} size={size} color={color} />
+    </TouchableOpacity>
+  );
+}
+
+// ── Chip ──────────────────────────────────────────────────────────────────────
+export function Chip({
+  label,
+  selected,
+  onPress,
+  theme,
+  icon,
+  style,
+}) {
+  const T = theme?.colors || {};
+  const bg = selected ? T.primary : T.card;
+  const border = selected ? T.primary : T.cardBorder;
+  const textColor = selected ? '#fff' : T.text;
+
+  return (
+    <TouchableOpacity
+      style={[
+        c.chip,
+        {
+          backgroundColor: bg,
+          borderColor: border,
+        },
+        style,
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      {icon && (
+        typeof icon === 'string' ? (
+          <Icon name={icon} size={14} color={textColor} style={c.chipIcon} />
+        ) : (
+          icon
+        )
+      )}
+      <Text style={[c.chipLabel, { color: textColor }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
 // ── Styles ────────────────────────────────────────────────────────────────────
 const c = StyleSheet.create({
   btn: {
@@ -415,6 +520,9 @@ const c = StyleSheet.create({
   },
   btnDisabled: { opacity: 0.4 },
   btnText: { fontWeight: '800', letterSpacing: 0.3 },
+  icon: { marginRight: 8 },
+  iconEmoji: { marginRight: 8 },
+
   card: {
     borderRadius: Radius.lg,
     borderWidth: 1,
@@ -437,7 +545,7 @@ const c = StyleSheet.create({
     paddingHorizontal: 14,
     height: 50,
   },
-  inputIcon: { fontSize: 18, marginRight: 10 },
+  inputIcon: { marginRight: 10 },
   input: { fontSize: 15, height: 50 },
   inputError: { fontSize: 11, color: '#EF4444', marginTop: 4 },
   badge: {
@@ -508,4 +616,20 @@ const c = StyleSheet.create({
   dayNum: { fontSize: 12, fontWeight: '800' },
   dayAction: { fontSize: 14, fontWeight: '700', marginBottom: 2 },
   dayQty: { fontSize: 13 },
+  iconBtn: {
+    padding: 8,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+  },
+  chipIcon: { marginRight: 6 },
+  chipLabel: { fontSize: 13, fontWeight: '600' },
 });

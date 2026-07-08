@@ -9,8 +9,8 @@ function App() {
     <Provider store={store}>
       <AppStack />
       <FlashMessage position="top" />
-      <FloatingDebugPanel />
-      <DebugButton />
+      {/* <FloatingDebugPanel /> */}
+      {/* <DebugButton /> */}
     </Provider>
   );
 }

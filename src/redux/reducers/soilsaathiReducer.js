@@ -13,78 +13,69 @@ import {
 export const SENSOR_DURATION = 60;
 export const MOTOR_DURATION = 180;
 
+// ─── INITIAL STATE ──────────────────────────────────────────────────────────
 const init = {
-  // ── Phase / BLE control ──────────────────────────────────────────────────────
-  phase: 'idle', // 'idle' | 'motor' | 'sensor'
+  phase: 'idle',
   timerTotal: 0,
   timerLeft: 0,
   timerDone: false,
   timerStartedAt: null,
-  motorState: 'Idle', // 'Idle' | 'running' | 'done'
+  motorState: 'Idle',
   sensorState: 'Idle',
   motorStateFromBle: null,
   sensorStateFromBle: null,
   bleResultData: null,
 
-  // ── CRUD ────────────────────────────────────────────────────────────────────
-  createStatus: 'idle', // 'idle' | 'loading' | 'success' | 'error'
+  createStatus: 'idle',
   createError: null,
-
   detailStatus: 'idle',
   detailError: null,
   currentRecord: null,
   currentId: null,
-
   listStatus: 'idle',
   listError: null,
   list: [],
   listMeta: { count: 0, totalPages: 1, page: 1 },
-
-  recsStatus: 'idle', // 'idle' | 'loading' | 'success' | 'error'
+  recsStatus: 'idle',
   recsError: null,
   recommendations: null,
-
-  aiRecsStatus: 'idle', // 'idle' | 'loading' | 'success' | 'error'
+  aiRecsStatus: 'idle',
   aiRecsError: null,
   aiRecommendations: null,
 
-  // ── Sensor calibration (BLANK / MIN / MID / MAX) ────────────────────────────
-  calibrationPhase: 'idle', // 'idle' | 'reading' | 'done' | 'error'
-  calibrationPoint: null, // 'blank' | 'min' | 'mid' | 'max'
-  calibrationNutrients: [], // nutrient keys in the last/current batch, e.g. ['N','P','K']
-  calibrationResults: null, // { [nutrientKey]: { saved, values, error } }
+  // ── SENSOR CALIBRATION ──────────────────────────────────────────────────
+  calibrationPhase: 'idle',      // 'idle' | 'reading' | 'done' | 'error'
+  calibrationPoint: null,
+  calibrationNutrients: [],
+  calibrationResults: null,
   calibrationError: null,
-  calibrationTable: null, // full table from SOILCALIBRATIONDATA GET: { OC: {blank,min,mid,max}, ... }
+  calibrationTable: null,
+  calibrationProgress: null,     // { nutrient, point, phase, loop, total }
+  calibrationLiveChannels: {},   // { A: 123.4, B: 98.7, ... }
 };
 
 export default function soilsaathiReducer(state = init, action) {
   switch (action.type) {
-    // ── Reset / logout ──────────────────────────────────────────────────────────
     case 'TEST_RESET':
     case 'LOGOUT_REQUEST':
     case SOIL_CLEAR:
       return { ...init };
 
-    // ── BLE / phase state ───────────────────────────────────────────────────────
+    // ── BLE / phase state ──────────────────────────────────────────────────
     case 'SOIL_MOTOR_STATE':
       return { ...state, motorState: action.payload.data };
-
     case 'SOIL_SENSOR_STATE':
       return { ...state, sensorState: action.payload.data };
-
     case 'SOIL_MOTOR_STATE_FROM_BLE':
       return { ...state, motorStateFromBle: action.payload.data };
-
     case 'SOIL_SENSOR_STATE_FROM_BLE':
       return { ...state, sensorStateFromBle: action.payload.data };
-
     case 'SOIL_BLE_RESULT':
       return { ...state, bleResultData: action.payload };
 
-    // ── CREATE ──────────────────────────────────────────────────────────────────
+    // ── CRUD ──────────────────────────────────────────────────────────────
     case SOIL_CREATE_REQUEST:
       return { ...state, createStatus: 'loading', createError: null };
-
     case `${SOIL_CREATE_REQUEST}_SUCCESS`:
       return {
         ...state,
@@ -92,7 +83,6 @@ export default function soilsaathiReducer(state = init, action) {
         currentRecord: action.payload.data,
         currentId: action.payload.data?.id ?? null,
       };
-
     case `${SOIL_CREATE_REQUEST}_FAIL`:
       return {
         ...state,
@@ -100,17 +90,14 @@ export default function soilsaathiReducer(state = init, action) {
         createError: action.error?.message ?? action.payload ?? 'Create failed',
       };
 
-    // ── DETAIL ──────────────────────────────────────────────────────────────────
     case SOIL_DETAIL_REQUEST:
       return { ...state, detailStatus: 'loading', detailError: null };
-
     case `${SOIL_DETAIL_REQUEST}_SUCCESS`:
       return {
         ...state,
         detailStatus: 'success',
         currentRecord: action.payload.data,
       };
-
     case `${SOIL_DETAIL_REQUEST}_FAIL`:
       return {
         ...state,
@@ -118,10 +105,8 @@ export default function soilsaathiReducer(state = init, action) {
         detailError: action.error?.message ?? action.payload,
       };
 
-    // ── LIST ────────────────────────────────────────────────────────────────────
     case SOIL_LIST_REQUEST:
       return { ...state, listStatus: 'loading', listError: null };
-
     case `${SOIL_LIST_REQUEST}_SUCCESS`: {
       const d = action.payload.data;
       return {
@@ -135,7 +120,6 @@ export default function soilsaathiReducer(state = init, action) {
         },
       };
     }
-
     case `${SOIL_LIST_REQUEST}_FAIL`:
       return {
         ...state,
@@ -143,17 +127,14 @@ export default function soilsaathiReducer(state = init, action) {
         listError: action.error?.message ?? action.payload,
       };
 
-    // ── RECOMMENDATIONS ─────────────────────────────────────────────────────────
     case SOIL_RECS_REQUEST:
       return { ...state, recsStatus: 'loading', recsError: null };
-
     case `${SOIL_RECS_REQUEST}_SUCCESS`:
       return {
         ...state,
         recsStatus: 'success',
-        recommendations: action.payload.data, // full API response object
+        recommendations: action.payload.data,
       };
-
     case `${SOIL_RECS_REQUEST}_FAIL`:
       return {
         ...state,
@@ -164,17 +145,14 @@ export default function soilsaathiReducer(state = init, action) {
           'Failed to load recommendations',
       };
 
-    // ── AI RECOMMENDATIONS ──────────────────────────────────────────────────────
     case SOIL_AI_RECS_REQUEST:
       return { ...state, aiRecsStatus: 'loading', aiRecsError: null };
-
     case `${SOIL_AI_RECS_REQUEST}_SUCCESS`:
       return {
         ...state,
         aiRecsStatus: 'success',
-        aiRecommendations: action.payload.data, // full AI API response object
+        aiRecommendations: action.payload.data,
       };
-
     case `${SOIL_AI_RECS_REQUEST}_FAIL`:
       return {
         ...state,
@@ -185,52 +163,93 @@ export default function soilsaathiReducer(state = init, action) {
           'Failed to load AI recommendation',
       };
 
-    // ── MISC ────────────────────────────────────────────────────────────────────
     case SOIL_SET_CURRENT_ID:
       return { ...state, currentId: action.payload };
 
-    // ── SENSOR CALIBRATION ───────────────────────────────────────────────────────
+    // ── SENSOR CALIBRATION ──────────────────────────────────────────────────
     case 'SOIL_CALIBRATION_START':
+      console.log('[REDUCER] START');
       return {
         ...state,
         calibrationPhase: 'reading',
         calibrationResults: null,
         calibrationError: null,
+        calibrationProgress: null,
+        calibrationLiveChannels: {},
       };
 
     case 'SOIL_CALIBRATION_STOPPED':
+      console.log('[REDUCER] STOPPED');
       return {
         ...state,
         calibrationPhase: 'idle',
+        calibrationProgress: null,
+        calibrationLiveChannels: {},
       };
 
     case 'SOIL_CALIBRATION_STATUS': {
       const raw = (action.payload?.status ?? '').toString().toUpperCase();
-      const map = { IDLE: 'idle', READING: 'reading', DONE: 'done', ERROR: 'error' };
+      console.log('[REDUCER] STATUS:', raw);
+      const map = {
+        IDLE: 'idle',
+        READING: 'reading',
+        DONE: 'done',
+        ERROR: 'error',
+        STOPPED: 'idle',
+      };
       return {
         ...state,
         calibrationPhase: map[raw] ?? state.calibrationPhase,
       };
     }
 
-    case 'SOIL_CALIBRATION_RESULT':
+    // ─── FIX: Live per-loop progress ──────────────────────────────────────
+    case 'SOIL_CALIBRATION_PROGRESS': {
+      console.log('[REDUCER] PROGRESS:', action.payload.loop, '/', action.payload.total);
+      return {
+        ...state,
+        calibrationPhase: 'reading',
+        calibrationProgress: {
+          nutrient: action.payload.nutrient,
+          point: action.payload.point,
+          phase: action.payload.phase || 'spectral',
+          loop: Number(action.payload.loop) || 0,
+          total: Number(action.payload.total) || 100,
+        },
+        calibrationLiveChannels: {
+          ...state.calibrationLiveChannels,
+          ...action.payload.channels,
+        },
+      };
+    }
+
+    // ─── FIX: CALIBRATION RESULT ──────────────────────────────────────────
+    case 'SOIL_CALIBRATION_RESULT': {
+      console.log('[REDUCER] RESULT:', action.payload);
       return {
         ...state,
         calibrationPhase: action.payload.error ? 'error' : 'done',
         calibrationPoint: action.payload.point,
-        calibrationNutrients: action.payload.nutrients,
-        calibrationResults: action.payload.results,
+        calibrationNutrients: action.payload.nutrients || [],
+        calibrationResults: action.payload.results || {},
         calibrationError: action.payload.error ?? null,
+        calibrationProgress: null,
       };
+    }
 
-    case 'SOIL_CALIBRATION_COMPLETE':
-      return { ...state, calibrationPhase: 'done' };
+    case 'SOIL_CALIBRATION_COMPLETE': {
+      console.log('[REDUCER] COMPLETE');
+      return {
+        ...state,
+        calibrationPhase: 'done',
+        calibrationProgress: null,
+      };
+    }
 
-    // Full calibration table (all nutrients × all levels) returned by
-    // { SOILCALIBRATIONDATA: "GET" }. Kept in its own field so a batch
-    // result never overwrites the full table, and vice versa.
-    case 'SOIL_CALIBRATION_DATA':
+    case 'SOIL_CALIBRATION_DATA': {
+      console.log('[REDUCER] DATA received');
       return { ...state, calibrationTable: action.payload };
+    }
 
     default:
       return state;

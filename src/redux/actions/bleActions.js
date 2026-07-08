@@ -8,6 +8,22 @@
 //  COMPLETE TWO-WAY COMMUNICATION MAP
 // ═════════════════════════════════════════════════════════════════════════════
 //
+// ── Sensor calibration (BLANK / MIN / MID / MAX), ONE NUTRIENT AT A TIME ────
+// App → Device:
+//   {SOILCALIBRATION:"START", nutrients:["N"], point:"blank"}   ← one nutrient
+//   {SOILCALIBRATION:"STOP"}                                     (cancels mid-read too)
+//   {SOILCALIBRATIONSTATUS:true}
+//   {SOILCALIBRATIONDATA:"GET"}
+//
+// Device → App:
+//   {SOILCALIBRATION:"STARTED"}
+//   {SOILCALIBRATIONSTATUS:"IDLE"|"READING"|"DONE"|"ERROR"}
+//   {SOILCALIBRATIONPROGRESS:{nutrient,point,phase,loop,total,channels:{...}}}  ← NEW, streamed live
+//   {SOILCALIBRATE:{point,nutrients,status:"DONE"|"ERROR",results:{...}}}
+//   {SOILCALIBRATION:"COMPLETE"}
+//   {SOILCALIBRATION:"STOPPED"}   ← also sent if a reading in progress was cancelled
+//   {SOILCALIBRATIONDATA:{...full table...}}
+//
 import { BleManager } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
 import { Alert } from 'react-native';
@@ -292,6 +308,7 @@ function _buildReading(src, raw) {
   };
 }
 
+
 function parsePayload(jsonStr, dispatch) {
   const raw = jsonStr.trim();
   dispatch(ac.log('DATA', `← RECV: ${raw}`));
@@ -321,7 +338,7 @@ function parsePayload(jsonStr, dispatch) {
 
   // 3. {"PHTEST":"STARTED"}
   if (parsed.PHTEST === 'STARTED') {
-    dispatch(ac.log('TEST', '← PHTEST STARTED — motor now running'));
+    dispatch(ac.log('TEST', '← PHTEST STARTED'));
     dispatch(ac.testStarted());
     return null;
   }
@@ -342,26 +359,19 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  // 6. {"CALIBERATE":"PH"|"EC","STATUS":"DONE","value":"4.00","pHVoltage":...}
+  // 6. {"CALIBERATE":"PH"|"EC","STATUS":"DONE"}
   if (parsed.CALIBERATE && parsed.STATUS === 'DONE') {
     const type = parsed.CALIBERATE;
     const value = parseFloat(parsed.value);
-    const voltage =
-      type === 'PH'
-        ? parseFloat(parsed.pHVoltage)
-        : parseFloat(parsed.ECVoltage);
-    dispatch(
-      ac.log('CAL', `← ${type} DONE — value=${value}, voltage=${voltage}`),
-    );
+    const voltage = type === 'PH' ? parseFloat(parsed.pHVoltage) : parseFloat(parsed.ECVoltage);
+    dispatch(ac.log('CAL', `← ${type} DONE — value=${value}`));
     dispatch({ type: CAL_POINT_DONE, payload: { type, value, voltage } });
     return null;
   }
 
   // 7. {"CALIBRATION_STATUS":"..."}
   if (parsed.CALIBRATION_STATUS !== undefined) {
-    dispatch(
-      ac.log('CAL', `← CALIBRATION_STATUS: ${parsed.CALIBRATION_STATUS}`),
-    );
+    dispatch(ac.log('CAL', `← CALIBRATION_STATUS: ${parsed.CALIBRATION_STATUS}`));
     dispatch(ac.calibrationStatus(parsed.CALIBRATION_STATUS));
     return null;
   }
@@ -369,12 +379,7 @@ function parsePayload(jsonStr, dispatch) {
   // 8. {"FINAL_RESULT":{...}}
   if (parsed.FINAL_RESULT && typeof parsed.FINAL_RESULT === 'object') {
     const reading = _buildReading(parsed.FINAL_RESULT, raw);
-    dispatch(
-      ac.log(
-        'FINAL',
-        `← FINAL_RESULT pH=${reading.ph} TDS=${reading.ec} T=${reading.temperature}°C`,
-      ),
-    );
+    dispatch(ac.log('FINAL', `← FINAL_RESULT pH=${reading.ph}`));
     dispatch(ac.finalResult(reading));
     return reading;
   }
@@ -386,15 +391,10 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  // 10. Sensor reading — {"pH":"7.12","TDS":"486.34",...} — from PHTEST result
+  // 10. Sensor reading — {"pH":"7.12","TDS":"486.34",...}
   if (parsed.pH !== undefined || parsed.TDS !== undefined) {
     const reading = _buildReading(parsed, raw);
-    dispatch(
-      ac.log(
-        'DATA',
-        `← Sensor #${_dataCount} pH=${reading.ph} TDS=${reading.ec} pHV=${reading.voltage}V ECV=${reading.ecVoltage}V T=${reading.temperature}°C`,
-      ),
-    );
+    dispatch(ac.log('DATA', `← Sensor #${_dataCount} pH=${reading.ph}`));
     return reading;
   }
 
@@ -402,124 +402,88 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.SOILTEST === 'STARTED')
     dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'running' } });
   if (parsed.SOILTEST === 'MIXING_COMPLETED')
-    dispatch({
-      type: 'SOIL_MOTOR_STATE',
-      payload: { data: 'mixing completed' },
-    });
+    dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'mixing completed' } });
 
   if (parsed.SOILMOTORSTATUS === 'RUNNING')
-    dispatch({
-      type: 'SOIL_MOTOR_STATE_FROM_BLE',
-      payload: { data: 'running' },
-    });
+    dispatch({ type: 'SOIL_MOTOR_STATE_FROM_BLE', payload: { data: 'running' } });
   if (parsed.SOILMOTORSTATUS === 'NOT_STARTED')
-    dispatch({
-      type: 'SOIL_MOTOR_STATE_FROM_BLE',
-      payload: { data: 'not_started' },
-    });
+    dispatch({ type: 'SOIL_MOTOR_STATE_FROM_BLE', payload: { data: 'not_started' } });
   if (parsed.SOILMOTORSTATUS === 'STOPPED')
-    dispatch({
-      type: 'SOIL_MOTOR_STATE_FROM_BLE',
-      payload: { data: 'stopped' },
-    });
+    dispatch({ type: 'SOIL_MOTOR_STATE_FROM_BLE', payload: { data: 'stopped' } });
 
   if (parsed.SOILSENSORSTATUS === 'READING')
-    dispatch({
-      type: 'SOIL_SENSOR_STATE_FROM_BLE',
-      payload: { data: 'reading' },
-    });
+    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'reading' } });
   if (parsed.SOILSENSORSTATUS === 'RUNNING')
-    dispatch({
-      type: 'SOIL_SENSOR_STATE_FROM_BLE',
-      payload: { data: 'running' },
-    });
+    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'running' } });
   if (parsed.SOILSENSORSTATUS === 'NOT_STARTED')
-    dispatch({
-      type: 'SOIL_SENSOR_STATE_FROM_BLE',
-      payload: { data: 'not_started' },
-    });
+    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'not_started' } });
   if (parsed.SOILSENSORSTATUS === 'SENSOR_READING_DONE')
-    dispatch({
-      type: 'SOIL_SENSOR_STATE_FROM_BLE',
-      payload: { data: 'sensor_reading_done' },
-    });
+    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'sensor_reading_done' } });
   if (parsed.SOILSENSORSTATUS === 'STOPPED')
-    dispatch({
-      type: 'SOIL_SENSOR_STATE_FROM_BLE',
-      payload: { data: 'stopped' },
-    });
+    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'stopped' } });
 
   // ─── Soil calibration messages ─────────────────────────────────────────────
-  // App → Device:
-  //   {SOILCALIBRATION:"START", nutrients:["N","P"], point:"min"}
-  //   {SOILCALIBRATION:"STOP"}
-  //   {SOILCALIBRATIONSTATUS:true}
-  //   {SOILCALIBRATIONDATA:"GET"}
-  //
-  // Device → App:
-  //   {SOILCALIBRATION:"STARTED"}
-  //   {SOILCALIBRATIONSTATUS:"IDLE"|"READING"|"DONE"|"ERROR"}
-  //   {SOILCALIBRATE:{point,nutrients,status:"DONE",results:{...}}}
-  //   {SOILCALIBRATION:"COMPLETE"}
-  //   {SOILCALIBRATIONDATA:{...full table...}}
-
   if (parsed.SOILCALIBRATION === 'STARTED') {
+    console.log('[BLE] SOILCALIBRATION STARTED');
     dispatch(ac.log('CAL', '← SOILCALIBRATION STARTED'));
     dispatch({ type: 'SOIL_CALIBRATION_START', payload: { data: 'started' } });
     return null;
   }
 
   if (parsed.SOILCALIBRATION === 'STOPPED') {
+    console.log('[BLE] SOILCALIBRATION STOPPED');
     dispatch(ac.log('CAL', '← SOILCALIBRATION STOPPED'));
     dispatch({ type: 'SOIL_CALIBRATION_STOPPED', payload: { data: 'stopped' } });
     return null;
   }
 
   if (parsed.SOILCALIBRATION === 'COMPLETE') {
+    console.log('[BLE] SOILCALIBRATION COMPLETE');
     dispatch(ac.log('CAL', '← SOILCALIBRATION COMPLETE'));
     dispatch({ type: 'SOIL_CALIBRATION_COMPLETE', payload: { data: 'complete' } });
     return null;
   }
 
-  if (parsed.SOILCALIBRATIONSTATUS !== undefined) {
-    dispatch(
-      ac.log('CAL', `← SOILCALIBRATIONSTATUS: ${parsed.SOILCALIBRATIONSTATUS}`),
-    );
+  // ─── FIX: Live progress handler ──────────────────────────────────────────
+  if (parsed.SOILCALIBRATIONPROGRESS !== undefined) {
+    const p = parsed.SOILCALIBRATIONPROGRESS || {};
+    console.log('[BLE] PROGRESS:', p.nutrient, p.point, p.phase, p.loop, '/', p.total);
+    dispatch(ac.log('CAL', `← progress ${p.nutrient}/${p.point} ${p.phase} loop ${p.loop}/${p.total}`));
+    
     dispatch({
-      type: 'SOIL_CALIBRATION_STATUS',
-      payload: { status: parsed.SOILCALIBRATIONSTATUS },
+      type: 'SOIL_CALIBRATION_PROGRESS',
+      payload: {
+        nutrient: p.nutrient || null,
+        point: p.point || null,
+        phase: p.phase || 'spectral',
+        loop: Number(p.loop) || 0,
+        total: Number(p.total) || 100,
+        channels: p.channels || {},
+      },
     });
-    // Also mirror into the shared BLE calibration-status slot (used by PH/EC UI too)
-    dispatch(ac.calibrationStatus(parsed.SOILCALIBRATIONSTATUS));
     return null;
   }
 
-  // Batch calibration result — supports both the new multi-nutrient shape
-  // ({point, nutrients, status:'DONE', results:{...}}) and, for backward
-  // compatibility, an older single-nutrient shape ({nutrient, point, data}).
+  // ─── FIX: Status handler ──────────────────────────────────────────────────
+  if (parsed.SOILCALIBRATIONSTATUS !== undefined) {
+    const status = parsed.SOILCALIBRATIONSTATUS;
+    console.log('[BLE] STATUS:', status);
+    dispatch(ac.log('CAL', `← SOILCALIBRATIONSTATUS: ${status}`));
+    dispatch({
+      type: 'SOIL_CALIBRATION_STATUS',
+      payload: { status: status },
+    });
+    dispatch(ac.calibrationStatus(status));
+    return null;
+  }
+
+  // ─── FIX: Result handler ──────────────────────────────────────────────────
   if (parsed.SOILCALIBRATE && parsed.SOILCALIBRATE.status === 'DONE') {
     const point = parsed.SOILCALIBRATE.point;
-    const nutrients =
-      parsed.SOILCALIBRATE.nutrients ??
-      (parsed.SOILCALIBRATE.nutrient ? [parsed.SOILCALIBRATE.nutrient] : []);
-    const results =
-      parsed.SOILCALIBRATE.results ??
-      (parsed.SOILCALIBRATE.nutrient
-        ? {
-            [parsed.SOILCALIBRATE.nutrient]: {
-              saved: true,
-              values: parsed.SOILCALIBRATE.data ?? null,
-              error: null,
-            },
-          }
-        : {});
-
-    dispatch(
-      ac.log(
-        'CAL',
-        `← SOILCALIBRATE DONE point=${point} nutrients=${nutrients.join(',')}`,
-      ),
-    );
+    const nutrients = parsed.SOILCALIBRATE.nutrients || [];
+    const results = parsed.SOILCALIBRATE.results || {};
+    console.log('[BLE] RESULT DONE:', point, nutrients);
+    dispatch(ac.log('CAL', `← SOILCALIBRATE DONE point=${point}`));
     dispatch({
       type: 'SOIL_CALIBRATION_RESULT',
       payload: { point, nutrients, results, error: null },
@@ -528,22 +492,22 @@ function parsePayload(jsonStr, dispatch) {
   }
 
   if (parsed.SOILCALIBRATE && parsed.SOILCALIBRATE.status === 'ERROR') {
-    dispatch(
-      ac.log('CAL', `← SOILCALIBRATE ERROR: ${parsed.ERROR ?? 'unknown'}`),
-    );
+    console.log('[BLE] RESULT ERROR:', parsed.ERROR);
+    dispatch(ac.log('CAL', `← SOILCALIBRATE ERROR: ${parsed.ERROR || 'unknown'}`));
     dispatch({
       type: 'SOIL_CALIBRATION_RESULT',
       payload: {
         point: parsed.SOILCALIBRATE.point,
-        nutrients: parsed.SOILCALIBRATE.nutrients ?? [],
+        nutrients: parsed.SOILCALIBRATE.nutrients || [],
         results: {},
-        error: parsed.ERROR ?? 'Calibration failed',
+        error: parsed.ERROR || 'Calibration failed',
       },
     });
     return null;
   }
 
   if (parsed.SOILCALIBRATIONDATA !== undefined) {
+    console.log('[BLE] DATA received');
     dispatch(ac.log('CAL', '← SOILCALIBRATIONDATA received'));
     dispatch({
       type: 'SOIL_CALIBRATION_DATA',
@@ -657,16 +621,13 @@ export const connectDevice = rawDevice => async dispatch => {
     dispatch(ac.log('CONNECT', 'Connected — discovering services…'));
     await conn.discoverAllServicesAndCharacteristics();
 
-    // FIX: request larger MTU from the app side so the phone and firmware
-    // agree on a packet size big enough to hold full JSON payloads in one
-    // notify. Without this the default 20-byte MTU causes every payload
-    // over 20B to split across multiple packets, and the second packet
-    // often gets silently dropped by the ESP32 Bluedroid stack.
+    // Request larger MTU from the app side so the phone and firmware agree
+    // on a packet size big enough to hold full JSON payloads (including the
+    // new live-progress notifications) in one notify.
     try {
       const negotiatedMtu = await conn.requestMTU(512);
       dispatch(ac.log('CONNECT', `MTU negotiated: ${negotiatedMtu}`));
     } catch (mtuErr) {
-      // Non-fatal — chunk buffer handles split packets as fallback
       dispatch(
         ac.log('CONNECT', `MTU request failed (non-fatal): ${mtuErr.message}`),
       );
@@ -701,7 +662,6 @@ export const connectDevice = rawDevice => async dispatch => {
           });
           await r.discoverAllServicesAndCharacteristics();
 
-          // FIX: also request MTU on reconnect
           try {
             const mtu = await r.requestMTU(512);
             dispatch(ac.log('RECONNECT', `MTU negotiated: ${mtu}`));
@@ -786,11 +746,16 @@ export const cmdGetSoilResult = () => dispatch =>
   _sendJSON({ SOILRESULT: 'GET' }, dispatch);
 
 // ─── Soil calibration commands ─────────────────────────────────────────────────
+// NOTE: `nutrients` should now always be a ONE-ITEM array, e.g. ['N'] — the
+// app drives the sequencing (one nutrient → one point → next point → next
+// nutrient) rather than asking the firmware to batch several nutrients into
+// a single shared reading. The firmware still accepts more than one for
+// backward compatibility, but the new calibration screen always sends one.
 export const cmdStartSoilCalibration = (nutrients, point, value) => dispatch =>
   _sendJSON(
     {
       SOILCALIBRATION: 'START',
-      nutrients, // e.g. ['N', 'P', 'K']
+      nutrients: Array.isArray(nutrients) ? nutrients : [nutrients],
       point, // 'blank' | 'min' | 'mid' | 'max'
       ...(value != null ? { value } : {}),
     },

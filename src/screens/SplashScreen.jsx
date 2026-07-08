@@ -63,6 +63,7 @@ export function SplashScreen({ navigation }) {
           } else {
             navigation.replace('AppTabs');
           }
+          
         } else {
           navigation.replace('LoginScreen');
         }
