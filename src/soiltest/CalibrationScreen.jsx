@@ -235,12 +235,12 @@ export default function CalibrationScreen({ navigation }) {
       if (stepStatus !== 'reading') setStepStatus('reading');
       return;
     }
-    if (calibrationPhase === 'done' && stepStatus !== 'saved') {
+    if (calibrationPhase === 'done' && stepStatus === 'reading') {
       stopPolling();
       handleCalibrationDone();
       return;
     }
-    if (calibrationPhase === 'error' && stepStatus !== 'error') {
+    if (calibrationPhase === 'error' && stepStatus === 'reading') {
       stopPolling();
       setStepStatus('error');
     }
@@ -341,6 +341,7 @@ export default function CalibrationScreen({ navigation }) {
     dispatch(cmdStartSoilCalibration([nutrient], point));
 
     stopPolling();
+    dispatch(cmdCheckSoilCalibrationStatus()); // ← add this line
     pollRef.current = setInterval(() => {
       dispatch(cmdCheckSoilCalibrationStatus());
     }, POLL_MS);
