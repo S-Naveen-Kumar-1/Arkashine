@@ -62,15 +62,14 @@ export function TimerScreen({ navigation }) {
   // ✅ Skip → go immediately
   const handleSkip = async () => {
     clearInterval(intervalRef.current);
-    await dispatch(cmdStopSoilTest());
-    await dispatch(cmdStartSoilSensor());
-    navigation.replace('SensorScreen');
+
+    navigation.replace('SoilTestIntroScreen');
   };
 
   // ✅ Next → only after timer completes
   const handleNext = () => {
     if (!timerDone) return;
-    navigation.replace('SensorScreen');
+    navigation.replace('SoilTestIntroScreen');
   };
 
   return (
@@ -133,17 +132,17 @@ export function TimerScreen({ navigation }) {
 
         {/* ✅ Buttons */}
         <View style={s.buttonRow}>
-          <AppButton
+          {/* <AppButton
             label="Skip"
             onPress={handleSkip}
             outlined
             color={T.primary}
             textColor={T.primary}
             style={{ flex: 1 }}
-          />
+          /> */}
 
           <AppButton
-            label="Next"
+            label="Get Full 12-Parameter Soil Test →"
             onPress={handleNext}
             disabled={!timerDone}
             color={T.primary}

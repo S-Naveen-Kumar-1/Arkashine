@@ -1,4 +1,4 @@
-// MixerScreen.jsx
+// MixerScreen.jsx - FIXED VERSION
 
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -123,6 +123,12 @@ export default function MixerScreen({ navigation }) {
 
             setMixingCompleted(true);
 
+            // Stop polling since motor is done
+            if (motorStatusIntervalRef.current) {
+              clearInterval(motorStatusIntervalRef.current);
+              motorStatusIntervalRef.current = null;
+            }
+
             return 0;
           }
 
@@ -133,6 +139,34 @@ export default function MixerScreen({ navigation }) {
 
     return () => {};
   }, [started, motorStatus]);
+
+  // =====================================================
+  // FALLBACK: Force completion if timer reaches 0
+  // =====================================================
+
+  useEffect(() => {
+    // If timer reaches 0 and we're still in started state but motorStatus is 'running'
+    // This handles the case where motorStatus doesn't update to 'done'
+    if (motorTimeLeft === 0 && started && motorStatus === 'running') {
+      // Clean up timer
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+
+      // Clean up polling
+      if (motorStatusIntervalRef.current) {
+        clearInterval(motorStatusIntervalRef.current);
+        motorStatusIntervalRef.current = null;
+      }
+
+      setStarted(false);
+      setMixingCompleted(true);
+
+      // Optionally check motor status one more time
+      dispatch(cmdCheckMotorStatus());
+    }
+  }, [motorTimeLeft, started, motorStatus, dispatch]);
 
   // =====================================================
   // CLEANUP
@@ -276,7 +310,7 @@ export default function MixerScreen({ navigation }) {
               borderColor:
                 motorStatus === 'running'
                   ? T.primary
-                  : motorStatus === 'done'
+                  : motorStatus === 'done' || mixingCompleted
                   ? '#10B981'
                   : T.orange,
             },
@@ -289,7 +323,7 @@ export default function MixerScreen({ navigation }) {
                 color:
                   motorStatus === 'running'
                     ? T.primary
-                    : motorStatus === 'done'
+                    : motorStatus === 'done' || mixingCompleted
                     ? '#10B981'
                     : T.orange,
               },
@@ -297,7 +331,7 @@ export default function MixerScreen({ navigation }) {
           >
             {motorStatus === 'running'
               ? '🔵 Motor RUNNING'
-              : motorStatus === 'done'
+              : motorStatus === 'done' || mixingCompleted
               ? '✅ Motor DONE'
               : '🟠 Motor STOPPED'}
           </Text>
@@ -513,10 +547,10 @@ export default function MixerScreen({ navigation }) {
         )}
 
         {/* ====================================== */}
-        {/* COMPLETED ACTIONS */}
+        {/* COMPLETED ACTIONS - FIXED: Show when mixingCompleted OR timer is 0 and not started */}
         {/* ====================================== */}
 
-        {mixingCompleted && (
+        {(mixingCompleted || (motorTimeLeft === 0 && !started)) && (
           <View style={s.completedActions}>
             {/* RE RUN */}
 
@@ -572,7 +606,7 @@ export default function MixerScreen({ navigation }) {
         <Text style={[s.hint, { color: T.muted }]}>
           {started && motorStatus === 'running'
             ? 'Motor running. Please wait for 60 seconds.'
-            : mixingCompleted
+            : mixingCompleted || (motorTimeLeft === 0 && !started)
             ? 'Mixing completed successfully.'
             : 'Motor mixes the soil-extractant solution for accurate readings'}
         </Text>

@@ -1,15 +1,18 @@
+// src/utils/constants.js
+
 export const nutrients = [
+  { key: 'ph', label: 'pH', unit: '', value: null },
+  { key: 'ec', label: 'EC', unit: 'dS/m', value: null },
+{ key: 'OC', label: 'Organic Carbon', unit: '%', value: null },
+  { key: 'N', label: 'Nitrogen', unit: 'kg/ha', value: null },  // ✅ Added
   { key: 'P', label: 'Phosphorus', unit: 'kg/ha', value: null },
   { key: 'K', label: 'Potassium', unit: 'kg/ha', value: null },
   { key: 'Ca', label: 'Calcium', unit: 'meq/100g', value: null },
   { key: 'Mg', label: 'Magnesium', unit: 'meq/100g', value: null },
   { key: 'S', label: 'Sulphur', unit: 'ppm', value: null },
-  { key: 'Zn', label: 'Zinc', unit: 'ppm', value: null },
-  { key: 'Mn', label: 'Manganese', unit: 'ppm', value: null },
   { key: 'Fe', label: 'Iron', unit: 'ppm', value: null },
+  { key: 'Mn', label: 'Manganese', unit: 'ppm', value: null },
   { key: 'Cu', label: 'Copper', unit: 'ppm', value: null },
+  { key: 'Zn', label: 'Zinc', unit: 'ppm', value: null },
   { key: 'B', label: 'Boron', unit: 'ppm', value: null },
-  { key: 'ph', label: 'pH', unit: '', value: null },
-  { key: 'ec', label: 'EC', unit: 'dS/m', value: null },
-  { key: 'oc', label: 'Organic Carbon', unit: '%', value: null },
 ];

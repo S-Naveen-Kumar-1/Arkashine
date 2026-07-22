@@ -4,26 +4,6 @@
 //   Service : 12345678-1234-1234-1234-1234567890ab
 //   Data    : abcd1234-5678-1234-5678-1234567890ab  (WRITE + NOTIFY same char)
 //
-// ═════════════════════════════════════════════════════════════════════════════
-//  COMPLETE TWO-WAY COMMUNICATION MAP
-// ═════════════════════════════════════════════════════════════════════════════
-//
-// ── Sensor calibration (BLANK / MIN / MID / MAX), ONE NUTRIENT AT A TIME ────
-// App → Device:
-//   {SOILCALIBRATION:"START", nutrients:["N"], point:"blank"}   ← one nutrient
-//   {SOILCALIBRATION:"STOP"}                                     (cancels mid-read too)
-//   {SOILCALIBRATIONSTATUS:true}
-//   {SOILCALIBRATIONDATA:"GET"}
-//
-// Device → App:
-//   {SOILCALIBRATION:"STARTED"}
-//   {SOILCALIBRATIONSTATUS:"IDLE"|"READING"|"DONE"|"ERROR"}
-//   {SOILCALIBRATIONPROGRESS:{nutrient,point,phase,loop,total,channels:{...}}}  ← NEW, streamed live
-//   {SOILCALIBRATE:{point,nutrients,status:"DONE"|"ERROR",results:{...}}}
-//   {SOILCALIBRATION:"COMPLETE"}
-//   {SOILCALIBRATION:"STOPPED"}   ← also sent if a reading in progress was cancelled
-//   {SOILCALIBRATIONDATA:{...full table...}}
-//
 import { BleManager } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
 import { Alert } from 'react-native';
@@ -70,39 +50,23 @@ let _reconnectTimer = null,
 
 let _chunkBuffer = '';
 
-function _isCompleteJSON(str) {
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let hasObject = false;
-  for (const ch of str) {
-    if (escape) {
-      escape = false;
-      continue;
-    }
-    if (ch === '\\' && inString) {
-      escape = true;
-      continue;
-    }
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (ch === '{') {
-      depth++;
-      hasObject = true;
-    } else if (ch === '}') depth--;
-  }
-  return hasObject && depth === 0;
-}
-
-function _extractFirstJSON(str) {
+// ─── FIX: self-healing balanced-JSON scanner ───────────────────────────────
+// Replaces the old _isCompleteJSON + _extractFirstJSON pair. The old scanner
+// could have its brace-depth counter go negative on a single stray '}' (a
+// dropped/garbled byte, a mid-chunk split, etc) and would then NEVER see
+// depth === 0 again for the rest of the session, since it rescanned the
+// whole accumulated buffer — including the poison byte — on every call.
+// That silently froze all future dispatches (status/progress/result), which
+// is exactly what caused calibrationPhase to get stuck on repeated
+// recalibrate cycles. This version resyncs instead of permanently jamming.
+function _findBalancedJSON(str) {
   const start = str.indexOf('{');
-  if (start === -1) return null;
+  if (start === -1) return { status: 'no-object' };
+
   let depth = 0;
   let inString = false;
   let escape = false;
+
   for (let i = start; i < str.length; i++) {
     const ch = str[i];
     if (escape) {
@@ -118,18 +82,37 @@ function _extractFirstJSON(str) {
       continue;
     }
     if (inString) continue;
-    if (ch === '{') depth++;
-    else if (ch === '}') {
+
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
       depth--;
+      if (depth < 0) {
+        // Stray closing brace — unrecoverable from `start`. Drop through
+        // this brace and let the caller retry from the next '{' instead of
+        // poisoning depth for every future call.
+        return { status: 'resync', remainder: str.slice(i + 1) };
+      }
       if (depth === 0) {
         return {
+          status: 'complete',
           jsonStr: str.slice(start, i + 1),
           remainder: str.slice(i + 1).trim(),
         };
       }
     }
   }
-  return null;
+  return { status: 'incomplete' };
+}
+
+// Safety valve: if the buffer grows huge without ever completing an object,
+// something is permanently desynced. Nuke it rather than hanging forever.
+const MAX_BUFFER_LEN = 8000;
+
+// ─── FIX: call this before starting any new calibration/test cycle so
+// nothing left over from a previous run/disconnect can poison the new one.
+export function resetBleParserBuffer() {
+  _chunkBuffer = '';
 }
 
 // ─── Action creators ──────────────────────────────────────────────────────────
@@ -308,7 +291,6 @@ function _buildReading(src, raw) {
   };
 }
 
-
 function parsePayload(jsonStr, dispatch) {
   const raw = jsonStr.trim();
   dispatch(ac.log('DATA', `← RECV: ${raw}`));
@@ -322,28 +304,24 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  // 1. {"STATUS":"BLE_CONNECTED"}
   if (parsed.STATUS === 'BLE_CONNECTED') {
     dispatch(ac.log('HANDSHAKE', '← BLE_CONNECTED ✅'));
     dispatch(ac.handshakeSuccess(raw));
     return null;
   }
 
-  // 2. {"HANDSHAKE":"ACK"}
   if (parsed.HANDSHAKE === 'ACK') {
     dispatch(ac.log('HANDSHAKE', '← HANDSHAKE ACK ✅'));
     dispatch(ac.handshakeSuccess(raw));
     return null;
   }
 
-  // 3. {"PHTEST":"STARTED"}
   if (parsed.PHTEST === 'STARTED') {
     dispatch(ac.log('TEST', '← PHTEST STARTED'));
     dispatch(ac.testStarted());
     return null;
   }
 
-  // 4. {"PHTEST":"STOPPED"}
   if (parsed.PHTEST === 'STOPPED') {
     dispatch(ac.log('TEST', '← PHTEST STOPPED'));
     dispatch(ac.testStopped());
@@ -351,7 +329,6 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  // 5. {"MOTORSTATUS":"RUNNING"|"STOPPED"}
   if (parsed.MOTORSTATUS !== undefined) {
     const s = parsed.MOTORSTATUS.toLowerCase();
     dispatch(ac.log('MOTOR', `← MOTORSTATUS: ${s}`));
@@ -359,7 +336,6 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  // 6. {"CALIBERATE":"PH"|"EC","STATUS":"DONE"}
   if (parsed.CALIBERATE && parsed.STATUS === 'DONE') {
     const type = parsed.CALIBERATE;
     const value = parseFloat(parsed.value);
@@ -369,14 +345,12 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  // 7. {"CALIBRATION_STATUS":"..."}
   if (parsed.CALIBRATION_STATUS !== undefined) {
     dispatch(ac.log('CAL', `← CALIBRATION_STATUS: ${parsed.CALIBRATION_STATUS}`));
     dispatch(ac.calibrationStatus(parsed.CALIBRATION_STATUS));
     return null;
   }
 
-  // 8. {"FINAL_RESULT":{...}}
   if (parsed.FINAL_RESULT && typeof parsed.FINAL_RESULT === 'object') {
     const reading = _buildReading(parsed.FINAL_RESULT, raw);
     dispatch(ac.log('FINAL', `← FINAL_RESULT pH=${reading.ph}`));
@@ -384,14 +358,12 @@ function parsePayload(jsonStr, dispatch) {
     return reading;
   }
 
-  // 9. {"ERROR":"..."}
   if (parsed.ERROR) {
     dispatch(ac.log('ERROR', `← Device ERROR: ${parsed.ERROR}`));
     dispatch(ac.deviceError(parsed.ERROR));
     return null;
   }
 
-  // 10. Sensor reading — {"pH":"7.12","TDS":"486.34",...}
   if (parsed.pH !== undefined || parsed.TDS !== undefined) {
     const reading = _buildReading(parsed, raw);
     dispatch(ac.log('DATA', `← Sensor #${_dataCount} pH=${reading.ph}`));
@@ -444,12 +416,10 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  // ─── FIX: Live progress handler ──────────────────────────────────────────
   if (parsed.SOILCALIBRATIONPROGRESS !== undefined) {
     const p = parsed.SOILCALIBRATIONPROGRESS || {};
     console.log('[BLE] PROGRESS:', p.nutrient, p.point, p.phase, p.loop, '/', p.total);
     dispatch(ac.log('CAL', `← progress ${p.nutrient}/${p.point} ${p.phase} loop ${p.loop}/${p.total}`));
-    
     dispatch({
       type: 'SOIL_CALIBRATION_PROGRESS',
       payload: {
@@ -464,20 +434,15 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  // ─── FIX: Status handler ──────────────────────────────────────────────────
   if (parsed.SOILCALIBRATIONSTATUS !== undefined) {
     const status = parsed.SOILCALIBRATIONSTATUS;
     console.log('[BLE] STATUS:', status);
     dispatch(ac.log('CAL', `← SOILCALIBRATIONSTATUS: ${status}`));
-    dispatch({
-      type: 'SOIL_CALIBRATION_STATUS',
-      payload: { status: status },
-    });
+    dispatch({ type: 'SOIL_CALIBRATION_STATUS', payload: { status } });
     dispatch(ac.calibrationStatus(status));
     return null;
   }
 
-  // ─── FIX: Result handler ──────────────────────────────────────────────────
   if (parsed.SOILCALIBRATE && parsed.SOILCALIBRATE.status === 'DONE') {
     const point = parsed.SOILCALIBRATE.point;
     const nutrients = parsed.SOILCALIBRATE.nutrients || [];
@@ -509,19 +474,12 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.SOILCALIBRATIONDATA !== undefined) {
     console.log('[BLE] DATA received');
     dispatch(ac.log('CAL', '← SOILCALIBRATIONDATA received'));
-    dispatch({
-      type: 'SOIL_CALIBRATION_DATA',
-      payload: parsed.SOILCALIBRATIONDATA,
-    });
+    dispatch({ type: 'SOIL_CALIBRATION_DATA', payload: parsed.SOILCALIBRATIONDATA });
     return null;
   }
 
-  // ─── Soil final result ───────────────────────────────────────────────────
   if (parsed.FINALSOILRESULT && typeof parsed.FINALSOILRESULT === 'object') {
-    dispatch({
-      type: 'SOIL_BLE_RESULT',
-      payload: normalizeSoil(parsed.FINALSOILRESULT),
-    });
+    dispatch({ type: 'SOIL_BLE_RESULT', payload: normalizeSoil(parsed.FINALSOILRESULT) });
     return parsed.FINALSOILRESULT;
   }
 
@@ -529,17 +487,16 @@ function parsePayload(jsonStr, dispatch) {
   return null;
 }
 
+// ─── FIX: rewritten notify loop using the self-healing scanner ─────────────
 function startNotifications(device, cfg, dispatch) {
   _notifySub?.remove();
   _chunkBuffer = '';
-  dispatch(
-    ac.log('NOTIFY', `Subscribing S:${cfg.serviceUUID} C:${cfg.notifyUUID}`),
-  );
+  dispatch(ac.log('NOTIFY', `Subscribing S:${cfg.serviceUUID} C:${cfg.notifyUUID}`));
 
   _notifySub = device.monitorCharacteristicForService(
     cfg.serviceUUID,
     cfg.notifyUUID,
-    (err, char) => {
+    async (err, char) => {
       if (err) {
         dispatch(ac.log('NOTIFY', `Error: ${err.message}`));
         return;
@@ -548,42 +505,37 @@ function startNotifications(device, cfg, dispatch) {
 
       try {
         const chunk = Buffer.from(char.value, 'base64').toString('utf-8');
-
         dispatch(ac.log('RAW', `CHUNK(${chunk.length}B) → ${chunk}`));
         console.log('[BLE RAW CHUNK]', chunk);
 
         _chunkBuffer += chunk;
-        dispatch(ac.log('RAW', `BUFFER → ${_chunkBuffer}`));
+
+        if (_chunkBuffer.length > MAX_BUFFER_LEN) {
+          dispatch(ac.log('RAW', `Buffer exceeded ${MAX_BUFFER_LEN}B — resyncing (desync detected)`));
+          console.warn('[BLE] Buffer desync — clearing', _chunkBuffer.length, 'bytes');
+          _chunkBuffer = '';
+          return;
+        }
 
         while (true) {
-          const start = _chunkBuffer.indexOf('{');
-          if (start === -1) {
+          const result = _findBalancedJSON(_chunkBuffer);
+
+          if (result.status === 'no-object') {
             _chunkBuffer = '';
             break;
           }
-          if (start > 0) {
-            dispatch(
-              ac.log(
-                'RAW',
-                `DISCARD ${start}B before '{': ${_chunkBuffer.slice(0, start)}`,
-              ),
-            );
-            _chunkBuffer = _chunkBuffer.slice(start);
-          }
-
-          if (!_isCompleteJSON(_chunkBuffer)) {
-            dispatch(
-              ac.log(
-                'RAW',
-                `INCOMPLETE(${_chunkBuffer.length}B) — waiting for next chunk…`,
-              ),
-            );
+          if (result.status === 'incomplete') {
+            dispatch(ac.log('RAW', `INCOMPLETE(${_chunkBuffer.length}B) — waiting for next chunk…`));
             break;
           }
+          if (result.status === 'resync') {
+            dispatch(ac.log('RAW', 'Stray brace detected — resyncing parser'));
+            console.warn('[BLE] Stray brace — resyncing');
+            _chunkBuffer = result.remainder;
+            continue;
+          }
 
-          const result = _extractFirstJSON(_chunkBuffer);
-          if (!result) break;
-
+          // status === 'complete'
           const { jsonStr, remainder } = result;
           _chunkBuffer = remainder;
 
@@ -591,12 +543,15 @@ function startNotifications(device, cfg, dispatch) {
           console.log('[BLE FULL JSON]', jsonStr);
 
           if (remainder.length > 0)
-            dispatch(
-              ac.log('RAW', `REMAINDER(${remainder.length}B) → ${remainder}`),
-            );
+            dispatch(ac.log('RAW', `REMAINDER(${remainder.length}B) → ${remainder}`));
 
           const reading = parsePayload(jsonStr, dispatch);
           if (reading) dispatch(ac.dataReceived(reading));
+
+          // Yield one macrotask so React commits THIS message's state
+          // before the next buffered message is processed — fixes the
+          // batched-dispatch UI lag from earlier.
+          await new Promise(resolve => setTimeout(resolve, 0));
         }
       } catch (e) {
         dispatch(ac.log('NOTIFY', `Parse error: ${e.message}`));
@@ -615,22 +570,15 @@ export const connectDevice = rawDevice => async dispatch => {
   bleManager.stopDeviceScan();
   dispatch(ac.scanStop());
   try {
-    const conn = await bleManager.connectToDevice(rawDevice.id, {
-      timeout: 12_000,
-    });
+    const conn = await bleManager.connectToDevice(rawDevice.id, { timeout: 12_000 });
     dispatch(ac.log('CONNECT', 'Connected — discovering services…'));
     await conn.discoverAllServicesAndCharacteristics();
 
-    // Request larger MTU from the app side so the phone and firmware agree
-    // on a packet size big enough to hold full JSON payloads (including the
-    // new live-progress notifications) in one notify.
     try {
       const negotiatedMtu = await conn.requestMTU(512);
       dispatch(ac.log('CONNECT', `MTU negotiated: ${negotiatedMtu}`));
     } catch (mtuErr) {
-      dispatch(
-        ac.log('CONNECT', `MTU request failed (non-fatal): ${mtuErr.message}`),
-      );
+      dispatch(ac.log('CONNECT', `MTU request failed (non-fatal): ${mtuErr.message}`));
     }
 
     const cfg = await resolveUUIDs(conn, dispatch);
@@ -638,9 +586,7 @@ export const connectDevice = rawDevice => async dispatch => {
     _config = cfg;
     _dataCount = 0;
     dispatch(ac.configResolved(cfg));
-    dispatch(
-      ac.connectSuccess({ id: conn.id, name: conn.name || rawDevice.name }),
-    );
+    dispatch(ac.connectSuccess({ id: conn.id, name: conn.name || rawDevice.name }));
     startNotifications(conn, cfg, dispatch);
     dispatch(ac.handshakeStart());
     dispatch(ac.log('HANDSHAKE', '→ {"HANDSHAKE":"HELLO"}'));
@@ -657,21 +603,14 @@ export const connectDevice = rawDevice => async dispatch => {
       _reconnectTimer = setTimeout(async () => {
         try {
           dispatch(ac.log('RECONNECT', 'Attempting…'));
-          const r = await bleManager.connectToDevice(conn.id, {
-            timeout: 8_000,
-          });
+          const r = await bleManager.connectToDevice(conn.id, { timeout: 8_000 });
           await r.discoverAllServicesAndCharacteristics();
 
           try {
             const mtu = await r.requestMTU(512);
             dispatch(ac.log('RECONNECT', `MTU negotiated: ${mtu}`));
           } catch (mtuErr) {
-            dispatch(
-              ac.log(
-                'RECONNECT',
-                `MTU request failed (non-fatal): ${mtuErr.message}`,
-              ),
-            );
+            dispatch(ac.log('RECONNECT', `MTU request failed (non-fatal): ${mtuErr.message}`));
           }
 
           const newCfg = await resolveUUIDs(r, dispatch);
@@ -709,64 +648,46 @@ export const disconnectDevice = () => dispatch => {
 };
 
 // ph test ble commands
-
-export const cmdStartPhTestMotor = () => dispatch =>
-  _sendJSON({ PHTEST: 'START' }, dispatch);
-export const cmdStopPhTestMotor = () => dispatch =>
-  _sendJSON({ PHTEST: 'STOP' }, dispatch);
+export const cmdStartPhTestMotor = () => dispatch => _sendJSON({ PHTEST: 'START' }, dispatch);
+export const cmdStopPhTestMotor = () => dispatch => _sendJSON({ PHTEST: 'STOP' }, dispatch);
 export const cmdCheckMotorStatus = () => dispatch =>
   _sendJSON({ CHECKMOTORSTATUS: 'CHECKMOTORSTATUS' }, dispatch);
-
 export const cmdCalibratePhPoint = standardPH => dispatch =>
   _sendJSON({ CALIBERATE: 'PH', value: Number(standardPH) }, dispatch);
-
 export const cmdCalibrateEcPoint = standardEC => dispatch =>
   _sendJSON({ CALIBERATE: 'EC', value: Number(standardEC) }, dispatch);
-
 export const cmdCheckCalibrationStatus = () => dispatch =>
   _sendJSON({ CALIBRATION_STATUS: true }, dispatch);
-
-export const cmdGetFinalResult = () => dispatch =>
-  _sendJSON({ FINAL_RESULT: 'FINAL_RESULT' }, dispatch);
-
+export const cmdGetFinalResult = () => dispatch => _sendJSON({ FINAL_RESULT: 'FINAL_RESULT' }, dispatch);
 export const clearDebugLog = () => dispatch => dispatch(ac.debugClear());
 
 // ─── Soil test commands ───────────────────────────────────────────────────────
-export const cmdStartSoilTest = () => dispatch =>
-  _sendJSON({ SOILTEST: 'START' }, dispatch);
-export const cmdStopSoilTest = () => dispatch =>
-  _sendJSON({ SOILTEST: 'STOP' }, dispatch);
+export const cmdStartSoilTest = () => dispatch => _sendJSON({ SOILTEST: 'START' }, dispatch);
+export const cmdStopSoilTest = () => dispatch => _sendJSON({ SOILTEST: 'STOP' }, dispatch);
 export const cmdCheckSoilMotorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILMOTORSTATUS: 'CHECKSOILMOTORSTATUS' }, dispatch);
-export const cmdStartSoilSensor = () => dispatch =>
-  _sendJSON({ SOILSENSOR: 'READ' }, dispatch);
+export const cmdStartSoilSensor = () => dispatch => _sendJSON({ SOILSENSOR: 'READ' }, dispatch);
 export const cmdCheckSoilSensorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILSENSORSTATUS: 'CHECKSOILSENSORSTATUS' }, dispatch);
-export const cmdGetSoilResult = () => dispatch =>
-  _sendJSON({ SOILRESULT: 'GET' }, dispatch);
+export const cmdGetSoilResult = () => dispatch => _sendJSON({ SOILRESULT: 'GET' }, dispatch);
 
 // ─── Soil calibration commands ─────────────────────────────────────────────────
-// NOTE: `nutrients` should now always be a ONE-ITEM array, e.g. ['N'] — the
-// app drives the sequencing (one nutrient → one point → next point → next
-// nutrient) rather than asking the firmware to batch several nutrients into
-// a single shared reading. The firmware still accepts more than one for
-// backward compatibility, but the new calibration screen always sends one.
-export const cmdStartSoilCalibration = (nutrients, point, value) => dispatch =>
-  _sendJSON(
+// FIX: resetBleParserBuffer() before every START — nothing from a previous
+// run/disconnect can bleed into and poison the new cycle's parsing.
+export const cmdStartSoilCalibration = (nutrients, point, value) => dispatch => {
+  resetBleParserBuffer();
+  return _sendJSON(
     {
       SOILCALIBRATION: 'START',
       nutrients: Array.isArray(nutrients) ? nutrients : [nutrients],
-      point, // 'blank' | 'min' | 'mid' | 'max'
+      point,
       ...(value != null ? { value } : {}),
     },
     dispatch,
   );
+};
 
-export const cmdStopSoilCalibration = () => dispatch =>
-  _sendJSON({ SOILCALIBRATION: 'STOP' }, dispatch);
-
+export const cmdStopSoilCalibration = () => dispatch => _sendJSON({ SOILCALIBRATION: 'STOP' }, dispatch);
 export const cmdCheckSoilCalibrationStatus = () => dispatch =>
   _sendJSON({ SOILCALIBRATIONSTATUS: true }, dispatch);
-
-export const cmdGetSoilCalibrationData = () => dispatch =>
-  _sendJSON({ SOILCALIBRATIONDATA: 'GET' }, dispatch);
+export const cmdGetSoilCalibrationData = () => dispatch => _sendJSON({ SOILCALIBRATIONDATA: 'GET' }, dispatch);

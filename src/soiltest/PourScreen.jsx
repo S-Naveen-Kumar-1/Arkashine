@@ -14,7 +14,7 @@ import { startMotorTimer } from '../redux/actions/soilsaathiActions';
 import { AppButton, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Radius, Typography, Shadow } from '../theme';
-import { cmdStartSoilTest } from '../redux/actions/bleActions';
+import { cmdStartSoilSensor, cmdStartSoilTest, cmdStopSoilTest } from '../redux/actions/bleActions';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function PourScreen({ navigation }) {
@@ -66,11 +66,12 @@ export default function PourScreen({ navigation }) {
     navigation.replace('SoilCalibrationScreen');
   };
 
-  const startMotor = async () => {
+  const startSoilTest = async () => {
     // ✅ reset
     await dispatch({ type: 'TEST_RESET' });
-    await dispatch(cmdStartSoilTest());
-    navigation.replace('TimerScreen');
+    await dispatch(cmdStopSoilTest());
+    await dispatch(cmdStartSoilSensor());
+    navigation.replace('SensorScreen');
   };
 
   const dropY = dropAnim.interpolate({
@@ -188,7 +189,7 @@ export default function PourScreen({ navigation }) {
           <View style={s.buttonWrapper}>
             <AppButton
               label="Start Soil Test"
-              onPress={startMotor}
+              onPress={startSoilTest}
               color={T.primary}
               textColor={T.primary}
               outlined

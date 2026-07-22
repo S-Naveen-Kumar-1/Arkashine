@@ -113,6 +113,9 @@ const ALL_CHANNELS = [
   'U',
   'V',
   'W',
+  'UVA',
+  'UVB',
+  'UVC',
 ];
 
 const POLL_MS = 1500;
@@ -801,13 +804,19 @@ export default function CalibrationScreen({ navigation }) {
                       {stepStatus === 'starting'
                         ? 'Sending command to device…'
                         : currentPhase === 'uv'
-                        ? 'Reading UV channels…'
+                        ? 'Generating report…'
                         : 'Reading spectral channels…'}
                     </Text>
-                    <Text style={[s.statusSub, { color: T.textSub }]}>
-                      Loop {loopNumber}/{totalLoops} ·{' '}
-                      {currentPhase === 'uv' ? 'UV' : 'Spectral'} phase
-                    </Text>
+                    {currentPhase === 'spectral' && (
+                      <Text style={[s.statusSub, { color: T.textSub }]}>
+                        Loop {loopNumber}/{totalLoops}
+                      </Text>
+                    )}
+                    {currentPhase === 'uv' && (
+                      <Text style={[s.statusSub, { color: T.textSub }]}>
+                        Preparing results…
+                      </Text>
+                    )}
                   </View>
                 </View>
 

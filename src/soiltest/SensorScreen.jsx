@@ -1,4 +1,4 @@
-// src/soiltest/SensorScreen.jsx
+// src/screens/test/SensorScreen.js
 
 import React, { useRef, useEffect, useState } from 'react';
 import {
@@ -8,6 +8,7 @@ import {
   StatusBar,
   Animated,
   Easing,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -22,22 +23,27 @@ import {
 } from '../redux/actions/bleActions';
 
 export function SensorScreen({ navigation }) {
-  const { connected, device, motorStatus, lastDeviceError } = useSelector(
-    s => s.ble,
-  );
+  const { connected, device } = useSelector(s => s.ble);
+  const soilSathiData = useSelector(s => s.soilsaathi);
   const theme = useTheme();
   const dispatch = useDispatch();
   const T = theme.colors;
-  const soilSathiData = useSelector(s => s.soilsaathi);
 
-  // ✅ TIMER (LOCAL - 60 sec)
-  const SENSOR_DURATION = 60;
-  const [sensorLeft, setSensorLeft] = useState(SENSOR_DURATION);
-  const sensorTotal = SENSOR_DURATION;
+  console.log('[SensorScreen] Connected:', connected, 'Device:', device?.name);
+  console.log(
+    '[SensorScreen] Soil Sathi Data:',
+    JSON.stringify(soilSathiData, null, 2),
+  );
+
+  // ✅ TIMER - Count UP from 0 until STOPPED
+  const [sensorTime, setSensorTime] = useState(0);
   const [timerDone, setTimerDone] = useState(false);
+  const [sensorStopped, setSensorStopped] = useState(false);
+  const [timerStarted, setTimerStarted] = useState(false);
 
   const intervalRef = useRef(null);
 
+  // Check sensor status every 3 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       dispatch(cmdCheckSoilSensorStatus());
@@ -45,25 +51,89 @@ export function SensorScreen({ navigation }) {
 
     return () => clearInterval(interval);
   }, []);
+
+  // ✅ Monitor sensor status from BLE and stop timer when STOPPED
   useEffect(() => {
-    setSensorLeft(SENSOR_DURATION);
+    const status = soilSathiData?.sensorStateFromBle;
+    console.log('[SensorScreen] Status from BLE:', status);
+
+    // Check for STOPPED status (case insensitive)
+    if (status && status.toLowerCase() === 'stopped') {
+      console.log(
+        '[SensorScreen] Sensor stopped - stopping timer at',
+        sensorTime,
+        'seconds',
+      );
+      setSensorStopped(true);
+      setTimerDone(true);
+      setTimerStarted(false);
+
+      // Clear the interval if it exists
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }
+  }, [soilSathiData?.sensorStateFromBle]);
+
+  // Start timer on mount - only if sensor is NOT already stopped
+  useEffect(() => {
+    const initialStatus = soilSathiData?.sensorStateFromBle;
+    console.log('[SensorScreen] Initial sensor status:', initialStatus);
+
+    // If sensor is already stopped, don't start the timer
+    if (initialStatus && initialStatus.toLowerCase() === 'stopped') {
+      console.log('[SensorScreen] Sensor already stopped - not starting timer');
+      setSensorStopped(true);
+      setTimerDone(true);
+      setTimerStarted(false);
+      return;
+    }
+
+    // Start the timer
+    console.log('[SensorScreen] Starting timer from 0');
+    setSensorTime(0);
     setTimerDone(false);
+    setSensorStopped(false);
+    setTimerStarted(true);
+
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
 
     intervalRef.current = setInterval(() => {
-      setSensorLeft(prev => {
-        if (prev <= 1) {
+      setSensorTime(prev => {
+        // Check if we should stop the timer due to STOPPED status
+        const status = soilSathiData?.sensorStateFromBle;
+        if (status && status.toLowerCase() === 'stopped') {
+          console.log(
+            '[SensorScreen] Timer stopped due to STOPPED status at',
+            prev,
+            'seconds',
+          );
           clearInterval(intervalRef.current);
-          setTimerDone(true); // ✅ mark complete
-          return 0;
+          setTimerDone(true);
+          setSensorStopped(true);
+          setTimerStarted(false);
+          return prev;
         }
-        return prev - 1;
+
+        // Count UP: increment by 1
+        return prev + 1;
       });
     }, 1000);
 
-    return () => clearInterval(intervalRef.current);
-  }, []);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      setTimerStarted(false);
+    };
+  }, []); // Empty dependency array - only run once on mount
 
-  // 🔵 Animation (unchanged)
+  // 🔵 Animation
   const pulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -82,15 +152,99 @@ export function SensorScreen({ navigation }) {
     outputRange: [1, 1.06, 1],
   });
 
-  // ✅ progress calculation
-  const elapsed = sensorTotal - sensorLeft;
-
-  const activeIndex = Math.floor(
-    (elapsed / (sensorTotal || 1)) * nutrients.length,
-  );
   const handleFetchResults = async () => {
+    console.log('[SensorScreen] Fetching results...');
     await dispatch(cmdGetSoilResult());
+    // Navigate to results screen
     navigation.replace('SoilResultsScreen');
+  };
+
+  // Check if results are available
+  const hasResults =
+    soilSathiData?.bleResultData &&
+    Object.keys(soilSathiData.bleResultData).length > 0;
+
+  // Format the time as MM:SS
+  const formatTime = seconds => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  // Calculate which nutrient is currently being processed
+  const TOTAL_NUTRIENTS = nutrients.length;
+  const ESTIMATED_TOTAL_TIME = 150; // 2.5 minutes in seconds
+
+  const getNutrientProgress = currentTime => {
+    const timePerNutrient = ESTIMATED_TOTAL_TIME / TOTAL_NUTRIENTS;
+    const currentIndex = Math.min(
+      Math.floor(currentTime / timePerNutrient),
+      TOTAL_NUTRIENTS - 1,
+    );
+    return currentIndex;
+  };
+
+  // Determine if we should show the fetch button
+  const shouldShowButton = sensorStopped || timerDone;
+
+  // ✅ Split nutrients into rows of 3
+  const chunkArray = (array, size) => {
+    const chunks = [];
+    for (let i = 0; i < array.length; i += size) {
+      chunks.push(array.slice(i, i + size));
+    }
+    return chunks;
+  };
+
+  const nutrientRows = chunkArray(nutrients, 3);
+
+  // ✅ Render a single nutrient item
+  const renderNutrientItem = (item, index, rowIndex) => {
+    const globalIndex = rowIndex * 3 + index;
+    const activeIndex = getNutrientProgress(sensorTime);
+    const isActive = globalIndex === activeIndex && !sensorStopped && timerStarted;
+    const isDone = globalIndex < activeIndex || sensorStopped;
+
+    // Calculate if this item should have a margin right (not the last item in the row)
+    const isLastInRow = index === 2 || index === nutrients.length - 1;
+
+    return (
+      <Animated.View
+        key={item.key}
+        style={[
+          s.nutriCard,
+          {
+            backgroundColor: T.card,
+            borderColor: isActive
+              ? T.primary
+              : isDone
+              ? T.primaryGlow
+              : T.border,
+            transform: [{ scale: isActive ? scale : 1 }],
+            marginRight: isLastInRow ? 0 : 8,
+          },
+        ]}
+      >
+        <Text style={[s.nutriLabel, { color: T.textSub }]}>
+          {item.label}
+        </Text>
+
+        <Text
+          style={[
+            s.nutriValue,
+            {
+              color: isActive
+                ? T.primary
+                : isDone
+                ? '#22C55E'
+                : T.muted,
+            },
+          ]}
+        >
+          {isActive ? '…' : isDone ? '✔' : '—'}
+        </Text>
+      </Animated.View>
+    );
   };
 
   return (
@@ -104,121 +258,155 @@ export function SensorScreen({ navigation }) {
       />
 
       <View style={s.center}>
-        {/* BLE UI (static) */}
-
+        {/* BLE Connection Status */}
         {connected && (
           <View
             style={[
               s.chip,
               {
                 backgroundColor: T.primaryGlow,
-
                 borderColor: T.primary,
               },
             ]}
           >
             <Icon name="bluetooth-connect" size={13} color={T.primary} />
-
             <Text style={[s.chipText, { color: T.primary }]}>
-              {device?.name}
+              {device?.name || 'Connected'}
             </Text>
           </View>
         )}
+
         <Text style={[Typography.h3, { color: T.text }]}>Sensor Operation</Text>
 
+        {/* Sensor Status */}
         {!soilSathiData?.sensorStateFromBle && (
           <Text style={[s.sub, { color: T.textSub }]}>
             {'No Response from device'}
           </Text>
         )}
+
         {soilSathiData?.sensorStateFromBle && (
-          <Text style={[s.sub, { color: T.textSub }]}>
-            {soilSathiData?.sensorStateFromBle ||
-              'Scanning — please hold still…'}
+          <Text
+            style={[s.sub, { color: sensorStopped ? '#22C55E' : T.textSub }]}
+          >
+            {sensorStopped
+              ? '✅ Sensor reading complete'
+              : soilSathiData?.sensorStateFromBle ||
+                'Scanning — please hold still…'}
           </Text>
         )}
 
-        {/* 🔵 Progress Ring */}
-        <View style={s.ringWrap}>
-          <Animated.View style={{ transform: [{ scale }] }}>
-            <ProgressRing
-              size={210}
-              progress={elapsed}
-              total={sensorTotal}
-              color={T.primary}
-              bg={T.border}
+        {/* Timer Display */}
+        <View style={s.timerWrap}>
+          <View style={s.timerBox}>
+            <Text
+              style={[
+                s.timerNum,
+                { color: sensorStopped ? '#22C55E' : T.primary },
+              ]}
             >
-              <View style={{ alignItems: 'center' }}>
-                <Text style={[s.timerNum, { color: T.primary }]}>
-                  {sensorLeft}
-                </Text>
-                <Text style={[s.timerUnit, { color: T.textSub }]}>sec</Text>
-              </View>
-            </ProgressRing>
-          </Animated.View>
+              {sensorStopped ? '✓' : formatTime(sensorTime)}
+            </Text>
+            <Text style={[s.timerUnit, { color: T.textSub }]}>
+              {sensorStopped ? 'Done' : timerStarted ? 'Elapsed' : 'Waiting...'}
+            </Text>
+          </View>
         </View>
 
-        {/* Nutrient grid (unchanged UI) */}
+        {/* Progress Bar - Show overall progress */}
+        <View style={s.progressWrap}>
+          <View style={[s.progressBar, { backgroundColor: T.border }]}>
+            <View
+              style={[
+                s.progressFill,
+                {
+                  backgroundColor: sensorStopped ? '#22C55E' : T.primary,
+                  width: `${Math.min(
+                    (sensorTime / ESTIMATED_TOTAL_TIME) * 100,
+                    100,
+                  )}%`,
+                },
+              ]}
+            />
+          </View>
+          <Text style={[s.progressText, { color: T.textSub }]}>
+            {Math.min(
+              Math.round((sensorTime / ESTIMATED_TOTAL_TIME) * 100),
+              100,
+            )}
+            % complete
+          </Text>
+        </View>
+
+        {/* ✅ Nutrient grid with proper row alignment */}
         <View style={s.grid}>
-          {nutrients.map((item, index) => {
-            const isActive = index === activeIndex;
-            const isDone = index < activeIndex;
-
-            return (
-              <Animated.View
-                key={item.key}
-                style={[
-                  s.nutriCard,
-                  {
-                    backgroundColor: T.card,
-                    borderColor: isActive
-                      ? T.primary
-                      : isDone
-                      ? T.primaryGlow
-                      : T.border,
-                    transform: [{ scale: isActive ? scale : 1 }],
-                  },
-                ]}
-              >
-                <Text style={[s.nutriLabel, { color: T.textSub }]}>
-                  {item.label}
-                </Text>
-
-                <Text
-                  style={[
-                    s.nutriValue,
-                    {
-                      color: isActive
-                        ? T.primary
-                        : isDone
-                        ? T.primary
-                        : T.muted,
-                    },
-                  ]}
-                >
-                  {isActive ? '…' : isDone ? '✔' : '—'}
-                </Text>
-              </Animated.View>
-            );
-          })}
+          {nutrientRows.map((row, rowIndex) => (
+            <View key={rowIndex} style={s.row}>
+              {row.map((item, index) => renderNutrientItem(item, index, rowIndex))}
+              {/* Add empty placeholders for incomplete rows */}
+              {row.length < 3 && (
+                <>
+                  {Array(3 - row.length)
+                    .fill(null)
+                    .map((_, i) => (
+                      <View
+                        key={`empty-${i}`}
+                        style={[
+                          s.nutriCard,
+                          {
+                            backgroundColor: 'transparent',
+                            borderColor: 'transparent',
+                            opacity: 0,
+                          },
+                        ]}
+                      />
+                    ))}
+                </>
+              )}
+            </View>
+          ))}
         </View>
 
-        {/* Static live preview */}
-        {/* <View
-          style={[
-            s.liveRow,
-            { backgroundColor: T.card, borderColor: T.primary },
-          ]}
-        >
-          <Icon name="wifi" size={14} color={T.primary} />
-          <Text style={[s.liveText, { color: T.muted }]}>Live </Text>
-          <Text style={[s.liveText, { color: T.primary }]}>pH -- </Text>
-          <Text style={[s.liveText, { color: T.primary }]}>EC -- </Text>
-          <Text style={[s.liveText, { color: T.muted }]}>-- V</Text>
-        </View> */}
-        {timerDone && (
+        {/* Results Preview - Show when sensor is stopped and results are available */}
+        {sensorStopped && hasResults && (
+          <View
+            style={[
+              s.resultPreview,
+              {
+                backgroundColor: T.card,
+                borderColor: '#22C55E',
+                borderWidth: 1.5,
+              },
+            ]}
+          >
+            <Text style={[s.resultTitle, { color: '#22C55E' }]}>
+              ✅ Soil Analysis Complete
+            </Text>
+            <View style={s.resultRow}>
+              <Text style={[s.resultLabel, { color: T.textSub }]}>N:</Text>
+              <Text style={[s.resultValue, { color: T.text }]}>
+                {soilSathiData.bleResultData.N?.toFixed(2) || '--'}
+              </Text>
+              <Text style={[s.resultLabel, { color: T.textSub }]}>P:</Text>
+              <Text style={[s.resultValue, { color: T.text }]}>
+                {soilSathiData.bleResultData.P?.toFixed(2) || '--'}
+              </Text>
+              <Text style={[s.resultLabel, { color: T.textSub }]}>K:</Text>
+              <Text style={[s.resultValue, { color: T.text }]}>
+                {soilSathiData.bleResultData.K?.toFixed(2) || '--'}
+              </Text>
+            </View>
+            <Text style={[s.resultSub, { color: T.muted }]}>
+              pH: {soilSathiData.bleResultData.ph?.toFixed(2) || '--'} · EC:{' '}
+              {soilSathiData.bleResultData.ec?.toFixed(2) || '--'}
+            </Text>
+          </View>
+        )}
+
+        {/* Action Buttons - Show when sensor stopped */}
+        {shouldShowButton && (
           <AppButton
-            label="Fetch Results"
+            label={hasResults ? 'View Full Results' : 'Fetch Results'}
             onPress={handleFetchResults}
             color={T.primary}
             textColor="#fff"
@@ -239,7 +427,7 @@ const s = StyleSheet.create({
     padding: Spacing.lg,
     paddingTop: 12,
   },
-  bleChip: {
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -249,39 +437,98 @@ const s = StyleSheet.create({
     paddingVertical: 5,
     marginBottom: 10,
   },
-  bleChipText: { fontSize: 12, fontWeight: '700' },
+  chipText: { fontSize: 12, fontWeight: '700' },
   sub: { fontSize: 14, marginBottom: 16, textAlign: 'center' },
-  ringWrap: { marginBottom: 16 },
-  timerNum: { fontSize: 48, fontWeight: '900', fontFamily: 'monospace' },
-  timerUnit: { fontSize: 13, fontWeight: '600' },
+  timerWrap: { marginBottom: 16 },
+  timerBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  timerNum: {
+    fontSize: 64,
+    fontWeight: '900',
+    fontFamily: 'monospace',
+    letterSpacing: 2,
+  },
+  timerUnit: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  progressWrap: {
+    width: '100%',
+    marginBottom: 16,
+    paddingHorizontal: 10,
+  },
+  progressBar: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  progressText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+    textAlign: 'center',
+  },
   grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
     width: '100%',
     marginTop: 6,
   },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
   nutriCard: {
-    width: '30%',
+    flex: 1,
     borderRadius: 14,
     borderWidth: 1.5,
-    paddingVertical: 4,
-    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    maxWidth: '31%',
+  },
+  nutriLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4, textAlign: 'center' },
+  nutriValue: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+  resultPreview: {
+    borderRadius: 12,
+    padding: 14,
+    width: '100%',
+    marginTop: 12,
     alignItems: 'center',
   },
-  nutriLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
-  nutriValue: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
-  liveRow: {
+  resultTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 8,
+  },
+  resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginTop: 8,
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
-  liveText: { fontSize: 12, fontWeight: '700' },
+  resultLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  resultValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginRight: 4,
+  },
+  resultSub: {
+    fontSize: 11,
+    marginTop: 6,
+  },
 });
 
 export default SensorScreen;

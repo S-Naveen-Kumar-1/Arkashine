@@ -1,4 +1,5 @@
 // src/screens/test/SoilResultsScreen.js
+// src/screens/test/SoilResultsScreen.js
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
@@ -79,7 +80,7 @@ function formatValue(val) {
 function maxFor(key) {
   if (key === 'ph') return 14;
   if (key === 'ec') return 3;
-  if (key === 'oc') return 5;
+  if (key === 'OC') return 5;  // ✅ Changed from 'oc' to 'OC'
   return 100;
 }
 
@@ -979,18 +980,17 @@ const dl = StyleSheet.create({
   label: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 0.2 },
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN SCREEN
-// ─────────────────────────────────────────────────────────────────────────────
 export function SoilResultsScreen({ navigation, route }) {
   const theme = useTheme();
-  const T = theme.colors; // ← same pattern as your original
+  const T = theme.colors;
   const dispatch = useDispatch();
   const devices = useSelector(s => s.userDevices?.devices || []);
   const soilLenzDevice = devices.find(d => d.devise_type === 'soilsaathi');
   const soilData = useSelector(s => s.soilsaathi?.bleResultData);
   const deviceId = soilLenzDevice?.id;
-  console.log(deviceId, 'SOILLENZ DEVICE ID');
+  
+  console.log('[SoilResults] deviceId:', deviceId);
+  console.log('[SoilResults] soilData:', soilData);
 
   const [phase, setPhase] = useState('idle');
   const [callId, setCallId] = useState(null);
@@ -1000,6 +1000,7 @@ export function SoilResultsScreen({ navigation, route }) {
   const [aiRecsLoading, setAiRecsLoading] = useState(false);
   const [tab, setTab] = useState('nutrients');
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
 
   const headerAnim = useRef(new Animated.Value(0)).current;
 
@@ -1008,6 +1009,9 @@ export function SoilResultsScreen({ navigation, route }) {
     ...n,
     value: soilData?.[n.key] ?? null,
   }));
+
+  // Log mapped data to see what's being mapped
+  console.log('[SoilResults] Mapped nutrients:', mapped.map(m => ({ key: m.key, value: m.value })));
 
   // ── health score ─────────────────────────────────────────────────────────
   const scored = mapped.filter(m => m.value != null);
@@ -1034,19 +1038,24 @@ export function SoilResultsScreen({ navigation, route }) {
         aiRecs?.message ??
         null;
 
-  useEffect(() => {
-    Animated.timing(headerAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
-    if (soilData && deviceId) saveReading();
-  }, []);
-
-  // ── Step 1 ───────────────────────────────────────────────────────────────
+  // ── Step 1: Save reading ───────────────────────────────────────────────
   const saveReading = useCallback(async () => {
+    if (!soilData || !deviceId) {
+      console.log('[SoilResults] Cannot save: missing soilData or deviceId');
+      return;
+    }
+    
+    if (hasAttemptedSave) {
+      console.log('[SoilResults] Save already attempted');
+      return;
+    }
+
     try {
+      setHasAttemptedSave(true);
       setPhase('saving');
+      
+      console.log('[SoilResults] Saving reading with data:', soilData);
+      
       const payload = buildSoilPayload(soilData, {
         areaName: route?.params?.areaName ?? 'Test Area',
         cropType: route?.params?.cropType ?? 'arabica_coffee',
@@ -1057,18 +1066,21 @@ export function SoilResultsScreen({ navigation, route }) {
       const result = await dispatch(createSoilReading(deviceId, payload));
       const created = result?.payload?.data ?? result?.data;
       const id = created?.id ?? created?.call_id;
+      
       if (!id) throw new Error('No id returned from create');
 
+      console.log('[SoilResults] Reading saved with ID:', id);
       setCallId(id);
       setPhase('fetching');
       fetchBothRecs(id);
     } catch (e) {
-      console.warn('[SoilResults] saveReading:', e);
+      console.warn('[SoilResults] saveReading error:', e);
       setPhase('error');
+      setHasAttemptedSave(false);
     }
-  }, [soilData, deviceId]);
+  }, [soilData, deviceId, hasAttemptedSave]);
 
-  // ── Step 2 ───────────────────────────────────────────────────────────────
+  // ── Step 2: Fetch recommendations ──────────────────────────────────────
   const fetchBothRecs = useCallback(
     async id => {
       setRecsLoading(true);
@@ -1092,6 +1104,27 @@ export function SoilResultsScreen({ navigation, route }) {
     [deviceId],
   );
 
+  // ── Check for soilData and trigger save ────────────────────────────────
+  useEffect(() => {
+    Animated.timing(headerAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  // Separate effect to handle saving when data is available
+  useEffect(() => {
+    if (soilData && deviceId && !hasAttemptedSave) {
+      console.log('[SoilResults] Data available, attempting to save...');
+      saveReading();
+    } else if (soilData && !deviceId) {
+      console.log('[SoilResults] Data available but no device ID');
+    } else if (!soilData) {
+      console.log('[SoilResults] No soil data available yet');
+    }
+  }, [soilData, deviceId, hasAttemptedSave, saveReading]);
+
   // ── PDF download ─────────────────────────────────────────────────────────
   const handleDownload = useCallback(async () => {
     setPdfLoading(true);
@@ -1103,6 +1136,10 @@ export function SoilResultsScreen({ navigation, route }) {
       setPdfLoading(false);
     }
   }, [mapped, recs, aiText, callId, healthPct, T]);
+
+  // ── Check if we have any data to show ──────────────────────────────────
+  const hasData = soilData && Object.keys(soilData).length > 0;
+  const hasMappedData = mapped.some(m => m.value !== null);
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -1119,389 +1156,410 @@ export function SoilResultsScreen({ navigation, route }) {
 
       <PhaseBanner phase={phase} onRetry={saveReading} />
 
-      {/* ── Tab bar ─────────────────────────────────────────────────────── */}
-      <View style={[s.tabRow, { borderBottomColor: T.border ?? '#1C2733' }]}>
-        {['nutrients', 'charts', 'recs'].map(t => (
-          <TabPill
-            key={t}
-            label={
-              t === 'recs' ? 'Recs' : t.charAt(0).toUpperCase() + t.slice(1)
-            }
-            active={tab === t}
-            onPress={() => setTab(t)}
-            T={T}
+      {/* Show message if no data */}
+      {!hasData && phase === 'idle' && (
+        <View style={s.noDataContainer}>
+          <Text style={[s.noDataText, { color: T.textSub }]}>
+            No soil data available. Please go back and run the sensor test.
+          </Text>
+          <AppButton
+            label="Go to Sensor"
+            onPress={() => navigation.navigate('SensorScreen')}
+            color={T.primary}
+            textColor="#fff"
+            style={{ marginTop: 16 }}
           />
-        ))}
-      </View>
+        </View>
+      )}
 
-      <ScrollView
-        contentContainerStyle={[s.scroll, { padding: PAD }]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* ── HEALTH SCORE CARD ──────────────────────────────────────────── */}
-        <Animated.View
-          style={[
-            s.scoreCard,
-            {
-              backgroundColor: T.card,
-              borderColor: T.border ?? '#1C2733',
-              opacity: headerAnim,
-              transform: [
-                {
-                  translateY: headerAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [20, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          <View style={s.ringWrap}>
-            <HealthRing
-              pct={healthPct}
-              color={healthColor}
-              borderColor={T.border ?? '#1C2733'}
-              size={90}
-            />
-            <View style={s.ringInner}>
-              <Text style={[s.ringPct, { color: healthColor }]}>
-                {healthPct}%
-              </Text>
-            </View>
+      {/* Show data if available */}
+      {hasData && (
+        <>
+          {/* ── Tab bar ─────────────────────────────────────────────────────── */}
+          <View style={[s.tabRow, { borderBottomColor: T.border ?? '#1C2733' }]}>
+            {['nutrients', 'charts', 'recs'].map(t => (
+              <TabPill
+                key={t}
+                label={
+                  t === 'recs' ? 'Recs' : t.charAt(0).toUpperCase() + t.slice(1)
+                }
+                active={tab === t}
+                onPress={() => setTab(t)}
+                T={T}
+              />
+            ))}
           </View>
 
-          <View style={{ flex: 1 }}>
-            <Text
-              style={[Typography.h3 ?? {}, s.scoreTitle, { color: T.text }]}
-            >
-              Soil Health
-            </Text>
-            <Text style={[s.scoreSub, { color: T.textSub }]}>
-              {optimal} / {scored.length} nutrients optimal
-            </Text>
-            {callId ? (
-              <Text style={[s.scoreId, { color: T.muted }]}>
-                Reading #{callId}
-              </Text>
-            ) : null}
-            <View
+          <ScrollView
+            contentContainerStyle={[s.scroll, { padding: PAD }]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* ── HEALTH SCORE CARD ──────────────────────────────────────────── */}
+            <Animated.View
               style={[
-                s.scorePill,
+                s.scoreCard,
                 {
-                  backgroundColor: healthColor + '1A',
-                  borderColor: healthColor + '55',
-                },
-              ]}
-            >
-              <Text style={[s.scorePillTxt, { color: healthColor }]}>
-                {healthPct >= 70
-                  ? '🌱 Healthy Soil'
-                  : healthPct >= 40
-                  ? '⚠️ Needs Attention'
-                  : '🔴 Poor Condition'}
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* ══════════════════════════════════════════════════════════════════
-            TAB: NUTRIENTS
-        ══════════════════════════════════════════════════════════════════ */}
-        {tab === 'nutrients' && (
-          <>
-            <SectionHead
-              title="Test Summary"
-              sub="Here are your soil nutrient levels"
-              T={T}
-            />
-
-            <SectionHead
-              title="Macronutrients"
-              sub="pH · EC · OC · N · P · K"
-              T={T}
-            />
-            <View style={s.grid}>
-              {mapped
-                .filter(m =>
-                  [
-                    'ph',
-                    'ec',
-                    'oc',
-                    'nitrogen',
-                    'phosphorous',
-                    'potassium',
-                  ].includes(m.key),
-                )
-                .map((item, i) => (
-                  <NutrientCard key={item.key} item={item} idx={i} T={T} />
-                ))}
-            </View>
-
-            <SectionHead
-              title="Secondary Nutrients"
-              sub="Calcium · Magnesium · Sulphur"
-              T={T}
-            />
-            <View style={s.grid}>
-              {mapped
-                .filter(m =>
-                  ['calcium', 'magnesium', 'sulphur'].includes(m.key),
-                )
-                .map((item, i) => (
-                  <NutrientCard key={item.key} item={item} idx={i} T={T} />
-                ))}
-            </View>
-
-            <SectionHead
-              title="Micronutrients"
-              sub="Zn · Mn · Fe · Cu · B"
-              T={T}
-            />
-            <View style={s.grid}>
-              {mapped
-                .filter(m =>
-                  ['zinc', 'manganese', 'iron', 'copper', 'boron'].includes(
-                    m.key,
-                  ),
-                )
-                .map((item, i) => (
-                  <NutrientCard key={item.key} item={item} idx={i} T={T} />
-                ))}
-            </View>
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════════════════
-            TAB: CHARTS
-        ══════════════════════════════════════════════════════════════════ */}
-        {tab === 'charts' && (
-          <>
-            <SectionHead
-              title="Macronutrient Radar"
-              sub="N · P · K · Ca · Mg · S  —  normalised to 100"
-              T={T}
-            />
-            <View
-              style={[
-                s.chartCard,
-                { backgroundColor: T.card, borderColor: T.border ?? '#1C2733' },
-              ]}
-            >
-              <RadarChart mapped={mapped} T={T} />
-            </View>
-
-            <SectionHead
-              title="Micronutrient Profile"
-              sub="Relative comparison"
-              T={T}
-            />
-            <View
-              style={[
-                s.chartCard,
-                { backgroundColor: T.card, borderColor: T.border ?? '#1C2733' },
-              ]}
-            >
-              <MicroBarChart mapped={mapped} T={T} />
-            </View>
-
-            <SectionHead
-              title="Soil Chemistry"
-              sub="pH · EC · OC animated bars"
-              T={T}
-            />
-            {['ph', 'ec', 'oc'].map(k => {
-              const item = mapped.find(m => m.key === k);
-              const st = getStatus(k, item?.value, T.muted);
-              const maxV = k === 'ph' ? 14 : k === 'ec' ? 3 : 5;
-              return (
-                <View
-                  key={k}
-                  style={[
-                    s.chemRow,
+                  backgroundColor: T.card,
+                  borderColor: T.border ?? '#1C2733',
+                  opacity: headerAnim,
+                  transform: [
                     {
-                      backgroundColor: T.card,
-                      borderColor: T.border ?? '#1C2733',
+                      translateY: headerAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [20, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={s.ringWrap}>
+                <HealthRing
+                  pct={healthPct}
+                  color={healthColor}
+                  borderColor={T.border ?? '#1C2733'}
+                  size={90}
+                />
+                <View style={s.ringInner}>
+                  <Text style={[s.ringPct, { color: healthColor }]}>
+                    {healthPct}%
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={[Typography.h3 ?? {}, s.scoreTitle, { color: T.text }]}
+                >
+                  Soil Health
+                </Text>
+                <Text style={[s.scoreSub, { color: T.textSub }]}>
+                  {optimal} / {scored.length} nutrients optimal
+                </Text>
+                {callId ? (
+                  <Text style={[s.scoreId, { color: T.muted }]}>
+                    Reading #{callId}
+                  </Text>
+                ) : null}
+                <View
+                  style={[
+                    s.scorePill,
+                    {
+                      backgroundColor: healthColor + '1A',
+                      borderColor: healthColor + '55',
                     },
                   ]}
                 >
-                  <Text style={[s.chemKey, { color: T.textSub }]}>
-                    {item?.label ?? k.toUpperCase()}
-                  </Text>
-                  <View style={{ flex: 1, marginHorizontal: 12 }}>
-                    <AnimBar
-                      value={item?.value}
-                      max={maxV}
-                      color={st.color}
-                      trackColor={T.border ?? '#1C2733'}
-                    />
-                  </View>
-                  <Text style={[s.chemVal, { color: st.color }]}>
-                    {formatValue(item?.value)}
-                    {item?.unit ? ` ${item.unit}` : ''}
-                  </Text>
-                  <View
-                    style={[s.chemBadge, { backgroundColor: st.color + '22' }]}
-                  >
-                    <Text style={[s.chemBadgeTxt, { color: st.color }]}>
-                      {st.label}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
-          </>
-        )}
-
-        {/* ══════════════════════════════════════════════════════════════════
-            TAB: RECOMMENDATIONS
-        ══════════════════════════════════════════════════════════════════ */}
-        {tab === 'recs' && (
-          <>
-            {/* Fertilizer */}
-            <View
-              style={[
-                s.recCard,
-                {
-                  backgroundColor: T.card,
-                  borderColor: STATUS_COLORS.green + '44',
-                },
-              ]}
-            >
-              <View
-                style={[
-                  s.recHead,
-                  {
-                    backgroundColor: T.bg,
-                    borderBottomColor: STATUS_COLORS.green + '33',
-                  },
-                ]}
-              >
-                <Text style={{ fontSize: 20 }}>🌾</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.recTitle, { color: STATUS_COLORS.green }]}>
-                    Fertilizer Recommendations
-                  </Text>
-                  <Text style={[s.recSub, { color: T.textSub }]}>
-                    Crop: {recs?.crop_type ?? route?.params?.cropType ?? '—'}
+                  <Text style={[s.scorePillTxt, { color: healthColor }]}>
+                    {healthPct >= 70
+                      ? '🌱 Healthy Soil'
+                      : healthPct >= 40
+                      ? '⚠️ Needs Attention'
+                      : '🔴 Poor Condition'}
                   </Text>
                 </View>
-                {recsLoading && (
-                  <ActivityIndicator size="small" color={STATUS_COLORS.green} />
-                )}
               </View>
+            </Animated.View>
 
-              {recsLoading ? (
-                <View style={s.loadBox}>
-                  <ActivityIndicator color={STATUS_COLORS.green} />
-                  <Text style={[s.loadTxt, { color: T.textSub }]}>
-                    Calculating dosage…
-                  </Text>
+            {/* ══════════════════════════════════════════════════════════════════
+                TAB: NUTRIENTS
+            ══════════════════════════════════════════════════════════════════ */}
+            {tab === 'nutrients' && (
+              <>
+                <SectionHead
+                  title="Test Summary"
+                  sub="Here are your soil nutrient levels"
+                  T={T}
+                />
+
+                <SectionHead
+                  title="Macronutrients"
+                  sub="pH · EC · OC · N · P · K"
+                  T={T}
+                />
+                <View style={s.grid}>
+                  {mapped
+                    .filter(m =>
+                      [
+                        'ph',
+                        'ec',
+                        'OC',
+                        'N',
+                        'P',
+                        'K',
+                      ].includes(m.key),
+                    )
+                    .map((item, i) => (
+                      <NutrientCard key={item.key} item={item} idx={i} T={T} />
+                    ))}
                 </View>
-              ) : recs?.recommendations ? (
-                <View style={{ padding: 12 }}>
-                  {recs.npk && (
-                    <>
-                      <Text style={[s.subHead, { color: T.textSub }]}>
-                        Soil Nutrient Levels
+
+                <SectionHead
+                  title="Secondary Nutrients"
+                  sub="Calcium · Magnesium · Sulphur"
+                  T={T}
+                />
+                <View style={s.grid}>
+                  {mapped
+                    .filter(m =>
+                      ['Ca', 'Mg', 'S'].includes(m.key),
+                    )
+                    .map((item, i) => (
+                      <NutrientCard key={item.key} item={item} idx={i} T={T} />
+                    ))}
+                </View>
+
+                <SectionHead
+                  title="Micronutrients"
+                  sub="Zn · Mn · Fe · Cu · B"
+                  T={T}
+                />
+                <View style={s.grid}>
+                  {mapped
+                    .filter(m =>
+                      ['Zn', 'Mn', 'Fe', 'Cu', 'B'].includes(
+                        m.key,
+                      ),
+                    )
+                    .map((item, i) => (
+                      <NutrientCard key={item.key} item={item} idx={i} T={T} />
+                    ))}
+                </View>
+              </>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════════
+                TAB: CHARTS
+            ══════════════════════════════════════════════════════════════════ */}
+            {tab === 'charts' && (
+              <>
+                <SectionHead
+                  title="Macronutrient Radar"
+                  sub="N · P · K · Ca · Mg · S  —  normalised to 100"
+                  T={T}
+                />
+                <View
+                  style={[
+                    s.chartCard,
+                    { backgroundColor: T.card, borderColor: T.border ?? '#1C2733' },
+                  ]}
+                >
+                  <RadarChart mapped={mapped} T={T} />
+                </View>
+
+                <SectionHead
+                  title="Micronutrient Profile"
+                  sub="Relative comparison"
+                  T={T}
+                />
+                <View
+                  style={[
+                    s.chartCard,
+                    { backgroundColor: T.card, borderColor: T.border ?? '#1C2733' },
+                  ]}
+                >
+                  <MicroBarChart mapped={mapped} T={T} />
+                </View>
+
+                <SectionHead
+                  title="Soil Chemistry"
+                  sub="pH · EC · OC animated bars"
+                  T={T}
+                />
+                {['ph', 'ec', 'OC'].map(k => {
+                  const item = mapped.find(m => m.key === k);
+                  const st = getStatus(k, item?.value, T.muted);
+                  const maxV = k === 'ph' ? 14 : k === 'ec' ? 3 : 5;
+                  return (
+                    <View
+                      key={k}
+                      style={[
+                        s.chemRow,
+                        {
+                          backgroundColor: T.card,
+                          borderColor: T.border ?? '#1C2733',
+                        },
+                      ]}
+                    >
+                      <Text style={[s.chemKey, { color: T.textSub }]}>
+                        {item?.label ?? k.toUpperCase()}
                       </Text>
-                      <NPKPills npk={recs.npk} T={T} />
-                    </>
+                      <View style={{ flex: 1, marginHorizontal: 12 }}>
+                        <AnimBar
+                          value={item?.value}
+                          max={maxV}
+                          color={st.color}
+                          trackColor={T.border ?? '#1C2733'}
+                        />
+                      </View>
+                      <Text style={[s.chemVal, { color: st.color }]}>
+                        {formatValue(item?.value)}
+                        {item?.unit ? ` ${item.unit}` : ''}
+                      </Text>
+                      <View
+                        style={[s.chemBadge, { backgroundColor: st.color + '22' }]}
+                      >
+                        <Text style={[s.chemBadgeTxt, { color: st.color }]}>
+                          {st.label}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </>
+            )}
+
+            {/* ══════════════════════════════════════════════════════════════════
+                TAB: RECOMMENDATIONS
+            ══════════════════════════════════════════════════════════════════ */}
+            {tab === 'recs' && (
+              <>
+                {/* Fertilizer */}
+                <View
+                  style={[
+                    s.recCard,
+                    {
+                      backgroundColor: T.card,
+                      borderColor: STATUS_COLORS.green + '44',
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      s.recHead,
+                      {
+                        backgroundColor: T.bg,
+                        borderBottomColor: STATUS_COLORS.green + '33',
+                      },
+                    ]}
+                  >
+                    <Text style={{ fontSize: 20 }}>🌾</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.recTitle, { color: STATUS_COLORS.green }]}>
+                        Fertilizer Recommendations
+                      </Text>
+                      <Text style={[s.recSub, { color: T.textSub }]}>
+                        Crop: {recs?.crop_type ?? route?.params?.cropType ?? '—'}
+                      </Text>
+                    </View>
+                    {recsLoading && (
+                      <ActivityIndicator size="small" color={STATUS_COLORS.green} />
+                    )}
+                  </View>
+
+                  {recsLoading ? (
+                    <View style={s.loadBox}>
+                      <ActivityIndicator color={STATUS_COLORS.green} />
+                      <Text style={[s.loadTxt, { color: T.textSub }]}>
+                        Calculating dosage…
+                      </Text>
+                    </View>
+                  ) : recs?.recommendations ? (
+                    <View style={{ padding: 12 }}>
+                      {recs.npk && (
+                        <>
+                          <Text style={[s.subHead, { color: T.textSub }]}>
+                            Soil Nutrient Levels
+                          </Text>
+                          <NPKPills npk={recs.npk} T={T} />
+                        </>
+                      )}
+                      <Text style={[s.subHead, { color: T.textSub }]}>
+                        FYM / Organic
+                      </Text>
+                      <FYMBlock data={recs.recommendations.fym} T={T} />
+                      <Text style={[s.subHead, { color: T.textSub }]}>
+                        📅 Year-wise Schedule
+                      </Text>
+                      <FertilizerTable
+                        data={recs.recommendations.crop_fertilizer}
+                        T={T}
+                      />
+                    </View>
+                  ) : (
+                    <View style={s.emptyBox}>
+                      <Text style={[s.emptyTxt, { color: T.muted }]}>
+                        {phase === 'error'
+                          ? 'Failed to load. Tap the banner above to retry.'
+                          : 'Recommendations not yet available.'}
+                      </Text>
+                    </View>
                   )}
-                  <Text style={[s.subHead, { color: T.textSub }]}>
-                    FYM / Organic
-                  </Text>
-                  <FYMBlock data={recs.recommendations.fym} T={T} />
-                  <Text style={[s.subHead, { color: T.textSub }]}>
-                    📅 Year-wise Schedule
-                  </Text>
-                  <FertilizerTable
-                    data={recs.recommendations.crop_fertilizer}
-                    T={T}
-                  />
                 </View>
-              ) : (
-                <View style={s.emptyBox}>
-                  <Text style={[s.emptyTxt, { color: T.muted }]}>
-                    {phase === 'error'
-                      ? 'Failed to load. Tap the banner above to retry.'
-                      : 'Recommendations not yet available.'}
-                  </Text>
-                </View>
-              )}
-            </View>
 
-            {/* AI */}
-            <View
-              style={[
-                s.recCard,
-                {
-                  backgroundColor: T.card,
-                  borderColor: STATUS_COLORS.purple + '44',
-                },
-              ]}
-            >
-              <View
-                style={[
-                  s.recHead,
-                  {
-                    backgroundColor: T.bg,
-                    borderBottomColor: STATUS_COLORS.purple + '33',
-                  },
-                ]}
-              >
-                <Text style={{ fontSize: 20 }}>🤖</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.recTitle, { color: STATUS_COLORS.purple }]}>
-                    AI-Powered Insights
-                  </Text>
-                  <Text style={[s.recSub, { color: T.textSub }]}>
-                    Personalised advisory
-                  </Text>
-                </View>
-                {aiRecsLoading && (
-                  <ActivityIndicator
-                    size="small"
-                    color={STATUS_COLORS.purple}
-                  />
-                )}
-              </View>
+                {/* AI */}
+                <View
+                  style={[
+                    s.recCard,
+                    {
+                      backgroundColor: T.card,
+                      borderColor: STATUS_COLORS.purple + '44',
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      s.recHead,
+                      {
+                        backgroundColor: T.bg,
+                        borderBottomColor: STATUS_COLORS.purple + '33',
+                      },
+                    ]}
+                  >
+                    <Text style={{ fontSize: 20 }}>🤖</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.recTitle, { color: STATUS_COLORS.purple }]}>
+                        AI-Powered Insights
+                      </Text>
+                      <Text style={[s.recSub, { color: T.textSub }]}>
+                        Personalised advisory
+                      </Text>
+                    </View>
+                    {aiRecsLoading && (
+                      <ActivityIndicator
+                        size="small"
+                        color={STATUS_COLORS.purple}
+                      />
+                    )}
+                  </View>
 
-              {aiRecsLoading ? (
-                <View style={s.loadBox}>
-                  <ActivityIndicator color={STATUS_COLORS.purple} />
-                  <Text style={[s.loadTxt, { color: T.textSub }]}>
-                    Generating AI insights…
-                  </Text>
+                  {aiRecsLoading ? (
+                    <View style={s.loadBox}>
+                      <ActivityIndicator color={STATUS_COLORS.purple} />
+                      <Text style={[s.loadTxt, { color: T.textSub }]}>
+                        Generating AI insights…
+                      </Text>
+                    </View>
+                  ) : aiText ? (
+                    <Text style={[s.aiBody, { color: T.textSub }]}>{aiText}</Text>
+                  ) : (
+                    <View style={s.emptyBox}>
+                      <Text style={[s.emptyTxt, { color: T.muted }]}>
+                        {phase === 'error'
+                          ? 'AI insights unavailable.'
+                          : 'AI analysis pending…'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
-              ) : aiText ? (
-                <Text style={[s.aiBody, { color: T.textSub }]}>{aiText}</Text>
-              ) : (
-                <View style={s.emptyBox}>
-                  <Text style={[s.emptyTxt, { color: T.muted }]}>
-                    {phase === 'error'
-                      ? 'AI insights unavailable.'
-                      : 'AI analysis pending…'}
-                  </Text>
-                </View>
-              )}
-            </View>
 
-            {/* Download PDF button */}
-            <DownloadButton
-              onPress={handleDownload}
-              loading={pdfLoading}
-              T={T}
-            />
-          </>
-        )}
+                {/* Download PDF button */}
+                <DownloadButton
+                  onPress={handleDownload}
+                  loading={pdfLoading}
+                  T={T}
+                />
+              </>
+            )}
 
-        {/* Download button also visible on other tabs for convenience */}
-        {tab !== 'recs' && phase === 'done' && (
-          <DownloadButton onPress={handleDownload} loading={pdfLoading} T={T} />
-        )}
-      </ScrollView>
+            {/* Download button also visible on other tabs for convenience */}
+            {tab !== 'recs' && phase === 'done' && (
+              <DownloadButton onPress={handleDownload} loading={pdfLoading} T={T} />
+            )}
+          </ScrollView>
+        </>
+      )}
     </SafeAreaView>
   );
 }
@@ -1509,7 +1567,7 @@ export function SoilResultsScreen({ navigation, route }) {
 export default SoilResultsScreen;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STYLES  — all colours come from T.* tokens, matching your original file
+// STYLES  — add noData styles
 // ─────────────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root: { flex: 1 },
@@ -1523,6 +1581,20 @@ const s = StyleSheet.create({
   },
 
   scroll: { paddingBottom: 52 },
+
+  // ── No data container
+  noDataContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: PAD,
+    marginTop: 40,
+  },
+  noDataText: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
 
   // ── health card
   scoreCard: {
@@ -1558,7 +1630,7 @@ const s = StyleSheet.create({
   },
   scorePillTxt: { fontSize: 11, fontWeight: '700' },
 
-  // ── grid  (same '30%' approach as your original)
+  // ── grid
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

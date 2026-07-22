@@ -27,6 +27,9 @@ import { Radius, Spacing } from '../theme';
 import {
   cmdGetFinalResult,
   cmdCheckMotorStatus,
+  cmdStartSoilTest,
+  cmdStartSoilSensor,
+  cmdStopSoilTest,
 } from '../redux/actions/bleActions';
 import { createPHBottleReading } from '../redux/actions/phTestActions';
 
@@ -386,6 +389,7 @@ export default function PHECResultScreen({ navigation }) {
   const phStatus = getPhStatus(ph);
   const ecStatus = getEcStatus(ec);
   const recs = getRecommendations(ph, ec);
+  
   useEffect(() => {
     if (
       hasSavedRef.current ||
@@ -418,6 +422,7 @@ export default function PHECResultScreen({ navigation }) {
         console.log('SAVE ERROR', err);
       });
   }, [phBottleDeviceId, ph, ec, phVoltage, ecVoltage, dispatch]);
+  
   const handleRetry = useCallback(async () => {
     if (fetching || !connected) return;
 
@@ -445,6 +450,7 @@ export default function PHECResultScreen({ navigation }) {
       setFetching(false);
     }
   }, [fetching, connected]);
+  
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
@@ -646,16 +652,96 @@ export default function PHECResultScreen({ navigation }) {
           </>
         )}
 
-        {/* ── Full Soil Test CTA ── */}
+        {/* ── Next Steps Section ── */}
+        <View
+          style={[
+            s.nextStepsCard,
+            { backgroundColor: T.card, borderColor: T.border },
+          ]}
+        >
+          <Text style={[s.nextStepsTitle, { color: T.primary }]}>
+            🚀 Next Steps
+          </Text>
+          <Text style={[s.nextStepsSubtitle, { color: T.muted }]}>
+            You've completed the pH/EC test. Now it's time for the full soil nutrient analysis.
+          </Text>
+          
+          <View style={s.stepDivider} />
+
+          <View style={s.stepRow}>
+            <View style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}>
+              <Text style={[s.stepNumberText, { color: T.primary }]}>1</Text>
+            </View>
+            <View style={s.stepContent}>
+              <Text style={[s.stepTitle, { color: T.text }]}>
+                Start SoilLenz Test
+              </Text>
+              <Text style={[s.stepDescription, { color: T.muted }]}>
+                The motor will mix soil with extractant solution for nutrient extraction
+              </Text>
+            </View>
+          </View>
+
+          <View style={s.stepRow}>
+            <View style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}>
+              <Text style={[s.stepNumberText, { color: T.primary }]}>2</Text>
+            </View>
+            <View style={s.stepContent}>
+              <Text style={[s.stepTitle, { color: T.text }]}>
+                Wait for Mixing to Complete
+              </Text>
+              <Text style={[s.stepDescription, { color: T.muted }]}>
+                The motor runs for 60 seconds to ensure proper soil-extractant mixing
+              </Text>
+            </View>
+          </View>
+
+          <View style={s.stepRow}>
+            <View style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}>
+              <Text style={[s.stepNumberText, { color: T.primary }]}>3</Text>
+            </View>
+            <View style={s.stepContent}>
+              <Text style={[s.stepTitle, { color: T.text }]}>
+                Get Complete Nutrient Profile
+              </Text>
+              <Text style={[s.stepDescription, { color: T.muted }]}>
+                Receive detailed analysis of N, P, K, and other essential nutrients
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── SoilLenz Test CTA ── */}
         <TouchableOpacity
           style={[s.soilCta, { backgroundColor: T.primary }]}
-          onPress={() => navigation.replace('SoilTestIntroScreen')}
+          onPress={async () => {
+            await dispatch({ type: 'TEST_RESET' });
+            await dispatch(cmdStartSoilTest());
+            navigation.replace('TimerScreen');
+          }}
           activeOpacity={0.85}
         >
-          <Icon name="flask-outline" size={20} color="#fff" />
-          <Text style={s.soilCtaText}>Get Full 12-Parameter Soil Test →</Text>
+          <Icon name="test-tube" size={22} color="#fff" />
+          <Text style={s.soilCtaText}>Start SoilLenz Test →</Text>
+          <Text style={s.soilCtaSub}>Full 12-parameter soil analysis</Text>
         </TouchableOpacity>
 
+        {/* ── Back to Mixer Motor ── */}
+        <TouchableOpacity
+          style={[s.mixerCta, { borderColor: T.primary, backgroundColor: T.primaryGlow }]}
+          onPress={() => navigation.navigate('MixerScreen')}
+          activeOpacity={0.75}
+        >
+          <Icon name="rotate-3d-variant" size={20} color={T.primary} />
+          <Text style={[s.mixerCtaText, { color: T.primary }]}>
+            Go to Mixing Motor
+          </Text>
+          <Text style={[s.mixerCtaSub, { color: T.primary }]}>
+            Run another mixing cycle if needed
+          </Text>
+        </TouchableOpacity>
+
+        {/* ── Home Button ── */}
         <TouchableOpacity
           style={[s.homeBtn, { borderColor: T.border }]}
           onPress={() => navigation.navigate('ProductsListingScreen')}
@@ -769,16 +855,101 @@ const s = StyleSheet.create({
   },
   refetchText: { fontSize: 13, fontWeight: '600' },
 
-  soilCta: {
+  // ─── Next Steps Section ──
+  nextStepsCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing.md,
+    marginBottom: 12,
+  },
+  nextStepsTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  nextStepsSubtitle: {
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  stepDivider: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.08)',
+    marginVertical: 10,
+  },
+  stepRow: {
     flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+    alignItems: 'flex-start',
+  },
+  stepNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    height: 56,
+    marginTop: 2,
+  },
+  stepNumberText: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  stepContent: {
+    flex: 1,
+  },
+  stepTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  stepDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  // ─── CTAs ──
+  soilCta: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    height: 64,
     borderRadius: Radius.lg,
     marginBottom: Spacing.sm,
+    paddingHorizontal: 16,
   },
-  soilCtaText: { color: '#fff', fontSize: 15, fontWeight: '900' },
+  soilCtaText: { 
+    color: '#fff', 
+    fontSize: 17, 
+    fontWeight: '900',
+  },
+  soilCtaSub: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  mixerCta: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    height: 64,
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    marginBottom: Spacing.sm,
+    paddingHorizontal: 16,
+  },
+  mixerCtaText: { 
+    fontSize: 16, 
+    fontWeight: '800',
+  },
+  mixerCtaSub: {
+    fontSize: 11,
+    fontWeight: '600',
+    opacity: 0.8,
+  },
 
   homeBtn: {
     flexDirection: 'row',
