@@ -51,7 +51,7 @@ export const BLE_DEBUG_CLEAR        = 'BLE_DEBUG_CLEAR';
 export const BLE_HANDSHAKE_START    = 'BLE_HANDSHAKE_START';
 export const BLE_HANDSHAKE_SUCCESS  = 'BLE_HANDSHAKE_SUCCESS';
 export const BLE_HANDSHAKE_FAILED   = 'BLE_HANDSHAKE_FAILED';
-
+export const BLE_MIXING_COMPLETE = 'BLE_MIXING_COMPLETE';
 // ─── Firmware two-way responses (stored in bleReducer) ───────────────────────
 export const BLE_TEST_STARTED       = 'BLE_TEST_STARTED';       // {"TEST":"STARTED"}
 export const BLE_TEST_STOPPED       = 'BLE_TEST_STOPPED';       // {"TEST":"STOPPED"}

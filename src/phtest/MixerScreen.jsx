@@ -1,4 +1,5 @@
-// MixerScreen.jsx - FIXED VERSION
+// MixerScreen.jsx - FIXED VERSION (v3)
+//
 
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -38,19 +39,21 @@ export default function MixerScreen({ navigation }) {
 
   const dispatch = useDispatch();
 
-  const { connected, device, motorStatus, lastDeviceError } = useSelector(
-    s => s.ble,
-  );
+  // FIX: mixingCompleted now comes from Redux (state.ble.mixingCompleted),
+  // set centrally in bleActions.js. This survives screen remounts, unlike
+  // the old local useState version.
+  const { connected, device, motorStatus, lastDeviceError, mixingCompleted } =
+    useSelector(s => s.ble);
 
   // =====================================================
   // STATES
   // =====================================================
 
-  const [started, setStarted] = useState(false);
+  // `started` still tracks "is a cycle actively running from this screen's
+  // point of view" — used only to drive the countdown/progress UI.
+  const [started, setStarted] = useState(motorStatus === 'running');
 
   const [motorTimeLeft, setMotorTimeLeft] = useState(MOTOR_DURATION);
-
-  const [mixingCompleted, setMixingCompleted] = useState(false);
 
   // =====================================================
   // REFS
@@ -61,7 +64,24 @@ export default function MixerScreen({ navigation }) {
   const motorStatusIntervalRef = useRef(null);
 
   // =====================================================
-  // CHECK MOTOR STATUS
+  // SYNC LOCAL "started" WITH REDUX motorStatus
+  // =====================================================
+  // If we mount/remount while the motor is already running (e.g. user left
+  // and came back mid-cycle), pick up the running state instead of
+  // defaulting to "not started".
+
+  useEffect(() => {
+    if (motorStatus === 'running' && !started) {
+      setStarted(true);
+    }
+    if (motorStatus !== 'running' && started) {
+      setStarted(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [motorStatus]);
+
+  // =====================================================
+  // CHECK MOTOR STATUS (poll while running)
   // =====================================================
 
   useEffect(() => {
@@ -83,55 +103,27 @@ export default function MixerScreen({ navigation }) {
   }, [started, motorStatus, dispatch]);
 
   // =====================================================
-  // MAIN TIMER
+  // COUNTDOWN TIMER — purely visual now.
+  // Completion itself is decided in Redux/bleActions, not here.
   // =====================================================
 
   useEffect(() => {
-    // stop timer if motor stopped
     if (motorStatus !== 'running') {
-      if (started) {
-        setStarted(false);
-      }
-
       if (timerRef.current) {
         clearInterval(timerRef.current);
-
         timerRef.current = null;
       }
-
-      // MOTOR COMPLETED
-      if (motorStatus === 'done') {
-        setMotorTimeLeft(0);
-
-        setMixingCompleted(true);
-      }
-
       return;
     }
 
-    // create timer
     if (started && motorStatus === 'running' && !timerRef.current) {
       timerRef.current = setInterval(() => {
         setMotorTimeLeft(prev => {
-          // completed
           if (prev <= 1) {
             clearInterval(timerRef.current);
-
             timerRef.current = null;
-
-            setStarted(false);
-
-            setMixingCompleted(true);
-
-            // Stop polling since motor is done
-            if (motorStatusIntervalRef.current) {
-              clearInterval(motorStatusIntervalRef.current);
-              motorStatusIntervalRef.current = null;
-            }
-
             return 0;
           }
-
           return prev - 1;
         });
       }, 1000);
@@ -139,34 +131,6 @@ export default function MixerScreen({ navigation }) {
 
     return () => {};
   }, [started, motorStatus]);
-
-  // =====================================================
-  // FALLBACK: Force completion if timer reaches 0
-  // =====================================================
-
-  useEffect(() => {
-    // If timer reaches 0 and we're still in started state but motorStatus is 'running'
-    // This handles the case where motorStatus doesn't update to 'done'
-    if (motorTimeLeft === 0 && started && motorStatus === 'running') {
-      // Clean up timer
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-
-      // Clean up polling
-      if (motorStatusIntervalRef.current) {
-        clearInterval(motorStatusIntervalRef.current);
-        motorStatusIntervalRef.current = null;
-      }
-
-      setStarted(false);
-      setMixingCompleted(true);
-
-      // Optionally check motor status one more time
-      dispatch(cmdCheckMotorStatus());
-    }
-  }, [motorTimeLeft, started, motorStatus, dispatch]);
 
   // =====================================================
   // CLEANUP
@@ -202,10 +166,10 @@ export default function MixerScreen({ navigation }) {
         timerRef.current = null;
       }
 
-      setMixingCompleted(false);
-
       setMotorTimeLeft(MOTOR_DURATION);
 
+      // cmdStartPhTestMotor now also resets mixingCompleted in Redux
+      // (see bleActions.js) before sending PHTEST:"START"
       await dispatch(cmdStartPhTestMotor());
 
       setStarted(true);
@@ -220,11 +184,12 @@ export default function MixerScreen({ navigation }) {
 
   const handleStop = async () => {
     try {
+      // cmdStopPhTestMotor marks this as a user-initiated stop internally
+      // (bleActions.js) so the resulting STOPPED notification isn't
+      // misread as "mixing complete"
       await dispatch(cmdStopPhTestMotor());
 
       setStarted(false);
-
-      setMixingCompleted(false);
 
       setMotorTimeLeft(MOTOR_DURATION);
 
@@ -310,7 +275,7 @@ export default function MixerScreen({ navigation }) {
               borderColor:
                 motorStatus === 'running'
                   ? T.primary
-                  : motorStatus === 'done' || mixingCompleted
+                  : mixingCompleted
                   ? '#10B981'
                   : T.orange,
             },
@@ -323,7 +288,7 @@ export default function MixerScreen({ navigation }) {
                 color:
                   motorStatus === 'running'
                     ? T.primary
-                    : motorStatus === 'done' || mixingCompleted
+                    : mixingCompleted
                     ? '#10B981'
                     : T.orange,
               },
@@ -331,7 +296,7 @@ export default function MixerScreen({ navigation }) {
           >
             {motorStatus === 'running'
               ? '🔵 Motor RUNNING'
-              : motorStatus === 'done' || mixingCompleted
+              : mixingCompleted
               ? '✅ Motor DONE'
               : '🟠 Motor STOPPED'}
           </Text>
@@ -547,10 +512,12 @@ export default function MixerScreen({ navigation }) {
         )}
 
         {/* ====================================== */}
-        {/* COMPLETED ACTIONS - FIXED: Show when mixingCompleted OR timer is 0 and not started */}
+        {/* COMPLETED ACTIONS */}
+        {/* Driven entirely by Redux mixingCompleted now — survives */}
+        {/* navigation away/back, background/foreground, remounts. */}
         {/* ====================================== */}
 
-        {(mixingCompleted || (motorTimeLeft === 0 && !started)) && (
+        {mixingCompleted && (
           <View style={s.completedActions}>
             {/* RE RUN */}
 
@@ -606,7 +573,7 @@ export default function MixerScreen({ navigation }) {
         <Text style={[s.hint, { color: T.muted }]}>
           {started && motorStatus === 'running'
             ? 'Motor running. Please wait for 60 seconds.'
-            : mixingCompleted || (motorTimeLeft === 0 && !started)
+            : mixingCompleted
             ? 'Mixing completed successfully.'
             : 'Motor mixes the soil-extractant solution for accurate readings'}
         </Text>

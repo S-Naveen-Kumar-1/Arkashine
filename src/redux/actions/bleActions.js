@@ -4,6 +4,7 @@
 //   Service : 12345678-1234-1234-1234-1234567890ab
 //   Data    : abcd1234-5678-1234-5678-1234567890ab  (WRITE + NOTIFY same char)
 //
+
 import { BleManager } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
 import { Alert } from 'react-native';
@@ -32,6 +33,7 @@ import {
   BLE_DEVICE_ERROR,
   BLE_CALIBRATION_STATUS,
   BLE_FINAL_RESULT,
+  BLE_MIXING_COMPLETE, // ← NEW: add this to src/config/actionTypes.js
   CAL_POINT_DONE,
 } from '../../config/actionTypes';
 import { requestBLEPermissions } from '../../utils/permissions';
@@ -49,6 +51,16 @@ let _reconnectTimer = null,
   _dataCount = 0;
 
 let _chunkBuffer = '';
+
+// ─── FIX: mixing-completion tracking (module scope — survives remounts) ───
+// _prevMotorStatus: last MOTORSTATUS we saw, so we can detect a
+//   running -> stopped transition (as opposed to e.g. stopped -> stopped,
+//   which is just a redundant/duplicate notification).
+// _userStoppedMotor: set true right before we send PHTEST:"STOP" ourselves,
+//   so the resulting running -> stopped transition is NOT misread as
+//   "the mix finished naturally".
+let _prevMotorStatus = null;
+let _userStoppedMotor = false;
 
 // ─── FIX: self-healing balanced-JSON scanner ───────────────────────────────
 // Replaces the old _isCompleteJSON + _extractFirstJSON pair. The old scanner
@@ -139,6 +151,8 @@ export const ac = {
   deviceError: e => ({ type: BLE_DEVICE_ERROR, payload: e }),
   calibrationStatus: s => ({ type: BLE_CALIBRATION_STATUS, payload: s }),
   finalResult: r => ({ type: 'PH_FINAL_RESULT', payload: r }),
+  // ← NEW
+  mixingComplete: v => ({ type: BLE_MIXING_COMPLETE, payload: v }),
 
   log: (tag, message) => ({
     type: BLE_DEBUG_LOG,
@@ -291,6 +305,43 @@ function _buildReading(src, raw) {
   };
 }
 
+// ─── FIX: single place that decides "did the mix cycle just complete?" ────
+// Called every time we see a MOTORSTATUS notification. Compares against the
+// previous status to find a running -> stopped edge, and checks whether we
+// ourselves triggered that stop (via cmdStopPhTestMotor). If neither, the
+// motor stopped on its own — i.e. it finished — so we dispatch
+// mixingComplete(true). This lives here instead of in MixerScreen so it
+// keeps working correctly no matter which screen is mounted (or not) when
+// the firmware reports it.
+function _handleMotorStatusTransition(newStatus, dispatch) {
+  const prev = _prevMotorStatus;
+  const wasRunning = prev === 'running';
+  const isNowStopped = newStatus === 'stopped';
+
+  if (wasRunning && isNowStopped) {
+    if (_userStoppedMotor) {
+      dispatch(
+        ac.log(
+          'MOTOR',
+          'Stop confirmed (user-initiated) — not marking complete',
+        ),
+      );
+      dispatch(ac.mixingComplete(false));
+    } else {
+      dispatch(ac.log('MOTOR', 'Motor stopped naturally — mixing complete ✅'));
+      dispatch(ac.mixingComplete(true));
+    }
+  }
+
+  // Starting a new run clears any previous completion flag.
+  if (newStatus === 'running') {
+    dispatch(ac.mixingComplete(false));
+  }
+
+  _userStoppedMotor = false;
+  _prevMotorStatus = newStatus;
+}
+
 function parsePayload(jsonStr, dispatch) {
   const raw = jsonStr.trim();
   dispatch(ac.log('DATA', `← RECV: ${raw}`));
@@ -325,6 +376,7 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.PHTEST === 'STOPPED') {
     dispatch(ac.log('TEST', '← PHTEST STOPPED'));
     dispatch(ac.testStopped());
+    _handleMotorStatusTransition('stopped', dispatch);
     dispatch(ac.motorStatus('stopped'));
     return null;
   }
@@ -332,6 +384,7 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.MOTORSTATUS !== undefined) {
     const s = parsed.MOTORSTATUS.toLowerCase();
     dispatch(ac.log('MOTOR', `← MOTORSTATUS: ${s}`));
+    _handleMotorStatusTransition(s, dispatch);
     dispatch(ac.motorStatus(s));
     return null;
   }
@@ -339,14 +392,19 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.CALIBERATE && parsed.STATUS === 'DONE') {
     const type = parsed.CALIBERATE;
     const value = parseFloat(parsed.value);
-    const voltage = type === 'PH' ? parseFloat(parsed.pHVoltage) : parseFloat(parsed.ECVoltage);
+    const voltage =
+      type === 'PH'
+        ? parseFloat(parsed.pHVoltage)
+        : parseFloat(parsed.ECVoltage);
     dispatch(ac.log('CAL', `← ${type} DONE — value=${value}`));
     dispatch({ type: CAL_POINT_DONE, payload: { type, value, voltage } });
     return null;
   }
 
   if (parsed.CALIBRATION_STATUS !== undefined) {
-    dispatch(ac.log('CAL', `← CALIBRATION_STATUS: ${parsed.CALIBRATION_STATUS}`));
+    dispatch(
+      ac.log('CAL', `← CALIBRATION_STATUS: ${parsed.CALIBRATION_STATUS}`),
+    );
     dispatch(ac.calibrationStatus(parsed.CALIBRATION_STATUS));
     return null;
   }
@@ -374,25 +432,52 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.SOILTEST === 'STARTED')
     dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'running' } });
   if (parsed.SOILTEST === 'MIXING_COMPLETED')
-    dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'mixing completed' } });
+    dispatch({
+      type: 'SOIL_MOTOR_STATE',
+      payload: { data: 'mixing completed' },
+    });
 
   if (parsed.SOILMOTORSTATUS === 'RUNNING')
-    dispatch({ type: 'SOIL_MOTOR_STATE_FROM_BLE', payload: { data: 'running' } });
+    dispatch({
+      type: 'SOIL_MOTOR_STATE_FROM_BLE',
+      payload: { data: 'running' },
+    });
   if (parsed.SOILMOTORSTATUS === 'NOT_STARTED')
-    dispatch({ type: 'SOIL_MOTOR_STATE_FROM_BLE', payload: { data: 'not_started' } });
+    dispatch({
+      type: 'SOIL_MOTOR_STATE_FROM_BLE',
+      payload: { data: 'not_started' },
+    });
   if (parsed.SOILMOTORSTATUS === 'STOPPED')
-    dispatch({ type: 'SOIL_MOTOR_STATE_FROM_BLE', payload: { data: 'stopped' } });
+    dispatch({
+      type: 'SOIL_MOTOR_STATE_FROM_BLE',
+      payload: { data: 'stopped' },
+    });
 
   if (parsed.SOILSENSORSTATUS === 'READING')
-    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'reading' } });
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'reading' },
+    });
   if (parsed.SOILSENSORSTATUS === 'RUNNING')
-    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'running' } });
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'running' },
+    });
   if (parsed.SOILSENSORSTATUS === 'NOT_STARTED')
-    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'not_started' } });
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'not_started' },
+    });
   if (parsed.SOILSENSORSTATUS === 'SENSOR_READING_DONE')
-    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'sensor_reading_done' } });
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'sensor_reading_done' },
+    });
   if (parsed.SOILSENSORSTATUS === 'STOPPED')
-    dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'stopped' } });
+    dispatch({
+      type: 'SOIL_SENSOR_STATE_FROM_BLE',
+      payload: { data: 'stopped' },
+    });
 
   // ─── Soil calibration messages ─────────────────────────────────────────────
   if (parsed.SOILCALIBRATION === 'STARTED') {
@@ -405,21 +490,40 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.SOILCALIBRATION === 'STOPPED') {
     console.log('[BLE] SOILCALIBRATION STOPPED');
     dispatch(ac.log('CAL', '← SOILCALIBRATION STOPPED'));
-    dispatch({ type: 'SOIL_CALIBRATION_STOPPED', payload: { data: 'stopped' } });
+    dispatch({
+      type: 'SOIL_CALIBRATION_STOPPED',
+      payload: { data: 'stopped' },
+    });
     return null;
   }
 
   if (parsed.SOILCALIBRATION === 'COMPLETE') {
     console.log('[BLE] SOILCALIBRATION COMPLETE');
     dispatch(ac.log('CAL', '← SOILCALIBRATION COMPLETE'));
-    dispatch({ type: 'SOIL_CALIBRATION_COMPLETE', payload: { data: 'complete' } });
+    dispatch({
+      type: 'SOIL_CALIBRATION_COMPLETE',
+      payload: { data: 'complete' },
+    });
     return null;
   }
 
   if (parsed.SOILCALIBRATIONPROGRESS !== undefined) {
     const p = parsed.SOILCALIBRATIONPROGRESS || {};
-    console.log('[BLE] PROGRESS:', p.nutrient, p.point, p.phase, p.loop, '/', p.total);
-    dispatch(ac.log('CAL', `← progress ${p.nutrient}/${p.point} ${p.phase} loop ${p.loop}/${p.total}`));
+    console.log(
+      '[BLE] PROGRESS:',
+      p.nutrient,
+      p.point,
+      p.phase,
+      p.loop,
+      '/',
+      p.total,
+    );
+    dispatch(
+      ac.log(
+        'CAL',
+        `← progress ${p.nutrient}/${p.point} ${p.phase} loop ${p.loop}/${p.total}`,
+      ),
+    );
     dispatch({
       type: 'SOIL_CALIBRATION_PROGRESS',
       payload: {
@@ -458,7 +562,9 @@ function parsePayload(jsonStr, dispatch) {
 
   if (parsed.SOILCALIBRATE && parsed.SOILCALIBRATE.status === 'ERROR') {
     console.log('[BLE] RESULT ERROR:', parsed.ERROR);
-    dispatch(ac.log('CAL', `← SOILCALIBRATE ERROR: ${parsed.ERROR || 'unknown'}`));
+    dispatch(
+      ac.log('CAL', `← SOILCALIBRATE ERROR: ${parsed.ERROR || 'unknown'}`),
+    );
     dispatch({
       type: 'SOIL_CALIBRATION_RESULT',
       payload: {
@@ -474,12 +580,18 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.SOILCALIBRATIONDATA !== undefined) {
     console.log('[BLE] DATA received');
     dispatch(ac.log('CAL', '← SOILCALIBRATIONDATA received'));
-    dispatch({ type: 'SOIL_CALIBRATION_DATA', payload: parsed.SOILCALIBRATIONDATA });
+    dispatch({
+      type: 'SOIL_CALIBRATION_DATA',
+      payload: parsed.SOILCALIBRATIONDATA,
+    });
     return null;
   }
 
   if (parsed.FINALSOILRESULT && typeof parsed.FINALSOILRESULT === 'object') {
-    dispatch({ type: 'SOIL_BLE_RESULT', payload: normalizeSoil(parsed.FINALSOILRESULT) });
+    dispatch({
+      type: 'SOIL_BLE_RESULT',
+      payload: normalizeSoil(parsed.FINALSOILRESULT),
+    });
     return parsed.FINALSOILRESULT;
   }
 
@@ -491,7 +603,9 @@ function parsePayload(jsonStr, dispatch) {
 function startNotifications(device, cfg, dispatch) {
   _notifySub?.remove();
   _chunkBuffer = '';
-  dispatch(ac.log('NOTIFY', `Subscribing S:${cfg.serviceUUID} C:${cfg.notifyUUID}`));
+  dispatch(
+    ac.log('NOTIFY', `Subscribing S:${cfg.serviceUUID} C:${cfg.notifyUUID}`),
+  );
 
   _notifySub = device.monitorCharacteristicForService(
     cfg.serviceUUID,
@@ -511,8 +625,17 @@ function startNotifications(device, cfg, dispatch) {
         _chunkBuffer += chunk;
 
         if (_chunkBuffer.length > MAX_BUFFER_LEN) {
-          dispatch(ac.log('RAW', `Buffer exceeded ${MAX_BUFFER_LEN}B — resyncing (desync detected)`));
-          console.warn('[BLE] Buffer desync — clearing', _chunkBuffer.length, 'bytes');
+          dispatch(
+            ac.log(
+              'RAW',
+              `Buffer exceeded ${MAX_BUFFER_LEN}B — resyncing (desync detected)`,
+            ),
+          );
+          console.warn(
+            '[BLE] Buffer desync — clearing',
+            _chunkBuffer.length,
+            'bytes',
+          );
           _chunkBuffer = '';
           return;
         }
@@ -525,7 +648,12 @@ function startNotifications(device, cfg, dispatch) {
             break;
           }
           if (result.status === 'incomplete') {
-            dispatch(ac.log('RAW', `INCOMPLETE(${_chunkBuffer.length}B) — waiting for next chunk…`));
+            dispatch(
+              ac.log(
+                'RAW',
+                `INCOMPLETE(${_chunkBuffer.length}B) — waiting for next chunk…`,
+              ),
+            );
             break;
           }
           if (result.status === 'resync') {
@@ -543,7 +671,9 @@ function startNotifications(device, cfg, dispatch) {
           console.log('[BLE FULL JSON]', jsonStr);
 
           if (remainder.length > 0)
-            dispatch(ac.log('RAW', `REMAINDER(${remainder.length}B) → ${remainder}`));
+            dispatch(
+              ac.log('RAW', `REMAINDER(${remainder.length}B) → ${remainder}`),
+            );
 
           const reading = parsePayload(jsonStr, dispatch);
           if (reading) dispatch(ac.dataReceived(reading));
@@ -570,7 +700,9 @@ export const connectDevice = rawDevice => async dispatch => {
   bleManager.stopDeviceScan();
   dispatch(ac.scanStop());
   try {
-    const conn = await bleManager.connectToDevice(rawDevice.id, { timeout: 12_000 });
+    const conn = await bleManager.connectToDevice(rawDevice.id, {
+      timeout: 12_000,
+    });
     dispatch(ac.log('CONNECT', 'Connected — discovering services…'));
     await conn.discoverAllServicesAndCharacteristics();
 
@@ -578,7 +710,9 @@ export const connectDevice = rawDevice => async dispatch => {
       const negotiatedMtu = await conn.requestMTU(512);
       dispatch(ac.log('CONNECT', `MTU negotiated: ${negotiatedMtu}`));
     } catch (mtuErr) {
-      dispatch(ac.log('CONNECT', `MTU request failed (non-fatal): ${mtuErr.message}`));
+      dispatch(
+        ac.log('CONNECT', `MTU request failed (non-fatal): ${mtuErr.message}`),
+      );
     }
 
     const cfg = await resolveUUIDs(conn, dispatch);
@@ -586,7 +720,9 @@ export const connectDevice = rawDevice => async dispatch => {
     _config = cfg;
     _dataCount = 0;
     dispatch(ac.configResolved(cfg));
-    dispatch(ac.connectSuccess({ id: conn.id, name: conn.name || rawDevice.name }));
+    dispatch(
+      ac.connectSuccess({ id: conn.id, name: conn.name || rawDevice.name }),
+    );
     startNotifications(conn, cfg, dispatch);
     dispatch(ac.handshakeStart());
     dispatch(ac.log('HANDSHAKE', '→ {"HANDSHAKE":"HELLO"}'));
@@ -603,14 +739,21 @@ export const connectDevice = rawDevice => async dispatch => {
       _reconnectTimer = setTimeout(async () => {
         try {
           dispatch(ac.log('RECONNECT', 'Attempting…'));
-          const r = await bleManager.connectToDevice(conn.id, { timeout: 8_000 });
+          const r = await bleManager.connectToDevice(conn.id, {
+            timeout: 8_000,
+          });
           await r.discoverAllServicesAndCharacteristics();
 
           try {
             const mtu = await r.requestMTU(512);
             dispatch(ac.log('RECONNECT', `MTU negotiated: ${mtu}`));
           } catch (mtuErr) {
-            dispatch(ac.log('RECONNECT', `MTU request failed (non-fatal): ${mtuErr.message}`));
+            dispatch(
+              ac.log(
+                'RECONNECT',
+                `MTU request failed (non-fatal): ${mtuErr.message}`,
+              ),
+            );
           }
 
           const newCfg = await resolveUUIDs(r, dispatch);
@@ -648,8 +791,23 @@ export const disconnectDevice = () => dispatch => {
 };
 
 // ph test ble commands
-export const cmdStartPhTestMotor = () => dispatch => _sendJSON({ PHTEST: 'START' }, dispatch);
-export const cmdStopPhTestMotor = () => dispatch => _sendJSON({ PHTEST: 'STOP' }, dispatch);
+export const cmdStartPhTestMotor = () => dispatch => {
+  // fresh cycle: clear any stale completion flag and status memory so a
+  // leftover "stopped" from the previous run can't bleed into this one
+  _prevMotorStatus = null;
+  _userStoppedMotor = false;
+  dispatch(ac.mixingComplete(false));
+  return _sendJSON({ PHTEST: 'START' }, dispatch);
+};
+
+export const cmdStopPhTestMotor = () => dispatch => {
+  // FIX: mark this as a user-initiated stop BEFORE sending, so when the
+  // firmware confirms with MOTORSTATUS/PHTEST "STOPPED", the transition
+  // handler above knows not to treat it as natural completion.
+  _userStoppedMotor = true;
+  return _sendJSON({ PHTEST: 'STOP' }, dispatch);
+};
+
 export const cmdCheckMotorStatus = () => dispatch =>
   _sendJSON({ CHECKMOTORSTATUS: 'CHECKMOTORSTATUS' }, dispatch);
 export const cmdCalibratePhPoint = standardPH => dispatch =>
@@ -658,36 +816,44 @@ export const cmdCalibrateEcPoint = standardEC => dispatch =>
   _sendJSON({ CALIBERATE: 'EC', value: Number(standardEC) }, dispatch);
 export const cmdCheckCalibrationStatus = () => dispatch =>
   _sendJSON({ CALIBRATION_STATUS: true }, dispatch);
-export const cmdGetFinalResult = () => dispatch => _sendJSON({ FINAL_RESULT: 'FINAL_RESULT' }, dispatch);
+export const cmdGetFinalResult = () => dispatch =>
+  _sendJSON({ FINAL_RESULT: 'FINAL_RESULT' }, dispatch);
 export const clearDebugLog = () => dispatch => dispatch(ac.debugClear());
 
 // ─── Soil test commands ───────────────────────────────────────────────────────
-export const cmdStartSoilTest = () => dispatch => _sendJSON({ SOILTEST: 'START' }, dispatch);
-export const cmdStopSoilTest = () => dispatch => _sendJSON({ SOILTEST: 'STOP' }, dispatch);
+export const cmdStartSoilTest = () => dispatch =>
+  _sendJSON({ SOILTEST: 'START' }, dispatch);
+export const cmdStopSoilTest = () => dispatch =>
+  _sendJSON({ SOILTEST: 'STOP' }, dispatch);
 export const cmdCheckSoilMotorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILMOTORSTATUS: 'CHECKSOILMOTORSTATUS' }, dispatch);
-export const cmdStartSoilSensor = () => dispatch => _sendJSON({ SOILSENSOR: 'READ' }, dispatch);
+export const cmdStartSoilSensor = () => dispatch =>
+  _sendJSON({ SOILSENSOR: 'READ' }, dispatch);
 export const cmdCheckSoilSensorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILSENSORSTATUS: 'CHECKSOILSENSORSTATUS' }, dispatch);
-export const cmdGetSoilResult = () => dispatch => _sendJSON({ SOILRESULT: 'GET' }, dispatch);
+export const cmdGetSoilResult = () => dispatch =>
+  _sendJSON({ SOILRESULT: 'GET' }, dispatch);
 
 // ─── Soil calibration commands ─────────────────────────────────────────────────
 // FIX: resetBleParserBuffer() before every START — nothing from a previous
 // run/disconnect can bleed into and poison the new cycle's parsing.
-export const cmdStartSoilCalibration = (nutrients, point, value) => dispatch => {
-  resetBleParserBuffer();
-  return _sendJSON(
-    {
-      SOILCALIBRATION: 'START',
-      nutrients: Array.isArray(nutrients) ? nutrients : [nutrients],
-      point,
-      ...(value != null ? { value } : {}),
-    },
-    dispatch,
-  );
-};
+export const cmdStartSoilCalibration =
+  (nutrients, point, value) => dispatch => {
+    resetBleParserBuffer();
+    return _sendJSON(
+      {
+        SOILCALIBRATION: 'START',
+        nutrients: Array.isArray(nutrients) ? nutrients : [nutrients],
+        point,
+        ...(value != null ? { value } : {}),
+      },
+      dispatch,
+    );
+  };
 
-export const cmdStopSoilCalibration = () => dispatch => _sendJSON({ SOILCALIBRATION: 'STOP' }, dispatch);
+export const cmdStopSoilCalibration = () => dispatch =>
+  _sendJSON({ SOILCALIBRATION: 'STOP' }, dispatch);
 export const cmdCheckSoilCalibrationStatus = () => dispatch =>
   _sendJSON({ SOILCALIBRATIONSTATUS: true }, dispatch);
-export const cmdGetSoilCalibrationData = () => dispatch => _sendJSON({ SOILCALIBRATIONDATA: 'GET' }, dispatch);
+export const cmdGetSoilCalibrationData = () => dispatch =>
+  _sendJSON({ SOILCALIBRATIONDATA: 'GET' }, dispatch);

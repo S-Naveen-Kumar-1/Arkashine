@@ -6,6 +6,18 @@
 // • Retry / re-fetch
 // • BLE status strip
 // • Share-friendly summary card
+//
+// FIX (this version):
+// - The old "View Next Steps" button called `shownextsteps;` — an
+//   undefined variable reference, not a function call. Pressing it would
+//   throw a ReferenceError. Replaced with a real `showNextSteps` state
+//   toggle.
+// - When the user taps "View Next Steps", the screen now shows ONLY the
+//   Next Steps card + the "Start SoilLenz Test" (12-parameter) button —
+//   everything else (pH/EC cards, voltages, recommendations, re-fetch) is
+//   hidden, as requested.
+// - Added one extra button: "← Back to Results", shown only in the
+//   next-steps view, so the user isn't stuck there.
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
@@ -30,6 +42,7 @@ import {
   cmdStartSoilTest,
   cmdStartSoilSensor,
   cmdStopSoilTest,
+  cmdStartPhTestMotor,
 } from '../redux/actions/bleActions';
 import { createPHBottleReading } from '../redux/actions/phTestActions';
 
@@ -376,6 +389,12 @@ export default function PHECResultScreen({ navigation }) {
 
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState(null);
+
+  // FIX: real toggle state — replaces the broken `shownextsteps;` reference.
+  // When true, we show ONLY the Next Steps card + the 12-parameter test
+  // button, hiding the pH/EC results below.
+  const [showNextSteps, setShowNextSteps] = useState(false);
+
   const hasSavedRef = useRef(false);
   const data = finalPhResult;
   const ph = toNum(data?.ph ?? data?.pH);
@@ -389,7 +408,7 @@ export default function PHECResultScreen({ navigation }) {
   const phStatus = getPhStatus(ph);
   const ecStatus = getEcStatus(ec);
   const recs = getRecommendations(ph, ec);
-  
+
   useEffect(() => {
     if (
       hasSavedRef.current ||
@@ -422,7 +441,7 @@ export default function PHECResultScreen({ navigation }) {
         console.log('SAVE ERROR', err);
       });
   }, [phBottleDeviceId, ph, ec, phVoltage, ecVoltage, dispatch]);
-  
+
   const handleRetry = useCallback(async () => {
     if (fetching || !connected) return;
 
@@ -450,7 +469,18 @@ export default function PHECResultScreen({ navigation }) {
       setFetching(false);
     }
   }, [fetching, connected]);
-  
+
+const handleStartSoilTest = useCallback(async () => {
+  try {
+    await dispatch(cmdStartPhTestMotor());
+    await dispatch({ type: 'TEST_RESET' });
+    await dispatch(cmdStartSoilTest());
+    navigation.replace('TimerScreen');
+  } catch (error) {
+    console.error('Error starting soil test:', error);
+    // Handle error appropriately (show alert, etc.)
+  }
+}, [dispatch, navigation]);
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
@@ -464,292 +494,343 @@ export default function PHECResultScreen({ navigation }) {
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Connection / Timestamp strip ── */}
-        <View style={s.stripRow}>
-          <View
-            style={[
-              s.strip,
-              {
-                backgroundColor: connected ? T.primaryGlow : '#EF444415',
-                borderColor: connected ? T.primary : '#EF4444',
-              },
-            ]}
-          >
-            <View
-              style={[
-                s.stripDot,
-                { backgroundColor: connected ? T.primary : '#EF4444' },
-              ]}
-            />
-            <Text
-              style={[
-                s.stripText,
-                { color: connected ? T.primary : '#EF4444' },
-              ]}
-            >
-              {connected ? 'Device Connected' : 'Device Disconnected'}
-            </Text>
-          </View>
-          {data?.timestamp && (
-            <Text style={[s.timestamp, { color: T.muted }]}>
-              {new Date(data.timestamp).toLocaleTimeString()}
-            </Text>
-          )}
-        </View>
-
-        {/* ── No data state ── */}
-        {!hasData && (
-          <View
-            style={[
-              s.noDataCard,
-              { backgroundColor: T.card, borderColor: T.border },
-            ]}
-          >
-            <Icon name="flask-empty-outline" size={48} color={T.muted} />
-            <Text style={[s.noDataTitle, { color: T.text }]}>
-              No Result Data
-            </Text>
-            <Text style={[s.noDataSub, { color: T.muted }]}>
-              The device hasn't sent any readings yet.{'\n'}Make sure the motor
-              has completed mixing.
-            </Text>
-            {fetchError && (
-              <Text
-                style={{
-                  color: '#EF4444',
-                  fontSize: 13,
-                  textAlign: 'center',
-                  marginTop: 4,
-                }}
-              >
-                {fetchError}
-              </Text>
-            )}
-            <TouchableOpacity
-              style={[
-                s.retryBtn,
-                { backgroundColor: connected ? T.primary : T.border },
-              ]}
-              onPress={handleRetry}
-              disabled={fetching || !connected}
-              activeOpacity={0.8}
-            >
-              <Icon
-                name={fetching ? 'loading' : 'refresh'}
-                size={18}
-                color="#fff"
-              />
-              <Text style={s.retryBtnText}>
-                {fetching ? 'Fetching…' : 'Fetch Results'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ── Result cards ── */}
-        {hasData && (
+        {/* ============================================================ */}
+        {/* FULL RESULTS VIEW — hidden entirely once showNextSteps=true   */}
+        {/* ============================================================ */}
+        {!showNextSteps && (
           <>
-            {/* pH Card */}
-            <MetricCard
-              icon="ph"
-              title="Soil pH"
-              value={ph?.toFixed(2)}
-              status={phStatus}
-              T={T}
-            >
-              <PHScaleBar ph={ph} T={T} />
-            </MetricCard>
-
-            {/* EC Card */}
-            <MetricCard
-              icon="lightning-bolt"
-              title="EC / Conductivity"
-              value={ec?.toFixed(3)}
-              unit="dS/m"
-              status={ecStatus}
-              T={T}
-            />
-
-            {/* Temperature Card */}
-            <MetricCard
-              icon="thermometer"
-              title="Temperature"
-              value={temp !== null ? temp.toFixed(1) : null}
-              unit="°C"
-              T={T}
-            >
-              {tempFallback && (
+            {/* ── Connection / Timestamp strip ── */}
+            <View style={s.stripRow}>
+              <View
+                style={[
+                  s.strip,
+                  {
+                    backgroundColor: connected ? T.primaryGlow : '#EF444415',
+                    borderColor: connected ? T.primary : '#EF4444',
+                  },
+                ]}
+              >
                 <View
                   style={[
-                    s.fallbackBadge,
-                    { backgroundColor: '#F59E0B22', borderColor: '#F59E0B' },
+                    s.stripDot,
+                    { backgroundColor: connected ? T.primary : '#EF4444' },
+                  ]}
+                />
+                <Text
+                  style={[
+                    s.stripText,
+                    { color: connected ? T.primary : '#EF4444' },
                   ]}
                 >
-                  <Icon name="information-outline" size={12} color="#F59E0B" />
+                  {connected ? 'Device Connected' : 'Device Disconnected'}
+                </Text>
+              </View>
+              {data?.timestamp && (
+                <Text style={[s.timestamp, { color: T.muted }]}>
+                  {new Date(data.timestamp).toLocaleTimeString()}
+                </Text>
+              )}
+            </View>
+
+            {/* ── No data state ── */}
+            {!hasData && (
+              <View
+                style={[
+                  s.noDataCard,
+                  { backgroundColor: T.card, borderColor: T.border },
+                ]}
+              >
+                <Icon name="flask-empty-outline" size={48} color={T.muted} />
+                <Text style={[s.noDataTitle, { color: T.text }]}>
+                  No Result Data
+                </Text>
+                <Text style={[s.noDataSub, { color: T.muted }]}>
+                  The device hasn't sent any readings yet.{'\n'}Make sure the
+                  motor has completed mixing.
+                </Text>
+                {fetchError && (
                   <Text
                     style={{
-                      color: '#F59E0B',
-                      fontSize: 11,
-                      fontWeight: '700',
+                      color: '#EF4444',
+                      fontSize: 13,
+                      textAlign: 'center',
+                      marginTop: 4,
                     }}
                   >
-                    Fallback temp used (sensor unavailable)
+                    {fetchError}
                   </Text>
+                )}
+                <TouchableOpacity
+                  style={[
+                    s.retryBtn,
+                    { backgroundColor: connected ? T.primary : T.border },
+                  ]}
+                  onPress={handleRetry}
+                  disabled={fetching || !connected}
+                  activeOpacity={0.8}
+                >
+                  <Icon
+                    name={fetching ? 'loading' : 'refresh'}
+                    size={18}
+                    color="#fff"
+                  />
+                  <Text style={s.retryBtnText}>
+                    {fetching ? 'Fetching…' : 'Fetch Results'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ── Result cards ── */}
+            {hasData && (
+              <>
+                {/* pH Card */}
+                <MetricCard
+                  icon="ph"
+                  title="Soil pH"
+                  value={phVoltage?.toFixed(2)}
+                  status={phStatus}
+                  T={T}
+                >
+                  <PHScaleBar ph={phVoltage} T={T} />
+                </MetricCard>
+
+                {/* EC Card */}
+                <MetricCard
+                  icon="lightning-bolt"
+                  title="EC / Conductivity"
+                  value={ecVoltage?.toFixed(3)}
+                  unit="dS/m"
+                  status={ecStatus}
+                  T={T}
+                />
+
+                {/* Temperature Card */}
+                <MetricCard
+                  icon="thermometer"
+                  title="Temperature"
+                  value={temp !== null ? temp.toFixed(1) : null}
+                  unit="°C"
+                  T={T}
+                >
+                  {tempFallback && (
+                    <View
+                      style={[
+                        s.fallbackBadge,
+                        {
+                          backgroundColor: '#F59E0B22',
+                          borderColor: '#F59E0B',
+                        },
+                      ]}
+                    >
+                      <Icon
+                        name="information-outline"
+                        size={12}
+                        color="#F59E0B"
+                      />
+                      <Text
+                        style={{
+                          color: '#F59E0B',
+                          fontSize: 11,
+                          fontWeight: '700',
+                        }}
+                      >
+                        Fallback temp used (sensor unavailable)
+                      </Text>
+                    </View>
+                  )}
+                </MetricCard>
+
+                {/* Voltage Technical Card */}
+                <View
+                  style={[
+                    s.voltCard,
+                    { backgroundColor: T.card, borderColor: T.border },
+                  ]}
+                >
+                  <Text style={[s.voltTitle, { color: T.muted }]}>
+                    📡 Raw Sensor Voltages
+                  </Text>
+                  <View
+                    style={[s.voltDivider, { backgroundColor: T.border }]}
+                  />
+                  <VoltageRow label="pH Voltage" value={phVoltage} T={T} />
+                  <VoltageRow label="EC Voltage" value={ecVoltage} T={T} />
                 </View>
-              )}
-            </MetricCard>
 
-            {/* Voltage Technical Card */}
-            <View
-              style={[
-                s.voltCard,
-                { backgroundColor: T.card, borderColor: T.border },
-              ]}
-            >
-              <Text style={[s.voltTitle, { color: T.muted }]}>
-                📡 Raw Sensor Voltages
-              </Text>
-              <View style={[s.voltDivider, { backgroundColor: T.border }]} />
-              <VoltageRow label="pH Voltage" value={phVoltage} T={T} />
-              <VoltageRow label="EC Voltage" value={ecVoltage} T={T} />
-            </View>
-
-            {/* Recommendations */}
-            <View
-              style={[
-                s.recCard,
-                { backgroundColor: T.card, borderColor: T.border },
-              ]}
-            >
-              <Text style={[s.recTitle, { color: T.primary }]}>
-                💡 Recommendations
-              </Text>
-              <View style={[s.voltDivider, { backgroundColor: T.border }]} />
-              {recs.map((r, i) => (
-                <View key={i} style={s.recRow}>
-                  <Text style={s.recIcon}>{r.icon}</Text>
-                  <Text style={[s.recText, { color: T.text }]}>{r.text}</Text>
+                {/* Recommendations */}
+                <View
+                  style={[
+                    s.recCard,
+                    { backgroundColor: T.card, borderColor: T.border },
+                  ]}
+                >
+                  <Text style={[s.recTitle, { color: T.primary }]}>
+                    💡 Recommendations
+                  </Text>
+                  <View
+                    style={[s.voltDivider, { backgroundColor: T.border }]}
+                  />
+                  {recs.map((r, i) => (
+                    <View key={i} style={s.recRow}>
+                      <Text style={s.recIcon}>{r.icon}</Text>
+                      <Text style={[s.recText, { color: T.text }]}>
+                        {r.text}
+                      </Text>
+                    </View>
+                  ))}
                 </View>
-              ))}
-            </View>
 
-            {/* Re-fetch */}
+                {/* Re-fetch */}
+                <TouchableOpacity
+                  style={[s.refetchBtn, { borderColor: T.border }]}
+                  onPress={handleRetry}
+                  disabled={fetching || !connected}
+                  activeOpacity={0.75}
+                >
+                  <Icon
+                    name={fetching ? 'loading' : 'refresh'}
+                    size={16}
+                    color={T.muted}
+                  />
+                  <Text style={[s.refetchText, { color: T.muted }]}>
+                    {fetching ? 'Fetching…' : 'Re-fetch from device'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* ── Trigger button: reveals the Next-Steps-only view ── */}
+            {/* FIX: this used to call an undefined `shownextsteps` — now a
+                real state toggle. */}
             <TouchableOpacity
-              style={[s.refetchBtn, { borderColor: T.border }]}
-              onPress={handleRetry}
-              disabled={fetching || !connected}
+              style={[s.soilCta, { backgroundColor: T.primary }]}
+              onPress={() => setShowNextSteps(true)}
+              activeOpacity={0.85}
+            >
+              <Icon name="test-tube" size={22} color="#fff" />
+              <Text style={s.soilCtaText}>View Next Steps →</Text>
+              <Text style={s.soilCtaSub}>Full 12-parameter soil analysis</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[s.homeBtn, { borderColor: T.border }]}
+              onPress={() => navigation.navigate('ProductsListingScreen')}
               activeOpacity={0.75}
             >
-              <Icon
-                name={fetching ? 'loading' : 'refresh'}
-                size={16}
-                color={T.muted}
-              />
-              <Text style={[s.refetchText, { color: T.muted }]}>
-                {fetching ? 'Fetching…' : 'Re-fetch from device'}
+              <Icon name="home-outline" size={16} color={T.muted} />
+              <Text style={[s.homeBtnText, { color: T.muted }]}>
+                Back to Home
               </Text>
             </TouchableOpacity>
           </>
         )}
 
-        {/* ── Next Steps Section ── */}
-        <View
-          style={[
-            s.nextStepsCard,
-            { backgroundColor: T.card, borderColor: T.border },
-          ]}
-        >
-          <Text style={[s.nextStepsTitle, { color: T.primary }]}>
-            🚀 Next Steps
-          </Text>
-          <Text style={[s.nextStepsSubtitle, { color: T.muted }]}>
-            You've completed the pH/EC test. Now it's time for the full soil nutrient analysis.
-          </Text>
-          
-          <View style={s.stepDivider} />
-
-          <View style={s.stepRow}>
-            <View style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}>
-              <Text style={[s.stepNumberText, { color: T.primary }]}>1</Text>
-            </View>
-            <View style={s.stepContent}>
-              <Text style={[s.stepTitle, { color: T.text }]}>
-                Start SoilLenz Test
+        {/* ============================================================ */}
+        {/* NEXT STEPS ONLY VIEW — shown when showNextSteps=true          */}
+        {/* Nothing else (pH/EC cards, recommendations, etc.) renders    */}
+        {/* ============================================================ */}
+        {showNextSteps && (
+          <>
+            <View
+              style={[
+                s.nextStepsCard,
+                { backgroundColor: T.card, borderColor: T.border },
+              ]}
+            >
+              <Text style={[s.nextStepsTitle, { color: T.primary }]}>
+                🚀 Next Steps
               </Text>
-              <Text style={[s.stepDescription, { color: T.muted }]}>
-                The motor will mix soil with extractant solution for nutrient extraction
+              <Text style={[s.nextStepsSubtitle, { color: T.muted }]}>
+                You've completed the pH/EC test. Now it's time for the full soil
+                nutrient analysis.
               </Text>
-            </View>
-          </View>
 
-          <View style={s.stepRow}>
-            <View style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}>
-              <Text style={[s.stepNumberText, { color: T.primary }]}>2</Text>
+              <View style={s.stepDivider} />
+
+              <View style={s.stepRow}>
+                <View
+                  style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}
+                >
+                  <Text style={[s.stepNumberText, { color: T.primary }]}>
+                    1
+                  </Text>
+                </View>
+                <View style={s.stepContent}>
+                  <Text style={[s.stepTitle, { color: T.text }]}>
+                    Start SoilLenz Test
+                  </Text>
+                  <Text style={[s.stepDescription, { color: T.muted }]}>
+                    The motor will mix soil with extractant solution for
+                    nutrient extraction
+                  </Text>
+                </View>
+              </View>
+
+              <View style={s.stepRow}>
+                <View
+                  style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}
+                >
+                  <Text style={[s.stepNumberText, { color: T.primary }]}>
+                    2
+                  </Text>
+                </View>
+                <View style={s.stepContent}>
+                  <Text style={[s.stepTitle, { color: T.text }]}>
+                    Wait for Mixing to Complete
+                  </Text>
+                  <Text style={[s.stepDescription, { color: T.muted }]}>
+                    The motor runs for 60 seconds to ensure proper
+                    soil-extractant mixing
+                  </Text>
+                </View>
+              </View>
+
+              <View style={s.stepRow}>
+                <View
+                  style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}
+                >
+                  <Text style={[s.stepNumberText, { color: T.primary }]}>
+                    3
+                  </Text>
+                </View>
+                <View style={s.stepContent}>
+                  <Text style={[s.stepTitle, { color: T.text }]}>
+                    Get Complete Nutrient Profile
+                  </Text>
+                  <Text style={[s.stepDescription, { color: T.muted }]}>
+                    Receive detailed analysis of N, P, K, and other essential
+                    nutrients
+                  </Text>
+                </View>
+              </View>
             </View>
-            <View style={s.stepContent}>
-              <Text style={[s.stepTitle, { color: T.text }]}>
-                Wait for Mixing to Complete
+
+            {/* Button for the 12-parameter test */}
+            <TouchableOpacity
+              style={[s.soilCta, { backgroundColor: T.primary }]}
+              onPress={handleStartSoilTest}
+              activeOpacity={0.85}
+            >
+              <Icon name="test-tube" size={22} color="#fff" />
+              <Text style={s.soilCtaText}>Start SoilLenz Test →</Text>
+              <Text style={s.soilCtaSub}>Full 12-parameter soil analysis</Text>
+            </TouchableOpacity>
+
+            {/* NEW: extra button — lets the user return to the pH/EC
+                results instead of being stuck on this view */}
+            <TouchableOpacity
+              style={[s.backToResultsBtn, { borderColor: T.border }]}
+              onPress={() => setShowNextSteps(false)}
+              activeOpacity={0.75}
+            >
+              <Icon name="arrow-left" size={16} color={T.muted} />
+              <Text style={[s.backToResultsText, { color: T.muted }]}>
+                Back to Results
               </Text>
-              <Text style={[s.stepDescription, { color: T.muted }]}>
-                The motor runs for 60 seconds to ensure proper soil-extractant mixing
-              </Text>
-            </View>
-          </View>
-
-          <View style={s.stepRow}>
-            <View style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}>
-              <Text style={[s.stepNumberText, { color: T.primary }]}>3</Text>
-            </View>
-            <View style={s.stepContent}>
-              <Text style={[s.stepTitle, { color: T.text }]}>
-                Get Complete Nutrient Profile
-              </Text>
-              <Text style={[s.stepDescription, { color: T.muted }]}>
-                Receive detailed analysis of N, P, K, and other essential nutrients
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* ── SoilLenz Test CTA ── */}
-        <TouchableOpacity
-          style={[s.soilCta, { backgroundColor: T.primary }]}
-          onPress={async () => {
-            await dispatch({ type: 'TEST_RESET' });
-            await dispatch(cmdStartSoilTest());
-            navigation.replace('TimerScreen');
-          }}
-          activeOpacity={0.85}
-        >
-          <Icon name="test-tube" size={22} color="#fff" />
-          <Text style={s.soilCtaText}>Start SoilLenz Test →</Text>
-          <Text style={s.soilCtaSub}>Full 12-parameter soil analysis</Text>
-        </TouchableOpacity>
-
-        {/* ── Back to Mixer Motor ── */}
-        <TouchableOpacity
-          style={[s.mixerCta, { borderColor: T.primary, backgroundColor: T.primaryGlow }]}
-          onPress={() => navigation.navigate('MixerScreen')}
-          activeOpacity={0.75}
-        >
-          <Icon name="rotate-3d-variant" size={20} color={T.primary} />
-          <Text style={[s.mixerCtaText, { color: T.primary }]}>
-            Go to Mixing Motor
-          </Text>
-          <Text style={[s.mixerCtaSub, { color: T.primary }]}>
-            Run another mixing cycle if needed
-          </Text>
-        </TouchableOpacity>
-
-        {/* ── Home Button ── */}
-        <TouchableOpacity
-          style={[s.homeBtn, { borderColor: T.border }]}
-          onPress={() => navigation.navigate('ProductsListingScreen')}
-          activeOpacity={0.75}
-        >
-          <Icon name="home-outline" size={16} color={T.muted} />
-          <Text style={[s.homeBtnText, { color: T.muted }]}>Back to Home</Text>
-        </TouchableOpacity>
+            </TouchableOpacity>
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -919,9 +1000,9 @@ const s = StyleSheet.create({
     marginBottom: Spacing.sm,
     paddingHorizontal: 16,
   },
-  soilCtaText: { 
-    color: '#fff', 
-    fontSize: 17, 
+  soilCtaText: {
+    color: '#fff',
+    fontSize: 17,
     fontWeight: '900',
   },
   soilCtaSub: {
@@ -930,26 +1011,18 @@ const s = StyleSheet.create({
     fontWeight: '600',
   },
 
-  mixerCta: {
-    flexDirection: 'column',
+  // NEW: back-to-results button (the extra button requested)
+  backToResultsBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    height: 64,
+    gap: 8,
+    height: 44,
     borderRadius: Radius.lg,
-    borderWidth: 1.5,
+    borderWidth: 1,
     marginBottom: Spacing.sm,
-    paddingHorizontal: 16,
   },
-  mixerCtaText: { 
-    fontSize: 16, 
-    fontWeight: '800',
-  },
-  mixerCtaSub: {
-    fontSize: 11,
-    fontWeight: '600',
-    opacity: 0.8,
-  },
+  backToResultsText: { fontSize: 14, fontWeight: '600' },
 
   homeBtn: {
     flexDirection: 'row',

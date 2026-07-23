@@ -36,6 +36,7 @@ import {
   BLE_CALIBRATION_STATUS,
   BLE_FINAL_RESULT,
   CAL_POINT_DONE,
+  BLE_MIXING_COMPLETE,
 } from '../../config/actionTypes';
 
 const MAX_LOGS = 300;
@@ -109,6 +110,7 @@ const init = {
 
   // Debug log ring buffer
   debugLogs: [],
+  mixingCompleted:null
 };
 
 export default function bleReducer(state = init, action) {
@@ -132,6 +134,8 @@ export default function bleReducer(state = init, action) {
       }
       return { ...state, devices: [...state.devices, action.payload] };
     }
+       case BLE_MIXING_COMPLETE:
+     return { ...state, mixingCompleted: action.payload };
 
     case BLE_CONNECT_REQUEST:
       return {
