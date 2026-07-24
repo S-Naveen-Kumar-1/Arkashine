@@ -272,6 +272,7 @@ const s = StyleSheet.create({
     gap: 10,
     marginBottom: 10,
   },
+  
   nutBadge: {
     width: 36,
     height: 36,
