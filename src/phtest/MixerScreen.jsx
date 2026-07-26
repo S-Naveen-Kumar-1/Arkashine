@@ -578,22 +578,8 @@ export default function MixerScreen({ navigation }) {
             : 'Motor mixes the soil-extractant solution for accurate readings'}
         </Text>
 
-        {/* ====================================== */}
-        {/* ERROR */}
-        {/* ====================================== */}
+   
 
-        {!!lastDeviceError && (
-          <Text
-            style={{
-              marginTop: 10,
-              color: '#EF4444',
-              fontSize: 12,
-              textAlign: 'center',
-            }}
-          >
-            {lastDeviceError}
-          </Text>
-        )}
       </View>
     </SafeAreaView>
   );

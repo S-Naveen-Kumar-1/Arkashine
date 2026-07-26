@@ -27,6 +27,10 @@ import {
 
 export default function DeviceScanScreen({ route, navigation }) {
   const item = route?.params?.item;
+  // Set by TimerScreen's "Connect to SoilLenz" button after it finishes a
+  // test cycle — tells us to drop whatever's connected and scan fresh
+  // instead of showing the just-used device as still connected.
+  const forceRescan = !!route?.params?.rescan;
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
@@ -49,9 +53,26 @@ export default function DeviceScanScreen({ route, navigation }) {
     dispatch(initBLE());
   }, [dispatch]);
 
+  // ── Force-rescan entry point (e.g. arriving from TimerScreen) ─────────
+  // Disconnects any lingering connection and kicks off a fresh scan on
+  // mount, independent of the bleAdapterState effect below (which only
+  // fires on an actual PoweredOn transition and won't re-trigger if
+  // Bluetooth was already on before this screen mounted).
+  useEffect(() => {
+    if (!forceRescan) return;
+
+    if (connected) {
+      dispatch(disconnectDevice());
+    }
+    dispatch(stopScan());
+    dispatch(startScan());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceRescan]);
+
   // Auto-scan when Bluetooth powers on
   useEffect(() => {
-    if (bleAdapterState === 'PoweredOn') dispatch(startScan());
+    if (bleAdapterState === 'PoweredOn' && !forceRescan) dispatch(startScan());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bleAdapterState, dispatch]);
 
   // Stop scan on unmount
