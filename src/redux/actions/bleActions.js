@@ -34,6 +34,7 @@ import {
   BLE_CALIBRATION_STATUS,
   BLE_FINAL_RESULT,
   BLE_MIXING_COMPLETE, // ← NEW: add this to src/config/actionTypes.js
+  BLE_PRINT_STATUS, // ← NEW: add this to src/config/actionTypes.js
   CAL_POINT_DONE,
 } from '../../config/actionTypes';
 import { requestBLEPermissions } from '../../utils/permissions';
@@ -153,6 +154,8 @@ export const ac = {
   finalResult: r => ({ type: 'PH_FINAL_RESULT', payload: r }),
   // ← NEW
   mixingComplete: v => ({ type: BLE_MIXING_COMPLETE, payload: v }),
+  // ← NEW: { status: 'printing' | 'done' | 'error', message? }
+  printStatus: s => ({ type: BLE_PRINT_STATUS, payload: s }),
 
   log: (tag, message) => ({
     type: BLE_DEBUG_LOG,
@@ -386,6 +389,32 @@ function parsePayload(jsonStr, dispatch) {
     dispatch(ac.log('MOTOR', `← MOTORSTATUS: ${s}`));
     _handleMotorStatusTransition(s, dispatch);
     dispatch(ac.motorStatus(s));
+    return null;
+  }
+
+  // ─── Print status ──────────────────────────────────────────────────────
+  // NOTE: this is checked before the generic `parsed.ERROR` handler below
+  // on purpose — the firmware sends print failures as
+  // {"SOILPRINT":"ERROR","MESSAGE":"..."} (no top-level "ERROR" key) so
+  // this never actually collides with it, but keeping the check early
+  // means it can't accidentally get shadowed if that ever changes.
+  if (parsed.SOILPRINT === 'STARTED') {
+    dispatch(ac.log('PRINT', '← SOILPRINT STARTED'));
+    dispatch(ac.printStatus({ status: 'printing' }));
+    return null;
+  }
+  if (parsed.SOILPRINT === 'DONE') {
+    dispatch(ac.log('PRINT', '← SOILPRINT DONE'));
+    dispatch(ac.printStatus({ status: 'done' }));
+    return null;
+  }
+  if (parsed.SOILPRINT === 'ERROR') {
+    dispatch(
+      ac.log('PRINT', `← SOILPRINT ERROR: ${parsed.MESSAGE || 'unknown'}`),
+    );
+    dispatch(
+      ac.printStatus({ status: 'error', message: parsed.MESSAGE || 'Print failed' }),
+    );
     return null;
   }
 
@@ -833,6 +862,21 @@ export const cmdCheckSoilSensorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILSENSORSTATUS: 'CHECKSOILSENSORSTATUS' }, dispatch);
 export const cmdGetSoilResult = () => dispatch =>
   _sendJSON({ SOILRESULT: 'GET' }, dispatch);
+
+// ─── FIX: PRINT SOIL RESULT — pure trigger, no payload ──────────────────────
+// Previously this sent the full report (all nutrients + fertilizer schedule
+// text + the AI insights paragraph) as one BLE characteristic write. That
+// easily exceeded a single write's usable ATT payload (~509B even at a
+// negotiated 512 MTU — react-native-ble-plx does not auto-chunk writes), so
+// the write silently failed/truncated. The Pi's fragment buffer then never
+// saw a complete JSON object, so it never replied at all — that's why the
+// print button spun forever and the printer never started.
+//
+// Fix: the Raspberry Pi already has this exact reading's data in memory
+// (same globals its own on-screen "PRINT RECEIPT" button uses), so this is
+// now just a trigger. See _run_ble_soil_print_workflow() in main_ble.py.
+export const cmdPrintSoilResult = () => dispatch =>
+  _sendJSON({ SOILPRINT: 'START' }, dispatch);
 
 // ─── Soil calibration commands ─────────────────────────────────────────────────
 // FIX: resetBleParserBuffer() before every START — nothing from a previous
