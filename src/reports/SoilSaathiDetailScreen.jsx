@@ -1,14 +1,8 @@
 // src/screens/reports/SoilSaathiDetailScreen.jsx
 //
-// Tabs: Overview | Chart | Recommendations
-// Fixes:
-//   • Tabs use ScrollView so long labels never clip
-//   • Redux selector keys match soilsaathiReducer exactly
-//   • PDF fetched with auth token via axios/fetch, saved with react-native-blob-util
-//   • Charts: NPK donut, full all-nutrients bar, soil nutrient grid
-//   • Richer UI throughout
-//   • Fixed PDF download for Android
-//   • Removed Nutrients tab (charts already in Chart tab)
+// SoiLENZ (SoilSaathi) Complete Reading Detail Screen
+// Tabs: Overview | Farmer | Crop Rec | Fertilizer | Crop Match | Yield Predictor
+// Action Modals: NPK Chart | Full Chart | Fertilizer Doses | PDF Download
 
 import React, {
   useEffect,
@@ -27,6 +21,8 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Modal,
+  TextInput,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
@@ -47,6 +43,10 @@ import {
 import {
   getSoilRecommendations,
   getSoilAIRecommendations,
+  getSoilFertilizerRecommendation,
+  getSoilCropMatch,
+  getSoilYieldOptions,
+  getSoilYieldPrediction,
   downloadSoilRecommendationPDF,
   downloadSoilDetailPDF,
 } from '../redux/actions/soilsaathiActions';
@@ -67,7 +67,14 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DEVICE_COLOR = '#16A34A';
-const TABS = ['Overview', 'Chart', 'Recs']; // Removed 'Nutrients'
+const TABS = [
+  'Overview',
+  'Farmer',
+  'Crop Rec',
+  'Fertilizer',
+  'Crop Match',
+  'Yield Predictor',
+];
 
 const FERT_META = {
   urea: { icon: 'water-outline', color: '#2563EB' },
@@ -77,7 +84,7 @@ const FERT_META = {
 };
 const DEFAULT_FERT_META = { icon: 'package-variant-closed', color: '#6B7280' };
 
-// Nutrient optimal ranges (used for grid level badges)
+// Nutrient optimal ranges
 const RANGES = {
   nitrogen: { low: 280, high: 560, unit: 'kg/ha', max: 700 },
   phosphorous: { low: 22, high: 56, unit: 'kg/ha', max: 120 },
@@ -129,7 +136,22 @@ function parseFertLine(line) {
   return null;
 }
 
-// ─── PDFDownloadButton - FIXED FOR ANDROID ───────────────────────────────────
+function buildDonutPath(cx, cy, rOuter, rInner, startAngle, sweepAngle) {
+  const endAngle = startAngle + sweepAngle;
+  const largeArc = sweepAngle > Math.PI ? 1 : 0;
+  const p1x = cx + rOuter * Math.cos(startAngle);
+  const p1y = cy + rOuter * Math.sin(startAngle);
+  const p2x = cx + rOuter * Math.cos(endAngle);
+  const p2y = cy + rOuter * Math.sin(endAngle);
+  const p3x = cx + rInner * Math.cos(endAngle);
+  const p3y = cy + rInner * Math.sin(endAngle);
+  const p4x = cx + rInner * Math.cos(startAngle);
+  const p4y = cy + rInner * Math.sin(startAngle);
+
+  return `M ${p1x} ${p1y} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${p2x} ${p2y} L ${p3x} ${p3y} A ${rInner} ${rInner} 0 ${largeArc} 0 ${p4x} ${p4y} Z`;
+}
+
+// ─── PDFDownloadButton ─────────────────────────────────────────────────────────
 
 function PDFDownloadButton({
   deviceId,
@@ -146,7 +168,6 @@ function PDFDownloadButton({
   const handleDownload = async () => {
     try {
       setDownloading(true);
-
       const response = await dispatch(action(deviceId, readingId));
       const pdfData = response?.payload?.data;
 
@@ -155,42 +176,22 @@ function PDFDownloadButton({
       }
 
       const base64 = Buffer.from(pdfData, 'binary').toString('base64');
-
-      // For Android, use downloads directory for better compatibility
-      let filePath;
-      if (Platform.OS === 'android') {
-        filePath = `${RNFS.DownloadDirectoryPath}/${fileName}_${readingId}.pdf`;
-      } else {
-        filePath = `${RNFS.DocumentDirectoryPath}/${fileName}_${readingId}.pdf`;
-      }
+      const filePath =
+        Platform.OS === 'android'
+          ? `${RNFS.DownloadDirectoryPath}/${fileName}_${readingId}.pdf`
+          : `${RNFS.DocumentDirectoryPath}/${fileName}_${readingId}.pdf`;
 
       await RNFS.writeFile(filePath, base64, 'base64');
 
-      const fileExists = await RNFS.exists(filePath);
-      if (!fileExists) {
-        throw new Error('File was not created successfully');
-      }
-
-      console.log('PDF saved at:', filePath);
-      console.log('File exists:', fileExists);
-
-      // Share the PDF
       await Share.open({
         url: `file://${filePath}`,
         type: 'application/pdf',
-        title: title,
-        failOnCancel: false,
+        title: `Share ${title}`,
       });
     } catch (error) {
-      console.error('PDF Download Error:', error);
-
-      let errorMsg = 'Could not download PDF. Please try again.';
-      if (error.message && error.message.includes('null object reference')) {
-        errorMsg =
-          'Android sharing error. Please check if you have a PDF viewer installed.';
+      if (error?.message && !error.message.includes('User did not share')) {
+        Alert.alert('Error', 'Failed to download or share PDF report');
       }
-
-      Alert.alert('Download Error', errorMsg);
     } finally {
       setDownloading(false);
     }
@@ -198,29 +199,26 @@ function PDFDownloadButton({
 
   return (
     <TouchableOpacity
-      style={[pdfs.btn, { backgroundColor: T.card, borderColor: T.border }]}
+      style={[
+        pdfs.card,
+        { backgroundColor: T.card, borderColor: T.border },
+      ]}
       onPress={handleDownload}
-      activeOpacity={0.8}
       disabled={downloading}
+      activeOpacity={0.8}
     >
-      <View style={[pdfs.icoWrap, { backgroundColor: '#EF444418' }]}>
+      <View style={[pdfs.ico, { backgroundColor: DEVICE_COLOR + '18' }]}>
         {downloading ? (
-          <ActivityIndicator size="small" color="#EF4444" />
+          <ActivityIndicator size="small" color={DEVICE_COLOR} />
         ) : (
-          <Icon name="file-pdf-box" size={22} color="#EF4444" />
+          <Icon name="file-pdf-box" size={24} color={DEVICE_COLOR} />
         )}
       </View>
       <View style={{ flex: 1 }}>
-        <Text style={[pdfs.title, { color: T.text }]} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text style={[pdfs.sub, { color: T.muted }]} numberOfLines={1}>
-          {downloading ? 'Downloading…' : subtitle}
-        </Text>
+        <Text style={[pdfs.title, { color: T.text }]}>{title}</Text>
+        <Text style={[pdfs.sub, { color: T.muted }]}>{subtitle}</Text>
       </View>
-      {!downloading && (
-        <Icon name="download-outline" size={18} color="#EF4444" />
-      )}
+      <Icon name="download" size={18} color={DEVICE_COLOR} />
     </TouchableOpacity>
   );
 }
@@ -228,115 +226,500 @@ function PDFDownloadButton({
 const pdfs = StyleSheet.create({
   row: {
     flexDirection: 'row',
-    gap: 8,
+    gap: Spacing.sm,
     marginBottom: Spacing.md,
   },
-  btn: {
+  card: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    padding: Spacing.md,
     borderRadius: Radius.lg,
     borderWidth: 1,
-    padding: Spacing.sm,
+    gap: 10,
     ...Shadow.sm,
   },
-  icoWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.md,
+  ico: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
   },
-  title: { fontSize: 12, fontWeight: '800' },
+  title: { fontSize: 13, fontWeight: '700' },
   sub: { fontSize: 10, marginTop: 1 },
 });
 
-// ─── FertilizerYearCard ───────────────────────────────────────────────────────
+// ─── SoiLENZ Advisory Report Banner ──────────────────────────────────────────
+
+function SoiLenzAdvisoryBanner({ deviceId, readingId, T, dispatch }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    try {
+      setDownloading(true);
+      const response = await dispatch(
+        downloadSoilRecommendationPDF(deviceId, readingId),
+      );
+      const pdfData = response?.payload?.data;
+      if (!pdfData) throw new Error('No PDF data');
+
+      const base64 = Buffer.from(pdfData, 'binary').toString('base64');
+      const filePath =
+        Platform.OS === 'android'
+          ? `${RNFS.DownloadDirectoryPath}/SoiLENZ_Advisory_${readingId}.pdf`
+          : `${RNFS.DocumentDirectoryPath}/SoiLENZ_Advisory_${readingId}.pdf`;
+
+      await RNFS.writeFile(filePath, base64, 'base64');
+      await Share.open({
+        url: `file://${filePath}`,
+        type: 'application/pdf',
+        title: 'SoiLENZ Advisory Report',
+      });
+    } catch (e) {
+      if (e?.message && !e.message.includes('User did not share')) {
+        Alert.alert('Error', 'Failed to generate advisory report PDF');
+      }
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <View style={advBanner.wrap}>
+      <View style={advBanner.headerRow}>
+        <View style={advBanner.icoWrap}>
+          <Icon name="file-document-outline" size={20} color="#FFFFFF" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={advBanner.title}>SoiLENZ Advisory Report</Text>
+          <Text style={advBanner.subtitle}>
+            6-page AI soil health PDF — crop suitability, amendment plan, carbon credit dashboard
+          </Text>
+        </View>
+      </View>
+      <View style={advBanner.btnRow}>
+        <TouchableOpacity
+          style={advBanner.downloadBtn}
+          onPress={handleDownload}
+          disabled={downloading}
+          activeOpacity={0.85}
+        >
+          {downloading ? (
+            <ActivityIndicator size="small" color="#064E3B" />
+          ) : (
+            <>
+              <Icon name="download" size={14} color="#064E3B" />
+              <Text style={advBanner.downloadBtnTxt}>Download PDF Report</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const advBanner = StyleSheet.create({
+  wrap: {
+    backgroundColor: '#065F46',
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    borderWidth: 1,
+    borderColor: '#047857',
+    ...Shadow.md,
+  },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  icoWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
+  subtitle: {
+    fontSize: 11,
+    color: '#D1FAE5',
+    marginTop: 2,
+    lineHeight: 15,
+  },
+  btnRow: {
+    flexDirection: 'row',
+    marginTop: Spacing.sm,
+    justifyContent: 'flex-end',
+  },
+  downloadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#A7F3D0',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: Radius.md,
+  },
+  downloadBtnTxt: { fontSize: 12, fontWeight: '800', color: '#064E3B' },
+});
+
+// ─── NPK Donut Pie Chart ──────────────────────────────────────────────────────
+
+function NPKPieChart({ reading, T }) {
+  const n = reading?.nitrogen ?? 0;
+  const p = reading?.phosphorous ?? 0;
+  const k = reading?.potassium ?? 0;
+  const total = n + p + k;
+
+  const data = [
+    { label: 'Nitrogen (N)', v: n, color: '#16A34A', abbr: 'N' },
+    { label: 'Phosphorous (P)', v: p, color: '#2563EB', abbr: 'P' },
+    { label: 'Potassium (K)', v: k, color: '#D97706', abbr: 'K' },
+  ];
+
+  const SIZE = 200;
+  const cx = SIZE / 2,
+    cy = SIZE / 2;
+  const R = SIZE / 2 - 8,
+    ri = SIZE / 2 - 38;
+
+  let ang = -Math.PI / 2;
+  const slices = data.map(d => {
+    const sweep = total > 0 ? (d.v / total) * 2 * Math.PI : 0;
+    const path =
+      sweep > 0.005 ? buildDonutPath(cx, cy, R, ri, ang, sweep) : null;
+    ang += sweep;
+    return {
+      ...d,
+      pct: total > 0 ? Math.round((d.v / total) * 100) : 0,
+      path,
+    };
+  });
+
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <Svg width={SIZE} height={SIZE}>
+        <Path
+          d={buildDonutPath(cx, cy, R, ri, 0, 2 * Math.PI - 0.001)}
+          fill={T.border + '40'}
+        />
+        {slices.map((sl, i) =>
+          sl.path ? <Path key={i} d={sl.path} fill={sl.color} /> : null,
+        )}
+        <SvgText
+          x={cx}
+          y={cy - 6}
+          textAnchor="middle"
+          fontSize={11}
+          fill={T.muted ?? '#94A3B8'}
+        >
+          NPK Total
+        </SvgText>
+        <SvgText
+          x={cx}
+          y={cy + 12}
+          textAnchor="middle"
+          fontSize={18}
+          fontWeight="900"
+          fill={T.text ?? '#111'}
+        >
+          {total}
+        </SvgText>
+      </Svg>
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'center',
+          gap: 10,
+          marginTop: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        {slices.map(d => (
+          <View
+            key={d.abbr}
+            style={[
+              npkStyle.chip,
+              { backgroundColor: T.card, borderColor: T.border },
+            ]}
+          >
+            <View style={[npkStyle.dot, { backgroundColor: d.color }]} />
+            <Text style={[npkStyle.chipLbl, { color: T.text }]}>{d.label}:</Text>
+            <Text style={[npkStyle.chipVal, { color: d.color }]}>{d.v}</Text>
+            <Text style={[npkStyle.chipPct, { color: T.muted }]}>
+              ({d.pct}%)
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const npkStyle = StyleSheet.create({
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  dot: { width: 7, height: 7, borderRadius: 3.5 },
+  chipLbl: { fontSize: 11, fontWeight: '600' },
+  chipVal: { fontSize: 11, fontWeight: '800' },
+  chipPct: { fontSize: 10 },
+});
+
+// ─── AllValuesPieChart ────────────────────────────────────────────────────────
+
+function AllValuesPieChart({ reading, T }) {
+  const ALL_NUTRIENTS = [
+    { key: 'nitrogen', label: 'Nitrogen', abbr: 'N', color: '#16A34A' },
+    { key: 'phosphorous', label: 'Phosphorous', abbr: 'P', color: '#EF4444' },
+    { key: 'potassium', label: 'Potassium', abbr: 'K', color: '#F97316' },
+    { key: 'calcium', label: 'Calcium', abbr: 'Ca', color: '#EC4899' },
+    { key: 'magnesium', label: 'Magnesium', abbr: 'Mg', color: '#F59E0B' },
+    { key: 'sulphur', label: 'Sulphur', abbr: 'S', color: '#84CC16' },
+    { key: 'zinc', label: 'Zinc', abbr: 'Zn', color: '#6366F1' },
+    { key: 'manganese', label: 'Manganese', abbr: 'Mn', color: '#14B8A6' },
+    { key: 'iron', label: 'Iron', abbr: 'Fe', color: '#E879F9' },
+    { key: 'copper', label: 'Copper', abbr: 'Cu', color: '#2563EB' },
+    { key: 'boron', label: 'Boron', abbr: 'B', color: '#22D3EE' },
+    { key: 'ph', label: 'pH', abbr: 'pH', color: '#7C3AED' },
+    { key: 'ec', label: 'EC', abbr: 'EC', color: '#0891B2' },
+    { key: 'oc', label: 'OC', abbr: 'OC', color: '#D97706' },
+    {
+      key: 'electrical_conduction',
+      label: 'Elec. Cond.',
+      abbr: 'ElC',
+      color: '#64748B',
+    },
+  ];
+
+  const data = ALL_NUTRIENTS.map(n => ({
+    ...n,
+    v: reading?.[n.key] ?? 0,
+  })).filter(n => n.v > 0);
+
+  const total = data.reduce((s, d) => s + d.v, 0);
+
+  const SIZE = 200;
+  const cx = SIZE / 2,
+    cy = SIZE / 2;
+  const R = SIZE / 2 - 8,
+    ri = SIZE / 2 - 40;
+
+  let ang = -Math.PI / 2;
+  const slices = data.map(d => {
+    const sweep = total > 0 ? (d.v / total) * 2 * Math.PI : 0;
+    const path =
+      sweep > 0.005 ? buildDonutPath(cx, cy, R, ri, ang, sweep) : null;
+    ang += sweep;
+    return {
+      ...d,
+      pct: total > 0 ? Math.round((d.v / total) * 100) : 0,
+      path,
+    };
+  });
+
+  return (
+    <View>
+      <View style={{ alignItems: 'center', marginBottom: Spacing.md }}>
+        <Svg width={SIZE} height={SIZE}>
+          <Path
+            d={buildDonutPath(cx, cy, R, ri, 0, 2 * Math.PI - 0.001)}
+            fill={T.border + '40'}
+          />
+          {slices.map((sl, i) =>
+            sl.path ? <Path key={i} d={sl.path} fill={sl.color} /> : null,
+          )}
+          <SvgText
+            x={cx}
+            y={cy - 8}
+            textAnchor="middle"
+            fontSize={11}
+            fill={T.muted ?? '#94A3B8'}
+          >
+            All Nutrients
+          </SvgText>
+          <SvgText
+            x={cx}
+            y={cy + 10}
+            textAnchor="middle"
+            fontSize={18}
+            fontWeight="900"
+            fill={T.text ?? '#111'}
+          >
+            {data.length}
+          </SvgText>
+        </Svg>
+      </View>
+
+      {/* Legend grid */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {data.map(d => (
+          <View
+            key={d.key}
+            style={[
+              avp.legendChip,
+              { backgroundColor: T.card, borderColor: T.border },
+            ]}
+          >
+            <View style={[avp.dot, { backgroundColor: d.color }]} />
+            <Text style={[avp.chipLabel, { color: T.muted }]}>{d.label}</Text>
+            <Text style={[avp.chipVal, { color: d.color }]}>{d.v}</Text>
+            <View style={[avp.pctBadge, { backgroundColor: d.color + '20' }]}>
+              <Text style={[avp.pctTxt, { color: d.color }]}>{d.pct}%</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const avp = StyleSheet.create({
+  legendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  dot: { width: 7, height: 7, borderRadius: 3.5, flexShrink: 0 },
+  chipLabel: { fontSize: 10, fontWeight: '600' },
+  chipVal: { fontSize: 10, fontWeight: '800' },
+  pctBadge: { borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 },
+  pctTxt: { fontSize: 8, fontWeight: '700' },
+});
+
+// ─── FertilizerYearCard & FYMCard ─────────────────────────────────────────────
 
 function FertilizerYearCard({ group, isFirst, T }) {
-  const [yearLabel, ...lines] = group;
+  const [open, setOpen] = useState(isFirst);
+  const yearMatch = group?.[0]?.match(/Year\s*(\d+)/i);
+  const yearTitle = yearMatch ? `Year ${yearMatch[1]}` : 'Year plan';
+
+  const rows = useMemo(
+    () => group.map(parseFertLine).filter(Boolean),
+    [group],
+  );
+
   return (
     <View
       style={[
         fyc.card,
-        {
-          backgroundColor: T.card,
-          borderColor: T.border,
-          borderLeftColor: isFirst ? DEVICE_COLOR : T.border,
-          borderLeftWidth: 3,
-        },
+        { backgroundColor: T.card, borderColor: T.border },
       ]}
     >
-      <View style={[fyc.yearRow, { borderBottomColor: T.border }]}>
-        <View style={[fyc.yearIco, { backgroundColor: DEVICE_COLOR + '18' }]}>
-          <Icon name="calendar-outline" size={14} color={DEVICE_COLOR} />
-        </View>
-        <Text style={[fyc.yearTxt, { color: T.text }]}>{yearLabel}</Text>
-        {isFirst && (
-          <View
-            style={[
-              fyc.badge,
-              {
-                backgroundColor: DEVICE_COLOR + '18',
-                borderColor: DEVICE_COLOR + '40',
-              },
-            ]}
-          >
-            <View style={[fyc.badgeDot, { backgroundColor: DEVICE_COLOR }]} />
-            <Text style={[fyc.badgeTxt, { color: DEVICE_COLOR }]}>
-              Current year
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {lines.map((line, i) => {
-        const parsed = parseFertLine(line);
-        const key = parsed
-          ? Object.keys(FERT_META).find(k =>
-              parsed.name.toLowerCase().startsWith(k),
-            )
-          : null;
-        const { icon, color } = key ? FERT_META[key] : DEFAULT_FERT_META;
-        const isLast = i === lines.length - 1;
-
-        if (parsed) {
-          return (
-            <View
-              key={i}
-              style={[
-                fyc.fertRow,
-                !isLast && {
-                  borderBottomColor: T.border + '50',
-                  borderBottomWidth: 0.5,
-                },
-              ]}
-            >
-              <View style={[fyc.fertIco, { backgroundColor: color + '15' }]}>
-                <Icon name={icon} size={15} color={color} />
-              </View>
-              <Text style={[fyc.fertName, { color: T.text }]}>
-                {parsed.name}
-              </Text>
-              <View style={fyc.amounts}>
-                <Text style={[fyc.amtAcre, { color }]}>
-                  {parsed.acre} <Text style={fyc.amtUnit}>kg/acre</Text>
-                </Text>
-                <Text style={[fyc.amtHa, { color: T.muted }]}>
-                  {parsed.hectare} kg/ha
-                </Text>
-              </View>
-            </View>
-          );
-        }
-        return (
-          <Text key={i} style={[fyc.plain, { color: T.muted }]}>
-            {line}
+      <TouchableOpacity
+        style={[
+          fyc.header,
+          { borderBottomColor: open ? T.border : 'transparent' },
+        ]}
+        onPress={() => setOpen(v => !v)}
+        activeOpacity={0.7}
+      >
+        <View style={[fyc.badge, { backgroundColor: DEVICE_COLOR + '18' }]}>
+          <Text style={[fyc.badgeTxt, { color: DEVICE_COLOR }]}>
+            {yearTitle}
           </Text>
-        );
-      })}
+        </View>
+        <Text style={[fyc.summary, { color: T.muted }]}>
+          {rows.length} fertilizers
+        </Text>
+        <Icon
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={T.muted}
+        />
+      </TouchableOpacity>
+
+      {open && (
+        <View style={fyc.body}>
+          {rows.map((row, i) => {
+            const meta =
+              FERT_META[row.name.toLowerCase()] ?? DEFAULT_FERT_META;
+            return (
+              <View
+                key={i}
+                style={[
+                  fyc.row,
+                  i < rows.length - 1 && {
+                    borderBottomColor: T.border,
+                    borderBottomWidth: 0.5,
+                  },
+                ]}
+              >
+                <View
+                  style={[fyc.rowIco, { backgroundColor: meta.color + '18' }]}
+                >
+                  <Icon name={meta.icon} size={15} color={meta.color} />
+                </View>
+                <Text style={[fyc.rowName, { color: T.text }]}>{row.name}</Text>
+                <View style={fyc.rowDoses}>
+                  <Text style={[fyc.doseMain, { color: meta.color }]}>
+                    {row.acre}{' '}
+                    <Text style={[fyc.doseUnit, { color: T.muted }]}>kg/ac</Text>
+                  </Text>
+                  <Text style={[fyc.doseSub, { color: T.muted }]}>
+                    {row.hectare} kg/ha
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function FYMCard({ lines, T }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View
+      style={[
+        fyc.card,
+        { backgroundColor: T.card, borderColor: T.border },
+      ]}
+    >
+      <TouchableOpacity
+        style={[
+          fyc.header,
+          { borderBottomColor: open ? T.border : 'transparent' },
+        ]}
+        onPress={() => setOpen(v => !v)}
+        activeOpacity={0.7}
+      >
+        <View style={[fyc.badge, { backgroundColor: '#F59E0B18' }]}>
+          <Text style={[fyc.badgeTxt, { color: '#F59E0B' }]}>
+            Remedy, Fertility & FYM
+          </Text>
+        </View>
+        <Text style={[fyc.summary, { color: T.muted }]}>
+          {lines.length} notes
+        </Text>
+        <Icon
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={T.muted}
+        />
+      </TouchableOpacity>
+
+      {open && (
+        <View style={fyc.body}>
+          {lines.map((line, i) => (
+            <View key={i} style={fyc.fymRow}>
+              <View style={[fyc.bullet, { backgroundColor: '#F59E0B' }]} />
+              <Text style={[fyc.fymTxt, { color: T.text }]}>{line}</Text>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -345,169 +728,47 @@ const fyc = StyleSheet.create({
   card: {
     borderRadius: Radius.lg,
     borderWidth: 1,
-    marginBottom: Spacing.md,
-    overflow: 'hidden',
-    ...Shadow.sm,
-  },
-  yearRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 14,
-    borderBottomWidth: 0.5,
-  },
-  yearIco: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  yearTxt: { flex: 1, fontSize: 14, fontWeight: '800' },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-  badgeDot: { width: 6, height: 6, borderRadius: 3 },
-  badgeTxt: { fontSize: 10, fontWeight: '700' },
-  fertRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  fertIco: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  fertName: { flex: 1, fontSize: 13, fontWeight: '700' },
-  amounts: { alignItems: 'flex-end' },
-  amtAcre: { fontSize: 13, fontWeight: '800' },
-  amtUnit: { fontSize: 10, fontWeight: '400' },
-  amtHa: { fontSize: 10, marginTop: 2 },
-  plain: { fontSize: 12, paddingHorizontal: 14, paddingVertical: 8 },
-});
-
-// ─── FYMCard ──────────────────────────────────────────────────────────────────
-
-const FYM_MAP = [
-  {
-    match: 'soil remedy',
-    icon: 'flask-round-bottom-outline',
-    color: '#0891B2',
-  },
-  { match: 'soil fertility', icon: 'sprout-outline', color: '#16A34A' },
-  { match: 'fym', icon: 'compost', color: '#D97706' },
-  { match: 'crop target', icon: 'trending-up', color: '#7C3AED' },
-];
-
-function FYMCard({ lines, T }) {
-  return (
-    <View
-      style={[fym.card, { backgroundColor: T.card, borderColor: T.border }]}
-    >
-      <View style={[fym.header, { borderBottomColor: T.border }]}>
-        <View style={[fym.hdrIco, { backgroundColor: '#D97706' + '18' }]}>
-          <Icon name="compost" size={15} color="#D97706" />
-        </View>
-        <Text style={[fym.title, { color: T.text }]}>Soil health & FYM</Text>
-      </View>
-      {lines.map((line, i) => {
-        const lower = line.toLowerCase();
-        const entry = FYM_MAP.find(e => lower.startsWith(e.match));
-        const { icon, color } = entry ?? {
-          icon: 'information-outline',
-          color: '#6B7280',
-        };
-        const ci = line.indexOf(':');
-        const lbl = ci > -1 ? line.slice(0, ci).trim() : line;
-        const val = ci > -1 ? line.slice(ci + 1).trim() : '';
-        const isLast = i === lines.length - 1;
-        return (
-          <View
-            key={i}
-            style={[
-              fym.row,
-              !isLast && {
-                borderBottomColor: T.border + '50',
-                borderBottomWidth: 0.5,
-              },
-            ]}
-          >
-            <View style={[fym.rowIco, { backgroundColor: color + '15' }]}>
-              <Icon name={icon} size={14} color={color} />
-            </View>
-            <View style={fym.body}>
-              <Text style={[fym.lbl, { color: T.muted }]}>{lbl}</Text>
-              {val ? (
-                <Text style={[fym.val, { color: T.text }]}>{val}</Text>
-              ) : null}
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-const fym = StyleSheet.create({
-  card: {
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
     overflow: 'hidden',
     ...Shadow.sm,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: Spacing.md,
     gap: 8,
-    padding: 14,
-    borderBottomWidth: 0.5,
+    borderBottomWidth: 1,
   },
-  hdrIco: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: { fontSize: 14, fontWeight: '800' },
+  badge: { borderRadius: Radius.sm, paddingHorizontal: 8, paddingVertical: 4 },
+  badgeTxt: { fontSize: 11, fontWeight: '700' },
+  summary: { fontSize: 11, flex: 1, textAlign: 'right' },
+  body: { paddingHorizontal: Spacing.md },
   row: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    alignItems: 'center',
+    paddingVertical: 10,
+    gap: 8,
   },
   rowIco: {
-    width: 30,
-    height: 30,
-    borderRadius: Radius.md,
+    width: 28,
+    height: 28,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 1,
-    flexShrink: 0,
   },
-  body: { flex: 1 },
-  lbl: {
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 2,
+  rowName: { fontSize: 13, fontWeight: '600', flex: 1 },
+  rowDoses: { alignItems: 'flex-end' },
+  doseMain: { fontSize: 13, fontWeight: '800' },
+  doseUnit: { fontSize: 10, fontWeight: '400' },
+  doseSub: { fontSize: 10 },
+  fymRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 6,
+    gap: 8,
   },
-  val: { fontSize: 13, fontWeight: '700', lineHeight: 18 },
+  bullet: { width: 6, height: 6, borderRadius: 3, marginTop: 5 },
+  fymTxt: { fontSize: 12, flex: 1, lineHeight: 17 },
 });
 
 // ─── AICropCard ───────────────────────────────────────────────────────────────
@@ -577,7 +838,7 @@ function AICropCard({ aiData, loading, error, T }) {
         <View style={aic.stateRow}>
           <Icon name="alert-circle-outline" size={16} color="#EF4444" />
           <Text style={[aic.stateTxt, { color: '#EF4444' }]}>
-            AI recommendation unavailable
+            {error || 'AI recommendation unavailable for this reading'}
           </Text>
         </View>
       </View>
@@ -698,8 +959,8 @@ const aic = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    padding: 14,
-    borderBottomWidth: 0.5,
+    padding: Spacing.md,
+    borderBottomWidth: 1,
   },
   hdrIco: {
     width: 28,
@@ -708,787 +969,1242 @@ const aic = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hdrTitle: { fontSize: 13, fontWeight: '800' },
+  hdrTitle: { fontSize: 13, fontWeight: '700' },
   hdrSub: { fontSize: 10, marginTop: 1 },
   aiBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
     borderRadius: Radius.full,
     borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
   },
-  aiBadgeTxt: { fontSize: 10, fontWeight: '700' },
+  aiBadgeTxt: { fontSize: 9, fontWeight: '800' },
   stateRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    padding: 14,
+    gap: 8,
+    padding: Spacing.md,
   },
-  stateTxt: { fontSize: 13, flex: 1 },
+  stateTxt: { fontSize: 12, fontWeight: '500' },
   cropRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: Spacing.md,
     gap: 12,
-    padding: 14,
-    borderBottomWidth: 0.5,
+    borderBottomWidth: 1,
   },
   cropIcoWrap: {
-    width: 52,
-    height: 52,
+    width: 48,
+    height: 48,
     borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    flexShrink: 0,
   },
-  cropMeta: {
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 3,
-  },
-  cropName: { fontSize: 22, fontWeight: '900', letterSpacing: -0.5 },
+  cropMeta: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase' },
+  cropName: { fontSize: 18, fontWeight: '800', marginTop: 1 },
   matchBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: Radius.full,
     borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
   },
-  matchDot: { width: 5, height: 5, borderRadius: 3 },
+  matchDot: { width: 5, height: 5, borderRadius: 2.5 },
   matchTxt: { fontSize: 10, fontWeight: '700' },
-  nutriHeader: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderBottomWidth: 0.5,
-  },
-  nutriHeaderTxt: {
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  nutriGrid: { flexDirection: 'row' },
-  nutriCell: { flex: 1, alignItems: 'center', paddingVertical: 12, gap: 3 },
-  nutriAbbr: { fontSize: 13, fontWeight: '900' },
-  nutriVal: { fontSize: 16, fontWeight: '800' },
-  nutriLbl: { fontSize: 9, fontWeight: '500' },
+  nutriHeader: { paddingHorizontal: Spacing.md, paddingTop: 8, paddingBottom: 4 },
+  nutriHeaderTxt: { fontSize: 10, fontWeight: '600' },
+  nutriGrid: { flexDirection: 'row', padding: Spacing.sm },
+  nutriCell: { flex: 1, alignItems: 'center', paddingVertical: 4 },
+  nutriAbbr: { fontSize: 11, fontWeight: '800' },
+  nutriVal: { fontSize: 14, fontWeight: '800', marginTop: 1 },
+  nutriLbl: { fontSize: 9, marginTop: 1 },
 });
 
-// ─── Chart helpers ────────────────────────────────────────────────────────────
+// ─── TAB: Farmer ─────────────────────────────────────────────────────────────
 
-function buildDonutPath(cx, cy, R, ri, startAng, sweepAng) {
-  const x1 = cx + R * Math.cos(startAng),
-    y1 = cy + R * Math.sin(startAng);
-  const x2 = cx + R * Math.cos(startAng + sweepAng),
-    y2 = cy + R * Math.sin(startAng + sweepAng);
-  const xi1 = cx + ri * Math.cos(startAng),
-    yi1 = cy + ri * Math.sin(startAng);
-  const xi2 = cx + ri * Math.cos(startAng + sweepAng),
-    yi2 = cy + ri * Math.sin(startAng + sweepAng);
-  const lg = sweepAng > Math.PI ? 1 : 0;
-  return `M${x1},${y1} A${R},${R},0,${lg},1,${x2},${y2} L${xi2},${yi2} A${ri},${ri},0,${lg},0,${xi1},${yi1} Z`;
-}
+function FarmerTabView({ reading, T }) {
+  const farmer = reading?.farmer;
 
-// Single nutrient donut cell — mirrors website per-nutrient pie
-function NutrientPieCell({
-  label,
-  abbr,
-  value,
-  color,
-  rangeKey,
-  T,
-  size = 80,
-}) {
-  const range = RANGES[rangeKey];
-  const lvl = levelFor(rangeKey, value);
-  const max = range?.max ?? 100;
-  const pct = value > 0 ? Math.min(value / max, 1) : 0;
-  const cx = size / 2,
-    cy = size / 2,
-    R = size / 2 - 4,
-    ri = size / 2 - 16;
-  const sweep = pct * 2 * Math.PI;
-  const hasData = value != null && value > 0;
-  const valStr = hasData ? Number(value).toFixed(value < 10 ? 2 : 1) : '—';
+  if (!farmer) {
+    return (
+      <View style={[s.emptyWrap, { backgroundColor: T.card, borderColor: T.border }]}>
+        <Icon name="account-off-outline" size={48} color={T.muted} />
+        <Text style={[s.emptyTitle, { color: T.text }]}>No Farmer Linked</Text>
+        <Text style={[s.emptySub, { color: T.muted }]}>
+          This reading isn't linked to any farmer profile.
+        </Text>
+      </View>
+    );
+  }
 
   return (
-    <View style={[pc.cell, { backgroundColor: T.card, borderColor: T.border }]}>
-      <View style={pc.pieWrap}>
-        <Svg width={size} height={size}>
-          <Path
-            d={buildDonutPath(cx, cy, R, ri, 0, 2 * Math.PI - 0.001)}
-            fill={T.border + '50'}
-          />
-          {hasData && sweep > 0.01 && (
-            <Path
-              d={buildDonutPath(cx, cy, R, ri, -Math.PI / 2, sweep)}
-              fill={color}
-            />
-          )}
-          <SvgText
-            x={cx}
-            y={cy - 2}
-            textAnchor="middle"
-            fontSize={size < 80 ? 9 : 11}
-            fontWeight="800"
-            fill={hasData ? color : T.muted ?? '#94A3B8'}
-          >
-            {hasData ? `${Math.round(pct * 100)}%` : '—'}
-          </SvgText>
-          <SvgText
-            x={cx}
-            y={cy + 10}
-            textAnchor="middle"
-            fontSize={7}
-            fill={T.muted ?? '#94A3B8'}
-          >
-            {abbr}
-          </SvgText>
-        </Svg>
-      </View>
-      <Text style={[pc.cellLabel, { color: T.muted }]} numberOfLines={1}>
-        {label}
-      </Text>
-      <Text style={[pc.cellVal, { color: hasData ? color : T.muted }]}>
-        {valStr}
-        {range?.unit ? (
-          <Text style={[pc.cellUnit, { color: T.muted }]}> {range.unit}</Text>
-        ) : null}
-      </Text>
-      <View style={[pc.lvlBadge, { backgroundColor: lvl.bg }]}>
-        <Text style={[pc.lvlTxt, { color: lvl.color }]}>{lvl.label}</Text>
-      </View>
+    <SectionCard
+      title="Farmer profile"
+      icon="account-outline"
+      color={DEVICE_COLOR}
+      T={T}
+    >
+      <InfoRow icon="account" label="Name" value={farmer.farmer_name ?? farmer.name} T={T} />
+      <InfoRow icon="phone-outline" label="Phone" value={farmer.phone ?? '—'} T={T} />
+      <InfoRow icon="home-city-outline" label="Village" value={farmer.village ?? '—'} T={T} />
+      <InfoRow icon="map-marker-radius-outline" label="Taluk" value={farmer.taluk ?? '—'} T={T} />
+      <InfoRow
+        icon="map-marker-outline"
+        label="District, State"
+        value={`${farmer.district ?? ''}${farmer.district && farmer.state ? ', ' : ''}${farmer.state ?? '—'}`}
+        T={T}
+      />
+      <InfoRow icon="sprout-outline" label="Crop" value={farmer.crop ?? '—'} T={T} />
+      <InfoRow
+        icon="ruler-square"
+        label="Land Area"
+        value={farmer.land_area ? `${farmer.land_area} acres` : '—'}
+        T={T}
+      />
+      <InfoRow icon="calendar-outline" label="Season" value={farmer.season ?? '—'} T={T} />
+      <InfoRow icon="shield-check-outline" label="Status" value={farmer.status ?? 'Active'} T={T} last />
+    </SectionCard>
+  );
+}
+
+// ─── TAB: Crop Recommendation ────────────────────────────────────────────────
+
+function CropRecommendationTabView({ reading, soilAIRecs, soilAIRecsLoading, soilAIRecsError, T }) {
+  return (
+    <View>
+      <AICropCard
+        aiData={soilAIRecs}
+        loading={soilAIRecsLoading}
+        error={soilAIRecsError}
+        T={T}
+      />
+
+      <SectionCard
+        title="Soil Nutrient Grid"
+        icon="view-grid-outline"
+        color="#7C3AED"
+        T={T}
+      >
+        <View style={s.nutriTable}>
+          {[
+            { label: 'Nitrogen (N)', val: reading?.nitrogen, range: '280 - 560 kg/ha' },
+            { label: 'Phosphorous (P)', val: reading?.phosphorous, range: '22 - 56 kg/ha' },
+            { label: 'Potassium (K)', val: reading?.potassium, range: '141 - 336 kg/ha' },
+            { label: 'pH', val: reading?.ph, range: '6.5 - 7.5' },
+            { label: 'EC', val: reading?.ec, range: '0 - 4 dS/m' },
+            { label: 'OC', val: reading?.oc ? `${reading.oc}%` : '0%', range: '0.5 - 0.75%' },
+          ].map((item, idx, arr) => (
+            <View
+              key={item.label}
+              style={[
+                s.nutriTableRow,
+                idx < arr.length - 1 && { borderBottomColor: T.border, borderBottomWidth: 1 },
+              ]}
+            >
+              <Text style={[s.nutriTableLbl, { color: T.text }]}>{item.label}</Text>
+              <Text style={[s.nutriTableVal, { color: DEVICE_COLOR }]}>{item.val ?? '0'}</Text>
+              <Text style={[s.nutriTableRange, { color: T.muted }]}>Ideal: {item.range}</Text>
+            </View>
+          ))}
+        </View>
+      </SectionCard>
     </View>
   );
 }
 
-const pc = StyleSheet.create({
-  cell: {
-    width: '30%',
+// ─── TAB: Fertilizer Advisory (RDF) ──────────────────────────────────────────
+
+function FertilizerAdvisoryTabView({
+  deviceId,
+  readingId,
+  reading,
+  fertRec,
+  fertRecLoading,
+  fertRecError,
+  soilRecs,
+  soilRecsLoading,
+  soilRecsError,
+  dispatch,
+  T,
+}) {
+  const [stateOverride, setStateOverride] = useState('');
+  const [cropOverride, setCropOverride] = useState('');
+
+  const handleCheck = () => {
+    dispatch(
+      getSoilFertilizerRecommendation(
+        deviceId,
+        readingId,
+        stateOverride.trim() || undefined,
+        cropOverride.trim() || undefined,
+      ),
+    ).catch(() => {});
+  };
+
+  const cropFert = soilRecs?.recommendations?.crop_fertilizer ?? [];
+  const fymGroups = soilRecs?.recommendations?.fym ?? [];
+
+  return (
+    <View>
+      {/* State & Crop Selector */}
+      <View style={[s.filterCard, { backgroundColor: T.card, borderColor: T.border }]}>
+        <Text style={[s.filterTitle, { color: T.text }]}>Check Advisory with Override</Text>
+        <View style={s.filterInputsRow}>
+          <TextInput
+            style={[s.filterInput, { backgroundColor: T.bg, color: T.text, borderColor: T.border }]}
+            placeholder="State (e.g. Karnataka)"
+            placeholderTextColor={T.muted}
+            value={stateOverride}
+            onChangeText={setStateOverride}
+          />
+          <TextInput
+            style={[s.filterInput, { backgroundColor: T.bg, color: T.text, borderColor: T.border }]}
+            placeholder="Crop (e.g. Rice)"
+            placeholderTextColor={T.muted}
+            value={cropOverride}
+            onChangeText={setCropOverride}
+          />
+          <TouchableOpacity
+            style={[s.filterBtn, { backgroundColor: DEVICE_COLOR }]}
+            onPress={handleCheck}
+            activeOpacity={0.8}
+          >
+            <Icon name="check" size={16} color="#FFFFFF" />
+            <Text style={s.filterBtnTxt}>Check</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Parameter Analysis Table */}
+      {fertRecLoading ? (
+        <View style={[s.loadingBox, { backgroundColor: T.card, borderColor: T.border }]}>
+          <ActivityIndicator size="small" color={DEVICE_COLOR} />
+          <Text style={[s.loadingTxt, { color: T.muted }]}>Computing RDF fertilizer advisory…</Text>
+        </View>
+      ) : fertRec && fertRec.param_results ? (
+        <>
+          <SectionCard
+            title="Soil Parameter Analysis"
+            icon="flask-outline"
+            color="#2563EB"
+            T={T}
+          >
+            <View style={s.tableWrap}>
+              <View style={[s.tHead, { backgroundColor: T.border + '40' }]}>
+                <Text style={[s.th, { flex: 2, color: T.muted }]}>Parameter</Text>
+                <Text style={[s.th, { flex: 1.2, color: T.muted }]}>Value</Text>
+                <Text style={[s.th, { flex: 1.5, color: T.muted }]}>Status</Text>
+                <Text style={[s.th, { flex: 1.5, color: T.muted }]}>Dose</Text>
+              </View>
+              {fertRec.param_results.map((p, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    s.tRow,
+                    idx < fertRec.param_results.length - 1 && { borderBottomColor: T.border, borderBottomWidth: 1 },
+                  ]}
+                >
+                  <Text style={[s.td, { flex: 2, fontWeight: '700', color: T.text }]}>{p.label}</Text>
+                  <Text style={[s.td, { flex: 1.2, color: T.text }]}>{p.value}</Text>
+                  <View style={{ flex: 1.5 }}>
+                    <View
+                      style={[
+                        s.statusPill,
+                        {
+                          backgroundColor:
+                            p.status?.includes('Low') || p.status?.includes('Deficient')
+                              ? '#EF444418'
+                              : p.status?.includes('Medium') || p.status?.includes('Marginal')
+                              ? '#F59E0B18'
+                              : '#16A34A18',
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.statusPillTxt,
+                          {
+                            color:
+                              p.status?.includes('Low') || p.status?.includes('Deficient')
+                                ? '#EF4444'
+                                : p.status?.includes('Medium') || p.status?.includes('Marginal')
+                                ? '#F59E0B'
+                                : '#16A34A',
+                          },
+                        ]}
+                      >
+                        {p.status}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={[s.td, { flex: 1.5, color: DEVICE_COLOR, fontWeight: '700' }]}>
+                    {p.dose || '—'}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </SectionCard>
+
+          {/* Standard RDF & Adjusted NPK */}
+          <SectionCard
+            title="RDF & Adjusted N:P:K"
+            icon="scale-balance"
+            color="#7C3AED"
+            T={T}
+          >
+            <InfoRow
+              icon="leaf"
+              label={`Standard RDF (${fertRec.rdf_ratio ?? ''})`}
+              value={`N ${fertRec.n_rdf ?? 0} : P ${fertRec.p_rdf ?? 0} : K ${fertRec.k_rdf ?? 0} kg/ha`}
+              T={T}
+            />
+            <InfoRow
+              icon="check-circle"
+              label="Adjusted for soil status"
+              value={`N ${fertRec.n_adj ?? 0} : P ${fertRec.p_adj ?? 0} : K ${fertRec.k_adj ?? 0} kg/ha`}
+              T={T}
+              last
+            />
+          </SectionCard>
+
+          {/* Recommended Fertilizer kg/ha */}
+          <SectionCard
+            title="Recommended Fertilizer (kg/ha)"
+            icon="cube-outline"
+            color="#D97706"
+            T={T}
+          >
+            <InfoRow
+              icon="water-outline"
+              label="Urea"
+              value={`${fertRec.urea ?? 0} (default: ${fertRec.current_urea ?? 0})`}
+              T={T}
+            />
+            <InfoRow
+              icon="molecule"
+              label="DAP"
+              value={`${fertRec.dap ?? 0} (default: ${fertRec.current_dap ?? 0})`}
+              T={T}
+            />
+            <InfoRow
+              icon="leaf-outline"
+              label="MOP"
+              value={`${fertRec.mop ?? 0} (default: ${fertRec.current_mop ?? 0})`}
+              T={T}
+              last
+            />
+          </SectionCard>
+
+          {/* Yield Comparison */}
+          {(fertRec.normal_yield || fertRec.rec_yield) && (
+            <SectionCard
+              title="Estimated Yield (kg/ha)"
+              icon="chart-timeline-variant"
+              color="#059669"
+              T={T}
+            >
+              <View style={s.yieldCompRow}>
+                <View style={[s.yieldCompBox, { backgroundColor: T.border + '30' }]}>
+                  <Text style={[s.yieldCompLbl, { color: T.muted }]}>Normal Practice</Text>
+                  <Text style={[s.yieldCompVal, { color: T.text }]}>{fertRec.normal_yield ?? 0}</Text>
+                  <Text style={[s.yieldCompUnit, { color: T.muted }]}>kg/ha</Text>
+                </View>
+                <Icon name="arrow-right-bold" size={24} color={DEVICE_COLOR} />
+                <View style={[s.yieldCompBox, { backgroundColor: '#16A34A18' }]}>
+                  <Text style={[s.yieldCompLbl, { color: DEVICE_COLOR }]}>Recommended</Text>
+                  <Text style={[s.yieldCompVal, { color: DEVICE_COLOR }]}>{fertRec.rec_yield ?? 0}</Text>
+                  <Text style={[s.yieldCompUnit, { color: DEVICE_COLOR }]}>kg/ha</Text>
+                </View>
+              </View>
+            </SectionCard>
+          )}
+        </>
+      ) : null}
+
+      {/* Yearly Fertilizer Plan & FYM Cards */}
+      {cropFert.length > 0 && (
+        <>
+          <View style={s.secHeader}>
+            <Icon name="calendar-month-outline" size={16} color={DEVICE_COLOR} />
+            <Text style={[s.secHeaderText, { color: T.text }]}>Yearly Fertilizer Plan</Text>
+          </View>
+          {cropFert.map((group, i) => (
+            <FertilizerYearCard key={i} group={group} isFirst={i === 0} T={T} />
+          ))}
+        </>
+      )}
+
+      {fymGroups.length > 0 && (
+        <>
+          <View style={s.secHeader}>
+            <Icon name="sprout" size={16} color="#F59E0B" />
+            <Text style={[s.secHeaderText, { color: T.text }]}>Remedy & Target Yield</Text>
+          </View>
+          {fymGroups.map((group, i) => (
+            <FYMCard key={i} lines={group} T={T} />
+          ))}
+        </>
+      )}
+    </View>
+  );
+}
+
+// ─── TAB: Crop Match ─────────────────────────────────────────────────────────
+
+function CropMatchTabView({
+  deviceId,
+  readingId,
+  cropMatch,
+  cropMatchLoading,
+  cropMatchError,
+  dispatch,
+  T,
+}) {
+  const [stateOverride, setStateOverride] = useState('');
+  const [expandedRank, setExpandedRank] = useState(1);
+
+  const handleCheck = () => {
+    dispatch(
+      getSoilCropMatch(deviceId, readingId, stateOverride.trim() || undefined),
+    ).catch(() => {});
+  };
+
+  const topCrops = cropMatch?.top_crops ?? [];
+
+  return (
+    <View>
+      {/* State Filter Card */}
+      <View style={[s.filterCard, { backgroundColor: T.card, borderColor: T.border }]}>
+        <Text style={[s.filterTitle, { color: T.text }]}>
+          Crop Suitability for State
+        </Text>
+        <View style={s.filterInputsRow}>
+          <TextInput
+            style={[s.filterInput, { backgroundColor: T.bg, color: T.text, borderColor: T.border }]}
+            placeholder="State (e.g. Karnataka)"
+            placeholderTextColor={T.muted}
+            value={stateOverride}
+            onChangeText={setStateOverride}
+          />
+          <TouchableOpacity
+            style={[s.filterBtn, { backgroundColor: DEVICE_COLOR }]}
+            onPress={handleCheck}
+            activeOpacity={0.8}
+          >
+            <Icon name="check" size={16} color="#FFFFFF" />
+            <Text style={s.filterBtnTxt}>Check</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={[s.filterSub, { color: T.muted }]}>
+          Scored directly against this reading's pH, EC, OC, N-P-K and micronutrients.
+        </Text>
+      </View>
+
+      {cropMatchLoading ? (
+        <View style={[s.loadingBox, { backgroundColor: T.card, borderColor: T.border }]}>
+          <ActivityIndicator size="small" color={DEVICE_COLOR} />
+          <Text style={[s.loadingTxt, { color: T.muted }]}>Matching best suited crops…</Text>
+        </View>
+      ) : cropMatchError ? (
+        <View style={[s.errorBox, { backgroundColor: '#EF444410', borderColor: '#EF444430' }]}>
+          <Icon name="alert-circle-outline" size={20} color="#EF4444" />
+          <Text style={[s.errorTxt, { color: '#EF4444' }]}>{cropMatchError}</Text>
+        </View>
+      ) : topCrops.length > 0 ? (
+        <>
+          {/* Top 5 Table */}
+          <SectionCard
+            title={`Top 5 Matches — ${cropMatch?.state ?? 'Auto'}`}
+            icon="format-list-numbered"
+            color={DEVICE_COLOR}
+            T={T}
+          >
+            <View style={s.tableWrap}>
+              <View style={[s.tHead, { backgroundColor: T.border + '40' }]}>
+                <Text style={[s.th, { flex: 0.6, color: T.muted }]}>#</Text>
+                <Text style={[s.th, { flex: 2, color: T.muted }]}>Crop</Text>
+                <Text style={[s.th, { flex: 1.8, color: T.muted }]}>Match Score</Text>
+                <Text style={[s.th, { flex: 1, color: T.muted }]}>Temp</Text>
+              </View>
+              {topCrops.map(c => (
+                <TouchableOpacity
+                  key={c.rank}
+                  style={[
+                    s.tRow,
+                    { borderBottomColor: T.border, borderBottomWidth: 1 },
+                  ]}
+                  onPress={() => setExpandedRank(c.rank === expandedRank ? null : c.rank)}
+                >
+                  <Text style={[s.td, { flex: 0.6, fontWeight: '800', color: DEVICE_COLOR }]}>
+                    {c.rank}
+                  </Text>
+                  <View style={{ flex: 2 }}>
+                    <Text style={[s.td, { fontWeight: '700', color: T.text }]}>{c.crop_name}</Text>
+                    <Text style={{ fontSize: 9, color: T.muted }}>{c.category}</Text>
+                  </View>
+                  <View style={{ flex: 1.8 }}>
+                    <View style={s.progressBarTrack}>
+                      <View
+                        style={[
+                          s.progressBarFill,
+                          {
+                            width: `${c.score_pct}%`,
+                            backgroundColor:
+                              c.score_pct >= 75 ? '#16A34A' : c.score_pct >= 50 ? '#F59E0B' : '#EF4444',
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[s.scoreTxt, { color: T.muted }]}>{c.score_pct}%</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View
+                      style={[
+                        s.tempBadge,
+                        {
+                          backgroundColor:
+                            c.weather_score?.status === 'ok' ? '#16A34A18' : '#F59E0B18',
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.tempBadgeTxt,
+                          {
+                            color:
+                              c.weather_score?.status === 'ok' ? '#16A34A' : '#F59E0B',
+                          },
+                        ]}
+                      >
+                        {c.weather_score?.status === 'ok' ? 'OK' : c.weather_score?.status ?? 'N/A'}
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </SectionCard>
+
+          {/* Detailed Crop Cards */}
+          {topCrops.map(c => {
+            const isOpen = expandedRank === c.rank;
+            return (
+              <View
+                key={c.rank}
+                style={[s.cropCard, { backgroundColor: T.card, borderColor: T.border }]}
+              >
+                <TouchableOpacity
+                  style={[s.cropCardHdr, { borderBottomColor: isOpen ? T.border : 'transparent' }]}
+                  onPress={() => setExpandedRank(isOpen ? null : c.rank)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[s.cropRankBadge, { backgroundColor: DEVICE_COLOR + '18' }]}>
+                    <Text style={[s.cropRankTxt, { color: DEVICE_COLOR }]}>#{c.rank}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.cropCardName, { color: T.text }]}>{c.crop_name}</Text>
+                    <Text style={[s.cropCardSub, { color: T.muted }]}>
+                      {c.category} · {c.zone_name} · Match {c.score_pct}%
+                    </Text>
+                  </View>
+                  <Icon
+                    name={isOpen ? 'chevron-up' : 'chevron-down'}
+                    size={20}
+                    color={T.muted}
+                  />
+                </TouchableOpacity>
+
+                {isOpen && (
+                  <View style={s.cropCardBody}>
+                    {/* Weather Bar */}
+                    {c.weather_score && (
+                      <View style={s.weatherBar}>
+                        <Icon name="thermometer" size={14} color="#F59E0B" />
+                        <Text style={[s.weatherTxt, { color: T.text }]}>
+                          Ideal Temp: {c.weather_score.ideal_range}
+                        </Text>
+                        <Text style={[s.weatherScoreTxt, { color: DEVICE_COLOR }]}>
+                          Compatibility: {c.weather_score.pct}%
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Crop Guide */}
+                    {c.additional_info ? (
+                      <View style={s.guideSec}>
+                        <Text style={[s.guideTitle, { color: T.muted }]}>CROP GUIDE</Text>
+                        <InfoRow icon="calendar-clock" label="Duration" value={c.additional_info.crop_duration} T={T} />
+                        <InfoRow icon="weather-cloudy" label="Sowing Season" value={c.additional_info.best_sowing_season} T={T} />
+                        <InfoRow icon="water" label="Water Req." value={c.additional_info.water_requirement} T={T} />
+                        <InfoRow icon="bug-outline" label="Common Pests" value={c.additional_info.common_pests} T={T} />
+                        <InfoRow icon="package-variant" label="Fertilizers" value={c.additional_info.recommended_fertilizers} T={T} />
+                        <InfoRow icon="sickle" label="Harvest Time" value={c.additional_info.harvest_time} T={T} last />
+                      </View>
+                    ) : null}
+
+                    {/* Deficiencies */}
+                    <View style={s.defSec}>
+                      <Text style={[s.guideTitle, { color: T.muted }]}>DEFICIENCIES VS IDEAL RANGE</Text>
+                      {c.nutrient_deficiencies && c.nutrient_deficiencies.length > 0 ? (
+                        c.nutrient_deficiencies.map((d, i) => (
+                          <View key={i} style={s.defRow}>
+                            <Icon name="alert-circle-outline" size={14} color="#EF4444" />
+                            <Text style={[s.defTxt, { color: '#EF4444' }]}>{d}</Text>
+                          </View>
+                        ))
+                      ) : (
+                        <View style={s.defRow}>
+                          <Icon name="check-circle-outline" size={14} color="#16A34A" />
+                          <Text style={[s.defTxt, { color: '#16A34A' }]}>
+                            All measured parameters are within optimal range!
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+// ─── TAB: Yield Predictor (Matching User's Screenshot) ────────────────────────
+
+function YieldPredictorTabView({
+  deviceId,
+  readingId,
+  reading,
+  yieldOptions,
+  yieldOptionsLoading,
+  yieldPrediction,
+  yieldPredictionLoading,
+  yieldPredictionError,
+  dispatch,
+  T,
+}) {
+  const hierarchy = useMemo(
+    () => yieldOptions?.hierarchy ?? {},
+    [yieldOptions?.hierarchy],
+  );
+  const prefill = yieldOptions?.prefill;
+
+  const [selectedState, setSelectedState] = useState('');
+  const [selectedDistrict, setSelectedDistrict] = useState('');
+  const [selectedCrop, setSelectedCrop] = useState('');
+  const [cropSearch, setCropSearch] = useState('');
+  const [showCropModal, setShowCropModal] = useState(false);
+
+  // Soil parameters editable state
+  const [soc, setSoc] = useState('');
+  const [pH, setPH] = useState('');
+  const [nVal, setNVal] = useState('');
+  const [pVal, setPVal] = useState('');
+  const [kVal, setKVal] = useState('');
+
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
+
+  const readingOc = reading?.oc;
+  const readingPh = reading?.ph;
+  const readingN = reading?.nitrogen;
+  const readingP = reading?.phosphorous;
+  const readingK = reading?.potassium;
+
+  // Initialize from prefill
+  useEffect(() => {
+    if (prefill) {
+      if (prefill.state) setSelectedState(prefill.state);
+      if (prefill.district) setSelectedDistrict(prefill.district);
+      if (prefill.crop) {
+        setSelectedCrop(prefill.crop);
+        setCropSearch(prefill.crop);
+      }
+      setSoc(String(prefill.soc ?? readingOc ?? 0.5));
+      setPH(String(prefill.pH ?? readingPh ?? 6.5));
+      setNVal(String(prefill.N ?? readingN ?? 200));
+      setPVal(String(prefill.P ?? readingP ?? 20));
+      setKVal(String(prefill.K ?? readingK ?? 150));
+    }
+  }, [prefill, readingOc, readingPh, readingN, readingP, readingK]);
+
+  // District options
+  const districtList = useMemo(() => {
+    if (!selectedState || !hierarchy[selectedState]) return [];
+    return Object.keys(hierarchy[selectedState]).sort();
+  }, [selectedState, hierarchy]);
+
+  // Crop options
+  const cropList = useMemo(() => {
+    if (!selectedState || !selectedDistrict || !hierarchy[selectedState]?.[selectedDistrict])
+      return [];
+    return hierarchy[selectedState][selectedDistrict].sort();
+  }, [selectedState, selectedDistrict, hierarchy]);
+
+  const filteredCrops = useMemo(() => {
+    if (!cropSearch) return cropList;
+    return cropList.filter(c =>
+      c.toLowerCase().includes(cropSearch.toLowerCase()),
+    );
+  }, [cropList, cropSearch]);
+  }, [cropList, cropSearch]);
+
+  const handleStateChange = st => {
+    setSelectedState(st);
+    setSelectedDistrict('');
+    setSelectedCrop('');
+    setCropSearch('');
+  };
+
+  const handleDistrictChange = dist => {
+    setSelectedDistrict(dist);
+    setSelectedCrop('');
+    setCropSearch('');
+  };
+
+  const handleCropSelect = crop => {
+    setSelectedCrop(crop);
+    setCropSearch(crop);
+    setShowCropModal(false);
+  };
+
+  const handleEstimateYield = () => {
+    if (!selectedDistrict || !selectedCrop) {
+      Alert.alert('Incomplete Fields', 'Please select State, District, and Crop.');
+      return;
+    }
+
+    dispatch(
+      getSoilYieldPrediction(deviceId, {
+        callId: readingId,
+        district: selectedDistrict,
+        crop: selectedCrop,
+        soc: parseFloat(soc) || undefined,
+        pH: parseFloat(pH) || undefined,
+        N: parseFloat(nVal) || undefined,
+        P: parseFloat(pVal) || undefined,
+        K: parseFloat(kVal) || undefined,
+      }),
+    ).catch(() => {});
+  };
+
+  const d = yieldPrediction?.data ?? null;
+
+  return (
+    <View>
+      {/* Hero Header */}
+      <View style={yp.hero}>
+        <Text style={yp.heroTitle}>
+          CROP YIELD <Text style={{ color: '#86EFAC' }}>PREDICTOR</Text>
+        </Text>
+        <Text style={yp.heroSub}>
+          District-level • Yield gap decomposition model • this reading's own soil values + live satellite NDVI
+        </Text>
+      </View>
+
+      {/* Location & Crop Card */}
+      <View style={[yp.card, { backgroundColor: T.card, borderColor: T.border }]}>
+        <View style={yp.cardHeader}>
+          <Icon name="sprout" size={16} color={DEVICE_COLOR} />
+          <Text style={[yp.cardTitle, { color: T.text }]}>LOCATION & CROP</Text>
+        </View>
+
+        {/* State */}
+        <Text style={[yp.fieldLabel, { color: T.muted }]}>State</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={yp.chipsScroll}>
+          {Object.keys(hierarchy).map(st => (
+            <TouchableOpacity
+              key={st}
+              style={[
+                yp.chip,
+                {
+                  backgroundColor: selectedState === st ? DEVICE_COLOR : T.bg,
+                  borderColor: selectedState === st ? DEVICE_COLOR : T.border,
+                },
+              ]}
+              onPress={() => handleStateChange(st)}
+            >
+              <Text
+                style={[
+                  yp.chipTxt,
+                  { color: selectedState === st ? '#FFFFFF' : T.text },
+                ]}
+              >
+                {st}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* District */}
+        {districtList.length > 0 && (
+          <>
+            <Text style={[yp.fieldLabel, { color: T.muted, marginTop: 10 }]}>District</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={yp.chipsScroll}>
+              {districtList.map(dist => (
+                <TouchableOpacity
+                  key={dist}
+                  style={[
+                    yp.chip,
+                    {
+                      backgroundColor: selectedDistrict === dist ? '#2563EB' : T.bg,
+                      borderColor: selectedDistrict === dist ? '#2563EB' : T.border,
+                    },
+                  ]}
+                  onPress={() => handleDistrictChange(dist)}
+                >
+                  <Text
+                    style={[
+                      yp.chipTxt,
+                      { color: selectedDistrict === dist ? '#FFFFFF' : T.text },
+                    ]}
+                  >
+                    {dist}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </>
+        )}
+
+        {/* Crop Selector Button */}
+        <Text style={[yp.fieldLabel, { color: T.muted, marginTop: 10 }]}>Crop</Text>
+        <TouchableOpacity
+          style={[yp.cropPickerBtn, { backgroundColor: T.bg, borderColor: T.border }]}
+          onPress={() => {
+            if (!selectedDistrict) {
+              Alert.alert('Notice', 'Please select a district first.');
+              return;
+            }
+            setShowCropModal(true);
+          }}
+          activeOpacity={0.8}
+        >
+          <Text style={[yp.cropPickerTxt, { color: selectedCrop ? T.text : T.muted }]}>
+            {selectedCrop || (selectedDistrict ? 'Select or search crop…' : '-- Select District first --')}
+          </Text>
+          <Icon name="magnify" size={18} color={T.muted} />
+        </TouchableOpacity>
+
+        <Text style={[yp.subHint, { color: T.muted }]}>
+          State/district/crop are auto-detected from this reading's linked farmer profile and crop type where possible — override any of them above.
+        </Text>
+      </View>
+
+      {/* Soil Parameters Card */}
+      <View style={[yp.card, { backgroundColor: T.card, borderColor: T.border }]}>
+        <View style={yp.cardHeader}>
+          <Icon name="seed" size={16} color={DEVICE_COLOR} />
+          <Text style={[yp.cardTitle, { color: T.text }]}>SOIL PARAMETERS — FROM THIS READING</Text>
+        </View>
+
+        <View style={yp.inputsGrid}>
+          <View style={yp.inputCell}>
+            <Text style={[yp.inputLabel, { color: T.muted }]}>SOC %</Text>
+            <TextInput
+              style={[yp.inputField, { backgroundColor: T.bg, color: T.text, borderColor: T.border }]}
+              value={soc}
+              onChangeText={setSoc}
+              keyboardType="numeric"
+            />
+            <Text style={[yp.inputHint, { color: T.muted }]}>Organic carbon</Text>
+          </View>
+
+          <View style={yp.inputCell}>
+            <Text style={[yp.inputLabel, { color: T.muted }]}>pH</Text>
+            <TextInput
+              style={[yp.inputField, { backgroundColor: T.bg, color: T.text, borderColor: T.border }]}
+              value={pH}
+              onChangeText={setPH}
+              keyboardType="numeric"
+            />
+            <Text style={[yp.inputHint, { color: T.muted }]}>Optimal 6.5–7.5</Text>
+          </View>
+
+          <View style={yp.inputCell}>
+            <Text style={[yp.inputLabel, { color: T.muted }]}>N kg/ha</Text>
+            <TextInput
+              style={[yp.inputField, { backgroundColor: T.bg, color: T.text, borderColor: T.border }]}
+              value={nVal}
+              onChangeText={setNVal}
+              keyboardType="numeric"
+            />
+            <Text style={[yp.inputHint, { color: T.muted }]}>Nitrogen</Text>
+          </View>
+
+          <View style={yp.inputCell}>
+            <Text style={[yp.inputLabel, { color: T.muted }]}>P kg/ha</Text>
+            <TextInput
+              style={[yp.inputField, { backgroundColor: T.bg, color: T.text, borderColor: T.border }]}
+              value={pVal}
+              onChangeText={setPVal}
+              keyboardType="numeric"
+            />
+            <Text style={[yp.inputHint, { color: T.muted }]}>Phosphorus</Text>
+          </View>
+
+          <View style={yp.inputCell}>
+            <Text style={[yp.inputLabel, { color: T.muted }]}>K kg/ha</Text>
+            <TextInput
+              style={[yp.inputField, { backgroundColor: T.bg, color: T.text, borderColor: T.border }]}
+              value={kVal}
+              onChangeText={setKVal}
+              keyboardType="numeric"
+            />
+            <Text style={[yp.inputHint, { color: T.muted }]}>Potassium</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={[yp.estimateBtn, { backgroundColor: DEVICE_COLOR }]}
+          onPress={handleEstimateYield}
+          disabled={yieldPredictionLoading}
+          activeOpacity={0.85}
+        >
+          {yieldPredictionLoading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={yp.estimateBtnTxt}>Estimate Yield</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Yield Prediction Result */}
+      {d && (
+        <View style={[yp.resultCard, { backgroundColor: T.card, borderColor: '#16A34A50' }]}>
+          {/* Yield Hero */}
+          <View style={yp.heroNumberWrap}>
+            <Text style={yp.yieldBigNumber}>{d.predicted_yield?.toFixed(0) ?? '—'}</Text>
+            <Text style={yp.yieldUnitTxt}>kg / hectare</Text>
+            <Text style={[yp.yieldContextTxt, { color: T.muted }]}>
+              {d.district} • {d.crop} • {d.n_years} years of data
+            </Text>
+          </View>
+
+          {/* Formula Decomposition Bar */}
+          <View style={[yp.formulaBar, { backgroundColor: T.bg, borderColor: T.border }]}>
+            <Text style={[yp.fNum, { color: DEVICE_COLOR }]}>{d.potential_yield?.toFixed(0)}</Text>
+            <Text style={[yp.fOp, { color: T.muted }]}> × </Text>
+            <Text style={[yp.fNum, { color: DEVICE_COLOR }]}>{d.soil_factor?.toFixed(3)}</Text>
+            <Text style={[yp.fOp, { color: T.muted }]}> × </Text>
+            <Text style={[yp.fNum, { color: DEVICE_COLOR }]}>{d.water_factor?.toFixed(3)}</Text>
+            <Text style={[yp.fOp, { color: T.muted }]}> × </Text>
+            <Text style={[yp.fNum, { color: DEVICE_COLOR }]}>{d.ndvi_factor?.toFixed(3)}</Text>
+            <Text style={[yp.fOp, { color: T.text }]}> = </Text>
+            <Text style={[yp.fNumEq, { color: DEVICE_COLOR }]}>
+              {d.predicted_yield?.toFixed(0)} kg/ha
+            </Text>
+          </View>
+
+          {/* 3 Factor Cards */}
+          <View style={yp.factorsRow}>
+            {/* Soil */}
+            <View style={[yp.factorBox, { backgroundColor: T.bg, borderColor: T.border }]}>
+              <Text style={[yp.factorLbl, { color: T.muted }]}>SOIL</Text>
+              <Text style={[yp.factorVal, { color: '#16A34A' }]}>
+                {(d.soil_factor * 100).toFixed(0)}%
+              </Text>
+              <View style={[yp.gradeBadge, { backgroundColor: '#16A34A18' }]}>
+                <Text style={[yp.gradeBadgeTxt, { color: '#16A34A' }]}>
+                  {d.soil?.grade ?? 'Good'}
+                </Text>
+              </View>
+              <View style={yp.fProgressTrack}>
+                <View
+                  style={[yp.fProgressFill, { width: `${d.soil_factor * 100}%`, backgroundColor: '#16A34A' }]}
+                />
+              </View>
+            </View>
+
+            {/* Water */}
+            <View style={[yp.factorBox, { backgroundColor: T.bg, borderColor: T.border }]}>
+              <Text style={[yp.factorLbl, { color: T.muted }]}>WATER</Text>
+              <Text style={[yp.factorVal, { color: '#2563EB' }]}>
+                {(d.water_factor * 100).toFixed(0)}%
+              </Text>
+              <Text style={[yp.factorSubTxt, { color: T.muted }]}>
+                Irrig: {d.irrigation_score?.toFixed(2)}
+              </Text>
+              <View style={yp.fProgressTrack}>
+                <View
+                  style={[yp.fProgressFill, { width: `${d.water_factor * 100}%`, backgroundColor: '#2563EB' }]}
+                />
+              </View>
+            </View>
+
+            {/* Vegetation (NDVI) */}
+            <View style={[yp.factorBox, { backgroundColor: T.bg, borderColor: T.border }]}>
+              <Text style={[yp.factorLbl, { color: T.muted }]}>NDVI</Text>
+              <Text style={[yp.factorVal, { color: '#D97706' }]}>
+                {(d.ndvi_factor * 100).toFixed(0)}%
+              </Text>
+              <Text style={[yp.factorSubTxt, { color: T.muted }]}>
+                {d.ndvi_source || 'MODIS Live'}
+              </Text>
+              <View style={yp.fProgressTrack}>
+                <View
+                  style={[yp.fProgressFill, { width: `${d.ndvi_factor * 100}%`, backgroundColor: '#D97706' }]}
+                />
+              </View>
+            </View>
+          </View>
+
+          {/* Detailed Breakdown Toggle */}
+          <TouchableOpacity
+            style={yp.breakdownToggle}
+            onPress={() => setBreakdownOpen(v => !v)}
+            activeOpacity={0.7}
+          >
+            <Icon
+              name={breakdownOpen ? 'chevron-down' : 'chevron-right'}
+              size={18}
+              color={DEVICE_COLOR}
+            />
+            <Text style={[yp.breakdownToggleTxt, { color: DEVICE_COLOR }]}>
+              Detailed Breakdown
+            </Text>
+          </TouchableOpacity>
+
+          {breakdownOpen && (
+            <View style={[yp.breakdownBody, { borderTopColor: T.border }]}>
+              <InfoRow label="Potential Yield (historical avg)" value={`${d.potential_yield?.toFixed(0)} kg/ha`} T={T} />
+              <InfoRow label="90th Percentile Yield" value={`${d.p90_yield?.toFixed(0)} kg/ha`} T={T} />
+              <InfoRow label="All-time Max Yield" value={`${d.max_yield?.toFixed(0)} kg/ha`} T={T} />
+
+              <Text style={[yp.bdSecTitle, { color: T.muted }]}>SOIL BREAKDOWN</Text>
+              <InfoRow label="SOC (max 25)" value={`${d.soil?.soc?.toFixed(1) ?? '—'}`} T={T} />
+              <InfoRow label="pH (max 25)" value={`${d.soil?.pH?.toFixed(1) ?? '—'}`} T={T} />
+              <InfoRow label="Nitrogen (max 20)" value={`${d.soil?.N?.toFixed(1) ?? '—'}`} T={T} />
+              <InfoRow label="Phosphorus (max 15)" value={`${d.soil?.P?.toFixed(1) ?? '—'}`} T={T} />
+              <InfoRow label="Potassium (max 15)" value={`${d.soil?.K?.toFixed(1) ?? '—'}`} T={T} />
+
+              <Text style={[yp.bdSecTitle, { color: T.muted }]}>WATER BREAKDOWN</Text>
+              <InfoRow label="Historical Rainfall" value={`${d.hist_precip_mm?.toFixed(0)} mm`} T={T} />
+              <InfoRow label="ET0" value={`${d.et0_mm?.toFixed(0)} mm`} T={T} />
+              <InfoRow label="Rain water factor" value={`${d.hist_water_factor?.toFixed(3)}`} T={T} />
+              <InfoRow label="Irrigation score" value={`${d.irrigation_score?.toFixed(3)}`} T={T} />
+
+              <Text style={[yp.bdSecTitle, { color: T.muted }]}>VEGETATION (NDVI)</Text>
+              <InfoRow label="Satellite Greenness Index" value={`${(d.ndvi_raw / 10000).toFixed(3)}`} T={T} />
+              <InfoRow label="How this affects yield" value={`${(d.ndvi_factor * 100).toFixed(0)}% of potential`} T={T} />
+              <InfoRow label="Source" value={d.ndvi_source || 'MODIS Live satellite'} T={T} last />
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Crop Search Modal */}
+      <Modal visible={showCropModal} transparent animationType="slide">
+        <View style={yp.modalOverlay}>
+          <View style={[yp.modalContent, { backgroundColor: T.card }]}>
+            <View style={yp.modalHeader}>
+              <Text style={[yp.modalTitle, { color: T.text }]}>Select Crop</Text>
+              <TouchableOpacity onPress={() => setShowCropModal(false)}>
+                <Icon name="close" size={22} color={T.muted} />
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={[yp.modalSearchInput, { backgroundColor: T.bg, color: T.text, borderColor: T.border }]}
+              placeholder="Type to filter crops…"
+              placeholderTextColor={T.muted}
+              value={cropSearch}
+              onChangeText={setCropSearch}
+              autoFocus
+            />
+
+            <ScrollView style={yp.modalList}>
+              {filteredCrops.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  style={[
+                    yp.modalItem,
+                    { borderBottomColor: T.border },
+                    selectedCrop === c && { backgroundColor: DEVICE_COLOR + '18' },
+                  ]}
+                  onPress={() => handleCropSelect(c)}
+                >
+                  <Text
+                    style={[
+                      yp.modalItemTxt,
+                      { color: selectedCrop === c ? DEVICE_COLOR : T.text },
+                    ]}
+                  >
+                    {c}
+                  </Text>
+                  {selectedCrop === c && (
+                    <Icon name="check" size={18} color={DEVICE_COLOR} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const yp = StyleSheet.create({
+  hero: {
+    backgroundColor: '#14532D',
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    alignItems: 'center',
+    ...Shadow.md,
+  },
+  heroTitle: { fontSize: 20, fontWeight: '900', color: '#FFFFFF', letterSpacing: 0.5 },
+  heroSub: {
+    fontSize: 11,
+    color: '#D1FAE5',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  card: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    ...Shadow.sm,
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  cardTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
+  fieldLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
+  chipsScroll: { flexDirection: 'row', marginBottom: 6 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    marginRight: 6,
+  },
+  chipTxt: { fontSize: 12, fontWeight: '600' },
+  cropPickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 10,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+  },
+  cropPickerTxt: { fontSize: 13, fontWeight: '600' },
+  subHint: { fontSize: 10, marginTop: 8, lineHeight: 14 },
+  inputsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 8 },
+  inputCell: { flex: 1, minWidth: 60 },
+  inputLabel: { fontSize: 10, fontWeight: '700', marginBottom: 2 },
+  inputField: {
+    height: 38,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '800',
+    padding: 0,
+  },
+  inputHint: { fontSize: 8, textAlign: 'center', marginTop: 2 },
+  estimateBtn: {
+    borderRadius: Radius.md,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  estimateBtnTxt: { fontSize: 14, fontWeight: '800', color: '#FFFFFF' },
+  resultCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    ...Shadow.md,
+  },
+  heroNumberWrap: { alignItems: 'center', marginVertical: 8 },
+  yieldBigNumber: { fontSize: 36, fontWeight: '900', color: DEVICE_COLOR },
+  yieldUnitTxt: { fontSize: 12, fontWeight: '700', color: '#16A34A', textTransform: 'uppercase' },
+  yieldContextTxt: { fontSize: 11, marginTop: 2 },
+  formulaBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    padding: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    marginVertical: 10,
+  },
+  fNum: { fontSize: 11, fontWeight: '800' },
+  fOp: { fontSize: 11 },
+  fNumEq: { fontSize: 12, fontWeight: '900' },
+  factorsRow: { flexDirection: 'row', gap: 6, marginVertical: 6 },
+  factorBox: {
+    flex: 1,
     borderRadius: Radius.md,
     borderWidth: 1,
     padding: 8,
     alignItems: 'center',
-    gap: 3,
-    ...Shadow.sm,
   },
-  pieWrap: { marginBottom: 2 },
-  cellLabel: {
-    fontSize: 8,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-    textAlign: 'center',
+  factorLbl: { fontSize: 9, fontWeight: '800' },
+  factorVal: { fontSize: 16, fontWeight: '900', marginVertical: 2 },
+  factorSubTxt: { fontSize: 8 },
+  gradeBadge: { borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, marginVertical: 2 },
+  gradeBadgeTxt: { fontSize: 9, fontWeight: '800' },
+  fProgressTrack: { width: '100%', height: 4, backgroundColor: '#E2E8F0', borderRadius: 2, marginTop: 4 },
+  fProgressFill: { height: '100%', borderRadius: 2 },
+  breakdownToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 10,
+    alignSelf: 'center',
   },
-  cellVal: {
+  breakdownToggleTxt: { fontSize: 12, fontWeight: '800' },
+  breakdownBody: { marginTop: 10, borderTopWidth: 1, paddingTop: 8 },
+  bdSecTitle: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5, marginTop: 8, marginBottom: 4 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    maxHeight: '75%',
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    padding: Spacing.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  modalTitle: { fontSize: 16, fontWeight: '800' },
+  modalSearchInput: {
+    height: 40,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    paddingHorizontal: 12,
     fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: -0.3,
-    textAlign: 'center',
+    marginBottom: 10,
   },
-  cellUnit: { fontSize: 9, fontWeight: '400' },
-  lvlBadge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
-  lvlTxt: { fontSize: 8, fontWeight: '700' },
-});
-
-// ─── NPKPieSection ────────────────────────────────────────────────────────────
-
-function NPKPieSection({ reading, T }) {
-  const items = [
-    {
-      label: 'Nitrogen',
-      abbr: 'N',
-      key: 'nitrogen',
-      color: '#16A34A',
-      v: reading?.nitrogen ?? 0,
-    },
-    {
-      label: 'Phosphorous',
-      abbr: 'P',
-      key: 'phosphorous',
-      color: '#2563EB',
-      v: reading?.phosphorous ?? 0,
-    },
-    {
-      label: 'Potassium',
-      abbr: 'K',
-      key: 'potassium',
-      color: '#D97706',
-      v: reading?.potassium ?? 0,
-    },
-  ];
-  const total = items.reduce((s, d) => s + d.v, 0);
-  const cx = 100,
-    cy = 100,
-    R = 88,
-    ri = 54;
-  let ang = -Math.PI / 2;
-  const slices = items
-    .filter(d => d.v > 0)
-    .map(d => {
-      const sw = total > 0 ? (d.v / total) * 2 * Math.PI : 0;
-      const path = sw > 0.01 ? buildDonutPath(cx, cy, R, ri, ang, sw) : null;
-      ang += sw;
-      return {
-        ...d,
-        sw,
-        pct: total > 0 ? Math.round((d.v / total) * 100) : 0,
-        path,
-      };
-    });
-
-  return (
-    <View>
-      <View style={npk.donutWrap}>
-        <Svg width={200} height={200}>
-          <Path
-            d={buildDonutPath(cx, cy, R, ri, 0, 2 * Math.PI - 0.001)}
-            fill={T.border + '40'}
-          />
-          {slices.map(
-            (sl, i) => sl.path && <Path key={i} d={sl.path} fill={sl.color} />,
-          )}
-          <SvgText
-            x={cx}
-            y={cy - 8}
-            textAnchor="middle"
-            fontSize={22}
-            fontWeight="900"
-            fill={T.text ?? '#111'}
-          >
-            {Math.round(total)}
-          </SvgText>
-          <SvgText
-            x={cx}
-            y={cy + 10}
-            textAnchor="middle"
-            fontSize={11}
-            fill={T.muted ?? '#94A3B8'}
-          >
-            NPK total
-          </SvgText>
-        </Svg>
-      </View>
-      <View style={npk.cards}>
-        {items.map(d => {
-          const lvl = levelFor(d.key, d.v);
-          const pct = total > 0 ? Math.round((d.v / total) * 100) : 0;
-          return (
-            <View
-              key={d.key}
-              style={[
-                npk.card,
-                {
-                  backgroundColor: T.card,
-                  borderColor: T.border,
-                  borderTopColor: d.color,
-                  borderTopWidth: 3,
-                },
-              ]}
-            >
-              <View style={npk.cardTop}>
-                <View style={[npk.dot, { backgroundColor: d.color }]} />
-                <Text style={[npk.cardLbl, { color: T.muted }]}>{d.label}</Text>
-              </View>
-              <Text style={[npk.cardVal, { color: d.color }]}>{d.v}</Text>
-              <View style={npk.cardBottom}>
-                <Text style={[npk.cardPct, { color: T.muted }]}>{pct}%</Text>
-                <View style={[npk.lvlBadge, { backgroundColor: lvl.bg }]}>
-                  <Text style={[npk.lvlTxt, { color: lvl.color }]}>
-                    {lvl.label}
-                  </Text>
-                </View>
-              </View>
-              <View style={[npk.bar, { backgroundColor: T.border + '50' }]}>
-                <View
-                  style={[
-                    npk.barFill,
-                    { width: `${pct}%`, backgroundColor: d.color },
-                  ]}
-                />
-              </View>
-            </View>
-          );
-        })}
-      </View>
-      <View style={npk.extraRow}>
-        {[
-          { label: 'pH', key: 'ph', v: reading?.ph, color: '#7C3AED' },
-          { label: 'EC', key: 'ec', v: reading?.ec, color: '#0891B2' },
-          { label: 'OC', key: 'oc', v: reading?.oc, color: '#84CC16' },
-        ].map(item => {
-          const lvl = levelFor(item.key, item.v);
-          return (
-            <View
-              key={item.key}
-              style={[
-                npk.extraCell,
-                { backgroundColor: T.card, borderColor: T.border },
-              ]}
-            >
-              <Text style={[npk.extraLbl, { color: T.muted }]}>
-                {item.label}
-              </Text>
-              <Text style={[npk.extraVal, { color: item.color }]}>
-                {item.v != null && item.v > 0 ? Number(item.v).toFixed(1) : '—'}
-              </Text>
-              <View style={[npk.lvlBadge, { backgroundColor: lvl.bg }]}>
-                <Text style={[npk.lvlTxt, { color: lvl.color }]}>
-                  {lvl.label}
-                </Text>
-              </View>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-const npk = StyleSheet.create({
-  donutWrap: { alignItems: 'center', marginBottom: Spacing.md },
-  cards: { flexDirection: 'row', gap: 8, marginBottom: Spacing.md },
-  card: {
-    flex: 1,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    padding: 10,
-    gap: 4,
-    ...Shadow.sm,
-  },
-  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  dot: { width: 7, height: 7, borderRadius: 4 },
-  cardLbl: {
-    fontSize: 9,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  cardVal: { fontSize: 20, fontWeight: '900', letterSpacing: -0.5 },
-  cardBottom: {
+  modalList: { maxHeight: 350 },
+  modalItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: 0.5,
   },
-  cardPct: { fontSize: 10, fontWeight: '700' },
-  bar: { height: 4, borderRadius: 2, overflow: 'hidden', marginTop: 4 },
-  barFill: { height: 4, borderRadius: 2 },
-  lvlBadge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
-  lvlTxt: { fontSize: 8, fontWeight: '700' },
-  extraRow: { flexDirection: 'row', gap: 8 },
-  extraCell: {
-    flex: 1,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    padding: 10,
-    alignItems: 'center',
-    gap: 4,
-    ...Shadow.sm,
-  },
-  extraLbl: {
-    fontSize: 9,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  extraVal: { fontSize: 18, fontWeight: '900' },
+  modalItemTxt: { fontSize: 13, fontWeight: '600' },
 });
 
-// ─── AllNutrientPiesSection ───────────────────────────────────────────────────
-
-function AllNutrientPiesSection({ reading, T }) {
-  const ALL = [
-    {
-      label: 'Nitrogen',
-      abbr: 'N',
-      key: 'nitrogen',
-      color: '#16A34A',
-      v: reading?.nitrogen,
-    },
-    {
-      label: 'Phosphorous',
-      abbr: 'P',
-      key: 'phosphorous',
-      color: '#2563EB',
-      v: reading?.phosphorous,
-    },
-    {
-      label: 'Potassium',
-      abbr: 'K',
-      key: 'potassium',
-      color: '#D97706',
-      v: reading?.potassium,
-    },
-    { label: 'pH', abbr: 'pH', key: 'ph', color: '#7C3AED', v: reading?.ph },
-    { label: 'EC', abbr: 'EC', key: 'ec', color: '#0891B2', v: reading?.ec },
-    { label: 'OC', abbr: 'OC', key: 'oc', color: '#84CC16', v: reading?.oc },
-    {
-      label: 'Calcium',
-      abbr: 'Ca',
-      key: 'calcium',
-      color: '#EC4899',
-      v: reading?.calcium,
-    },
-    {
-      label: 'Magnesium',
-      abbr: 'Mg',
-      key: 'magnesium',
-      color: '#F59E0B',
-      v: reading?.magnesium,
-    },
-    {
-      label: 'Sulphur',
-      abbr: 'S',
-      key: 'sulphur',
-      color: '#EF4444',
-      v: reading?.sulphur,
-    },
-    {
-      label: 'Zinc',
-      abbr: 'Zn',
-      key: 'zinc',
-      color: '#6366F1',
-      v: reading?.zinc,
-    },
-    {
-      label: 'Manganese',
-      abbr: 'Mn',
-      key: 'manganese',
-      color: '#14B8A6',
-      v: reading?.manganese,
-    },
-    {
-      label: 'Iron',
-      abbr: 'Fe',
-      key: 'iron',
-      color: '#E879F9',
-      v: reading?.iron,
-    },
-    {
-      label: 'Copper',
-      abbr: 'Cu',
-      key: 'copper',
-      color: '#F97316',
-      v: reading?.copper,
-    },
-    {
-      label: 'Boron',
-      abbr: 'B',
-      key: 'boron',
-      color: '#22D3EE',
-      v: reading?.boron,
-    },
-  ];
-  return (
-    <View
-      style={{
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-        justifyContent: 'space-between',
-      }}
-    >
-      {ALL.map(item => (
-        <NutrientPieCell
-          key={item.key}
-          label={item.label}
-          abbr={item.abbr}
-          value={item.v}
-          color={item.color}
-          rangeKey={item.key}
-          T={T}
-          size={80}
-        />
-      ))}
-    </View>
-  );
-}
-
-// ─── SoilNutrientGridSection ──────────────────────────────────────────────────
-
-function SoilNutrientGridSection({ reading, T }) {
-  const ROWS = [
-    {
-      label: 'Nitrogen (N)',
-      key: 'nitrogen',
-      color: '#16A34A',
-      v: reading?.nitrogen,
-      unit: 'kg/ha',
-    },
-    {
-      label: 'Phosphorous (P)',
-      key: 'phosphorous',
-      color: '#2563EB',
-      v: reading?.phosphorous,
-      unit: 'kg/ha',
-    },
-    {
-      label: 'Potassium (K)',
-      key: 'potassium',
-      color: '#D97706',
-      v: reading?.potassium,
-      unit: 'kg/ha',
-    },
-    { label: 'pH', key: 'ph', color: '#7C3AED', v: reading?.ph, unit: '' },
-    { label: 'EC', key: 'ec', color: '#0891B2', v: reading?.ec, unit: 'dS/m' },
-    { label: 'OC', key: 'oc', color: '#84CC16', v: reading?.oc, unit: '%' },
-    {
-      label: 'Calcium (Ca)',
-      key: 'calcium',
-      color: '#EC4899',
-      v: reading?.calcium,
-      unit: '',
-    },
-    {
-      label: 'Magnesium (Mg)',
-      key: 'magnesium',
-      color: '#F59E0B',
-      v: reading?.magnesium,
-      unit: '',
-    },
-    {
-      label: 'Sulphur (S)',
-      key: 'sulphur',
-      color: '#EF4444',
-      v: reading?.sulphur,
-      unit: 'ppm',
-    },
-    {
-      label: 'Zinc (Zn)',
-      key: 'zinc',
-      color: '#6366F1',
-      v: reading?.zinc,
-      unit: 'ppm',
-    },
-    {
-      label: 'Manganese (Mn)',
-      key: 'manganese',
-      color: '#14B8A6',
-      v: reading?.manganese,
-      unit: 'ppm',
-    },
-    {
-      label: 'Iron (Fe)',
-      key: 'iron',
-      color: '#E879F9',
-      v: reading?.iron,
-      unit: 'ppm',
-    },
-    {
-      label: 'Copper (Cu)',
-      key: 'copper',
-      color: '#F97316',
-      v: reading?.copper,
-      unit: 'ppm',
-    },
-    {
-      label: 'Boron (B)',
-      key: 'boron',
-      color: '#22D3EE',
-      v: reading?.boron,
-      unit: 'ppm',
-    },
-  ];
-  return (
-    <View style={{ gap: 8 }}>
-      {ROWS.map(row => {
-        const lvl = levelFor(row.key, row.v);
-        const range = RANGES[row.key];
-        const pct = range && row.v > 0 ? Math.min(1, row.v / range.max) : 0;
-        const valStr =
-          row.v != null && row.v > 0
-            ? Number(row.v).toFixed(row.key === 'oc' ? 2 : 1)
-            : '—';
-        return (
-          <View
-            key={row.key}
-            style={[
-              sg.row,
-              {
-                backgroundColor: T.card,
-                borderColor: T.border,
-                borderLeftColor: lvl.color,
-                borderLeftWidth: 3,
-              },
-            ]}
-          >
-            <View style={sg.rowLeft}>
-              <View style={sg.rowTop}>
-                <Text style={[sg.rowLabel, { color: T.text }]}>
-                  {row.label}
-                </Text>
-                <View style={[sg.lvlBadge, { backgroundColor: lvl.bg }]}>
-                  <Text style={[sg.lvlTxt, { color: lvl.color }]}>
-                    {lvl.label}
-                  </Text>
-                </View>
-              </View>
-              <View style={[sg.track, { backgroundColor: T.border + '50' }]}>
-                <View
-                  style={[
-                    sg.fill,
-                    {
-                      width: `${Math.round(pct * 100)}%`,
-                      backgroundColor: lvl.color,
-                    },
-                  ]}
-                />
-              </View>
-              {range && (
-                <Text style={[sg.rangeHint, { color: T.muted }]}>
-                  Optimal: {range.low}–{range.high}
-                  {range.unit ? ` ${range.unit}` : ''}
-                </Text>
-              )}
-            </View>
-            <View style={sg.rowRight}>
-              <Text
-                style={[sg.val, { color: row.v > 0 ? row.color : T.muted }]}
-              >
-                {valStr}
-              </Text>
-              {row.unit ? (
-                <Text style={[sg.unit, { color: T.muted }]}>{row.unit}</Text>
-              ) : null}
-            </View>
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
-const sg = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    padding: 12,
-    ...Shadow.sm,
-  },
-  rowLeft: { flex: 1, gap: 6 },
-  rowTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  rowLabel: { fontSize: 12, fontWeight: '700' },
-  lvlBadge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
-  lvlTxt: { fontSize: 9, fontWeight: '700' },
-  track: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  fill: { height: 6, borderRadius: 3 },
-  rangeHint: { fontSize: 9 },
-  rowRight: { alignItems: 'flex-end', minWidth: 52 },
-  val: { fontSize: 18, fontWeight: '900', letterSpacing: -0.5 },
-  unit: { fontSize: 9, marginTop: 1 },
-});
-
-// ─── ChartTabView — segmented control ─────────────────────────────────────────
-
-const CHART_SEGMENTS = [
-  { key: 'npk', label: 'NPK', icon: 'chart-donut' },
-  { key: 'all', label: 'All Nuts', icon: 'view-grid-outline' },
-  { key: 'grid', label: 'Detail', icon: 'format-list-bulleted' },
-];
-
-function ChartTabView({ reading, T }) {
-  const [seg, setSeg] = useState('npk');
-  return (
-    <View>
-      <View
-        style={[
-          ctv.segWrap,
-          { backgroundColor: T.card, borderColor: T.border },
-        ]}
-      >
-        {CHART_SEGMENTS.map(s => {
-          const active = seg === s.key;
-          return (
-            <TouchableOpacity
-              key={s.key}
-              style={[ctv.seg, active && { backgroundColor: DEVICE_COLOR }]}
-              onPress={() => setSeg(s.key)}
-              activeOpacity={0.8}
-            >
-              <Icon name={s.icon} size={13} color={active ? '#fff' : T.muted} />
-              <Text
-                style={[
-                  ctv.segTxt,
-                  {
-                    color: active ? '#fff' : T.muted,
-                    fontWeight: active ? '700' : '500',
-                  },
-                ]}
-              >
-                {s.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-      {seg === 'npk' && (
-        <SectionCard
-          title="NPK Distribution"
-          icon="chart-donut"
-          color={DEVICE_COLOR}
-          T={T}
-        >
-          <NPKPieSection reading={reading} T={T} />
-        </SectionCard>
-      )}
-      {seg === 'all' && (
-        <SectionCard
-          title="All nutrients"
-          icon="view-grid-outline"
-          color="#2563EB"
-          T={T}
-        >
-          <AllNutrientPiesSection reading={reading} T={T} />
-        </SectionCard>
-      )}
-      {seg === 'grid' && (
-        <SectionCard
-          title="Nutrient detail"
-          icon="format-list-bulleted"
-          color="#7C3AED"
-          T={T}
-        >
-          <SoilNutrientGridSection reading={reading} T={T} />
-        </SectionCard>
-      )}
-    </View>
-  );
-}
-
-const ctv = StyleSheet.create({
-  segWrap: {
-    flexDirection: 'row',
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    padding: 4,
-    marginBottom: Spacing.md,
-    gap: 3,
-  },
-  seg: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 9,
-    borderRadius: Radius.md,
-  },
-  segTxt: { fontSize: 11 },
-});
-
-// ─── Main screen ──────────────────────────────────────────────────────────────
+// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 
 export default function SoilSaathiDetailScreen({ navigation, route }) {
   const dispatch = useDispatch();
@@ -1518,106 +2234,57 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
   const soilRecsLoading = soilState.recsStatus === 'loading';
   const soilRecsError =
     soilState.recsStatus === 'error' ? soilState.recsError : null;
+
   const soilAIRecs = soilState.aiRecommendations;
   const soilAIRecsLoading = soilState.aiRecsStatus === 'loading';
   const soilAIRecsError =
     soilState.aiRecsStatus === 'error' ? soilState.aiRecsError : null;
 
+  const fertRec = soilState.fertilizerRec;
+  const fertRecLoading = soilState.fertRecStatus === 'loading';
+  const fertRecError =
+    soilState.fertRecStatus === 'error' ? soilState.fertRecError : null;
+
+  const cropMatch = soilState.cropMatch;
+  const cropMatchLoading = soilState.cropMatchStatus === 'loading';
+  const cropMatchError =
+    soilState.cropMatchStatus === 'error' ? soilState.cropMatchError : null;
+
+  const yieldOptions = soilState.yieldOptions;
+  const yieldOptionsLoading = soilState.yieldOptionsStatus === 'loading';
+  const yieldPrediction = soilState.yieldPrediction;
+  const yieldPredictionLoading = soilState.yieldPredictionStatus === 'loading';
+  const yieldPredictionError =
+    soilState.yieldPredictionStatus === 'error'
+      ? soilState.yieldPredictionError
+      : null;
+
   const reading = selectedReading ?? passed;
   const [activeTab, setActiveTab] = useState(0);
+
+  // Modals state
+  const [showNPKModal, setShowNPKModal] = useState(false);
+  const [showFullChartModal, setShowFullChartModal] = useState(false);
+  const [showFertDosesModal, setShowFertDosesModal] = useState(false);
+
+  // Fetch initial data gracefully
   useEffect(() => {
-    dispatch(fetchReadingDetail(deviceId, readingId));
-    if (!schema && !schemaSlot?.loading)
-      dispatch(fetchDeviceFieldSchema(deviceType));
-    dispatch(getSoilRecommendations(deviceId, readingId));
-    dispatch(getSoilAIRecommendations(deviceId, readingId));
+    dispatch(fetchReadingDetail(deviceId, readingId)).catch(() => {});
+    if (!schema && !schemaSlot?.loading) {
+      dispatch(fetchDeviceFieldSchema(deviceType)).catch(() => {});
+    }
+    dispatch(getSoilRecommendations(deviceId, readingId)).catch(() => {});
+    dispatch(getSoilAIRecommendations(deviceId, readingId)).catch(() => {});
+    dispatch(getSoilFertilizerRecommendation(deviceId, readingId)).catch(() => {});
+    dispatch(getSoilCropMatch(deviceId, readingId)).catch(() => {});
+    dispatch(getSoilYieldOptions(deviceId, readingId)).catch(() => {});
 
     return () => dispatch(clearSelectedReading());
-  }, [deviceId, readingId, deviceType, dispatch]);
+  }, [deviceId, readingId, deviceType, dispatch, schema, schemaSlot?.loading]);
 
-  const soilPrimary = useMemo(() => {
-    const lbl = k => schema?.[k] ?? k;
-    return [
-      {
-        label: lbl('nitrogen'),
-        v: reading?.nitrogen,
-        unit: '',
-        key: 'nitrogen',
-      },
-      {
-        label: lbl('phosphorous'),
-        v: reading?.phosphorous,
-        unit: '',
-        key: 'phosphorous',
-      },
-      {
-        label: lbl('potassium'),
-        v: reading?.potassium,
-        unit: '',
-        key: 'potassium',
-      },
-      { label: lbl('ph'), v: reading?.ph, unit: '', key: 'ph' },
-      { label: lbl('ec'), v: reading?.ec, unit: '', key: 'ec' },
-      { label: lbl('oc') ?? 'OC', v: reading?.oc, unit: '%', key: 'oc' },
-    ];
-  }, [schema, reading]);
-
-  const soilSecondary = useMemo(() => {
-    const lbl = k => schema?.[k] ?? k;
-    return [
-      { label: lbl('calcium'), v: reading?.calcium, unit: '', key: 'calcium' },
-      {
-        label: lbl('magnesium'),
-        v: reading?.magnesium,
-        unit: '',
-        key: 'magnesium',
-      },
-      {
-        label: lbl('sulphur') ?? 'Sulphur',
-        v: reading?.sulphur,
-        unit: ' ppm',
-        key: 'sulphur',
-      },
-      {
-        label: lbl('zinc') ?? 'Zinc',
-        v: reading?.zinc,
-        unit: ' ppm',
-        key: 'zinc',
-      },
-      {
-        label: lbl('manganese') ?? 'Mn',
-        v: reading?.manganese,
-        unit: ' ppm',
-        key: 'manganese',
-      },
-      {
-        label: lbl('iron') ?? 'Iron',
-        v: reading?.iron,
-        unit: ' ppm',
-        key: 'iron',
-      },
-      {
-        label: lbl('copper') ?? 'Copper',
-        v: reading?.copper,
-        unit: ' ppm',
-        key: 'copper',
-      },
-      {
-        label: lbl('boron') ?? 'Boron',
-        v: reading?.boron,
-        unit: ' ppm',
-        key: 'boron',
-      },
-      {
-        label: 'Electrical cond.',
-        v: reading?.electrical_conduction,
-        unit: '',
-        key: 'electrical_conduction',
-      },
-    ];
-  }, [schema, reading]);
-
-  // ── Guards ───────────────────────────────────────────────────────────────────
+  const recordedAt = reading?.created_at ? new Date(reading.created_at) : new Date();
+  const phVal = reading?.ph ?? 0;
+  const phCls = phClass(phVal);
 
   if (selectedReadingLoading && !reading) {
     return (
@@ -1636,6 +2303,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
       </SafeAreaView>
     );
   }
+
   if (!reading) {
     return (
       <SafeAreaView style={[s.root, { backgroundColor: T.bg }]}>
@@ -1654,159 +2322,9 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
     );
   }
 
-  // ─── AllValuesPieChart ────────────────────────────────────────────────────────
-
-  function AllValuesPieChart({ reading, T }) {
-    const ALL_NUTRIENTS = [
-      { key: 'nitrogen', label: 'Nitrogen', abbr: 'N', color: '#16A34A' },
-      { key: 'phosphorous', label: 'Phosphorous', abbr: 'P', color: '#EF4444' },
-      { key: 'potassium', label: 'Potassium', abbr: 'K', color: '#F97316' },
-      { key: 'calcium', label: 'Calcium', abbr: 'Ca', color: '#EC4899' },
-      { key: 'magnesium', label: 'Magnesium', abbr: 'Mg', color: '#F59E0B' },
-      { key: 'sulphur', label: 'Sulphur', abbr: 'S', color: '#84CC16' },
-      { key: 'zinc', label: 'Zinc', abbr: 'Zn', color: '#6366F1' },
-      { key: 'manganese', label: 'Manganese', abbr: 'Mn', color: '#14B8A6' },
-      { key: 'iron', label: 'Iron', abbr: 'Fe', color: '#E879F9' },
-      { key: 'copper', label: 'Copper', abbr: 'Cu', color: '#2563EB' },
-      { key: 'boron', label: 'Boron', abbr: 'B', color: '#22D3EE' },
-      { key: 'ph', label: 'pH', abbr: 'pH', color: '#7C3AED' },
-      { key: 'ec', label: 'EC', abbr: 'EC', color: '#0891B2' },
-      { key: 'oc', label: 'OC', abbr: 'OC', color: '#D97706' },
-      {
-        key: 'electrical_conduction',
-        label: 'Elec. Cond.',
-        abbr: 'ElC',
-        color: '#64748B',
-      },
-    ];
-
-    const data = ALL_NUTRIENTS.map(n => ({
-      ...n,
-      v: reading?.[n.key] ?? 0,
-    })).filter(n => n.v > 0);
-
-    const total = data.reduce((s, d) => s + d.v, 0);
-
-    const SIZE = CONTENT_W - Spacing.lg * 2;
-    const cx = SIZE / 2,
-      cy = SIZE / 2;
-    const R = SIZE / 2 - 10,
-      ri = SIZE / 2 - 55;
-
-    let ang = -Math.PI / 2;
-    const slices = data.map(d => {
-      const sweep = total > 0 ? (d.v / total) * 2 * Math.PI : 0;
-      const path =
-        sweep > 0.005 ? buildDonutPath(cx, cy, R, ri, ang, sweep) : null;
-      const mid = ang + sweep / 2;
-      const lR = (R + ri) / 2;
-      const lx = cx + lR * Math.cos(mid);
-      const ly = cy + lR * Math.sin(mid);
-      ang += sweep;
-      return {
-        ...d,
-        sweep,
-        path,
-        pct: total > 0 ? Math.round((d.v / total) * 100) : 0,
-        lx,
-        ly,
-      };
-    });
-
-    return (
-      <View>
-        {/* Pie */}
-        <View style={{ alignItems: 'center', marginBottom: Spacing.md }}>
-          <Svg width={SIZE} height={SIZE}>
-            <Path
-              d={buildDonutPath(cx, cy, R, ri, 0, 2 * Math.PI - 0.001)}
-              fill={T.border + '40'}
-            />
-            {slices.map((sl, i) =>
-              sl.path ? <Path key={i} d={sl.path} fill={sl.color} /> : null,
-            )}
-            <SvgText
-              x={cx}
-              y={cy - 10}
-              textAnchor="middle"
-              fontSize={11}
-              fill={T.muted ?? '#94A3B8'}
-            >
-              All nutrients
-            </SvgText>
-            <SvgText
-              x={cx}
-              y={cy + 8}
-              textAnchor="middle"
-              fontSize={20}
-              fontWeight="900"
-              fill={T.text ?? '#111'}
-            >
-              {data.length}
-            </SvgText>
-            <SvgText
-              x={cx}
-              y={cy + 24}
-              textAnchor="middle"
-              fontSize={10}
-              fill={T.muted ?? '#94A3B8'}
-            >
-              parameters
-            </SvgText>
-          </Svg>
-        </View>
-
-        {/* Legend grid */}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {data.map(d => (
-            <View
-              key={d.key}
-              style={[
-                avp.legendChip,
-                { backgroundColor: T.card, borderColor: T.border },
-              ]}
-            >
-              <View style={[avp.dot, { backgroundColor: d.color }]} />
-              <Text style={[avp.chipLabel, { color: T.muted }]}>{d.label}</Text>
-              <Text style={[avp.chipVal, { color: d.color }]}>{d.v}</Text>
-              <View style={[avp.pctBadge, { backgroundColor: d.color + '20' }]}>
-                <Text style={[avp.pctTxt, { color: d.color }]}>{d.pct}%</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-      </View>
-    );
-  }
-
-  const avp = StyleSheet.create({
-    legendChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 5,
-      borderRadius: Radius.full,
-      borderWidth: 1,
-      paddingVertical: 5,
-      paddingHorizontal: 9,
-    },
-    dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-    chipLabel: { fontSize: 11, fontWeight: '600' },
-    chipVal: { fontSize: 11, fontWeight: '900' },
-    pctBadge: { borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1 },
-    pctTxt: { fontSize: 9, fontWeight: '700' },
-  });
-
-  const recordedAt = new Date(reading.created_at);
-  const phVal = reading.ph ?? 0;
-  const ecVal = reading.ec ?? 0;
-  const phCls = phClass(phVal);
-  const ecCls = ecClass(ecVal);
-
-  // ── Tab content ──────────────────────────────────────────────────────────────
-
   const renderTab = () => {
     switch (activeTab) {
-      // Overview
+      // 0: Overview
       case 0: {
         const statItems = [
           { label: 'N', value: `${reading.nitrogen ?? 0}`, color: '#16A34A' },
@@ -1816,6 +2334,14 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
         ];
         return (
           <>
+            {/* SoiLENZ Advisory Report Banner */}
+            <SoiLenzAdvisoryBanner
+              deviceId={deviceId}
+              readingId={readingId}
+              T={T}
+              dispatch={dispatch}
+            />
+
             <View style={s.statRow}>
               {statItems.map(item => (
                 <MiniStat
@@ -1829,36 +2355,20 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
             </View>
 
             <SectionCard
-              title="All values"
-              icon="chart-pie"
-              color={DEVICE_COLOR}
-              T={T}
-            >
-              <AllValuesPieChart reading={reading} T={T} />
-            </SectionCard>
-
-            <SectionCard
               title="Reading info"
               icon="information-outline"
               color={DEVICE_COLOR}
               T={T}
             >
+              <InfoRow icon="cellphone-link" label="Device ID" value={reading.devise_id} T={T} />
+              <InfoRow icon="barcode" label="Serial No" value={reading.serial_no} T={T} />
+              <InfoRow icon="sprout-outline" label="Crop" value={reading.crop_type} T={T} />
+              <InfoRow icon="map-marker-outline" label="Area" value={reading.area_name} T={T} />
+              <InfoRow icon="tag-outline" label="Tag" value={reading.tag} T={T} />
               <InfoRow
-                icon="map-marker-outline"
-                label="Area"
-                value={reading.area_name}
-                T={T}
-              />
-              <InfoRow
-                icon="tag-outline"
-                label="Tag"
-                value={reading.tag}
-                T={T}
-              />
-              <InfoRow
-                icon="sprout-outline"
-                label="Crop"
-                value={reading.crop_type}
+                icon="crosshairs-gps"
+                label="Location"
+                value={reading.latitude && reading.longitude ? `${reading.latitude}, ${reading.longitude}` : '—'}
                 T={T}
               />
               <InfoRow
@@ -1869,129 +2379,145 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
                 last
               />
             </SectionCard>
-          </>
-        );
-      }
 
-      // Chart
-      case 1:
-        return <ChartTabView reading={reading} T={T} />;
-
-      // Recommendations
-      case 2: {
-        const cropFert = soilRecs?.recommendations?.crop_fertilizer ?? [];
-        const fymGroups = soilRecs?.recommendations?.fym ?? [];
-
-        return (
-          <>
-            {/* Two PDF buttons side by side */}
-            <View style={pdfs.row}>
-              <PDFDownloadButton
-                deviceId={deviceId}
-                readingId={readingId}
-                T={T}
-                dispatch={dispatch}
-                action={downloadSoilRecommendationPDF}
-                title="Full Report"
-                subtitle="6-page SoiLENZ PDF"
-                fileName="SoiLENZ_Report"
-              />
-              <PDFDownloadButton
-                deviceId={deviceId}
-                readingId={readingId}
-                T={T}
-                dispatch={dispatch}
-                action={downloadSoilDetailPDF}
-                title="Detail PDF"
-                subtitle="Soil detail report"
-                fileName="SoiLENZ_Detail"
-              />
-            </View>
-
-            <AICropCard
-              aiData={soilAIRecs}
-              loading={soilAIRecsLoading}
-              error={soilAIRecsError}
+            <SectionCard
+              title="Primary Nutrients"
+              icon="leaf"
+              color="#16A34A"
               T={T}
-            />
-
-            <View style={s.secRow}>
-              <View
-                style={[s.secIco, { backgroundColor: DEVICE_COLOR + '18' }]}
-              >
-                <Icon name="seed-outline" size={14} color={DEVICE_COLOR} />
-              </View>
-              <Text style={[s.secTitle, { color: T.textSub }]}>
-                Fertilizer recommendations
-              </Text>
-              {cropFert.length > 0 && (
-                <View
-                  style={[
-                    s.countPill,
-                    {
-                      backgroundColor: DEVICE_COLOR + '18',
-                      borderColor: DEVICE_COLOR + '40',
-                    },
-                  ]}
-                >
-                  <Text style={[s.countTxt, { color: DEVICE_COLOR }]}>
-                    {cropFert.length} years
-                  </Text>
+            >
+              {[
+                { label: 'Nitrogen (N)', val: reading.nitrogen, max: 560, color: '#16A34A' },
+                { label: 'Phosphorous (P)', val: reading.phosphorous, max: 56, color: '#1565C0' },
+                { label: 'Potassium (K)', val: reading.potassium, max: 336, color: '#E65100' },
+                { label: 'pH', val: reading.ph, max: 14, color: '#6A1B9A' },
+                { label: 'EC (dS/m)', val: reading.ec, max: 4, color: '#0277BD' },
+                { label: 'OC (%)', val: reading.oc, max: 2, color: '#558B2F' },
+              ].map((p, idx, arr) => (
+                <View key={p.label} style={s.nutrientProgressRow}>
+                  <View style={s.npHdr}>
+                    <Text style={[s.npLbl, { color: T.text }]}>{p.label}</Text>
+                    <Text style={[s.npVal, { color: p.color }]}>{p.val ?? 0}</Text>
+                  </View>
+                  <View style={[s.npTrack, { backgroundColor: T.border + '40' }]}>
+                    <View
+                      style={[
+                        s.npFill,
+                        {
+                          width: `${Math.min(100, ((p.val ?? 0) / p.max) * 100)}%`,
+                          backgroundColor: p.color,
+                        },
+                      ]}
+                    />
+                  </View>
                 </View>
-              )}
-            </View>
+              ))}
+            </SectionCard>
 
-            {soilRecsLoading && soilState.recsStatus === 'loading' && (
-              <View
-                style={[
-                  s.infoBox,
-                  {
-                    backgroundColor: DEVICE_COLOR + '10',
-                    borderColor: DEVICE_COLOR + '30',
-                  },
-                ]}
-              >
-                <ActivityIndicator size="small" color={DEVICE_COLOR} />
-                <Text style={[s.infoTxt, { color: DEVICE_COLOR }]}>
-                  Loading recommendations…
-                </Text>
-              </View>
-            )}
-
-            {soilRecsError && !soilRecsLoading && (
-              <TouchableOpacity
-                style={[
-                  s.infoBox,
-                  { backgroundColor: '#EF444410', borderColor: '#EF444440' },
-                ]}
-                onPress={() =>
-                  dispatch(getSoilRecommendations(deviceId, readingId))
-                }
-                activeOpacity={0.8}
-              >
-                <Icon name="alert-circle-outline" size={14} color="#EF4444" />
-                <Text style={[s.infoTxt, { color: '#EF4444' }]}>
-                  Could not load recommendations
-                </Text>
-                <Text style={[s.retryTxt, { color: '#EF4444' }]}>Retry</Text>
-              </TouchableOpacity>
-            )}
-
-            {cropFert.map((group, i) => (
-              <FertilizerYearCard
-                key={i}
-                group={group}
-                isFirst={i === 0}
-                T={T}
-              />
-            ))}
-
-            {fymGroups.map((group, i) => (
-              <FYMCard key={i} lines={group} T={T} />
-            ))}
+            <SectionCard
+              title="Secondary & Micro Nutrients"
+              icon="flask-outline"
+              color="#0284C7"
+              T={T}
+            >
+              {[
+                { label: 'Electrical Conduction', val: reading.electrical_conduction, max: 4, color: '#546E7A' },
+                { label: 'Calcium (meq/100g)', val: reading.calcium, max: 5, color: '#00838F' },
+                { label: 'Magnesium (meq/100g)', val: reading.magnesium, max: 4, color: '#2E7D32' },
+                { label: 'Sulphur (ppm)', val: reading.sulphur, max: 30, color: '#F57F17' },
+                { label: 'Zinc (ppm)', val: reading.zinc, max: 3, color: '#6A1B9A' },
+                { label: 'Boron (ppm)', val: reading.boron, max: 3, color: '#1565C0' },
+                { label: 'Manganese (ppm)', val: reading.manganese, max: 12, color: '#BF360C' },
+                { label: 'Iron (ppm)', val: reading.iron, max: 15, color: '#4E342E' },
+                { label: 'Copper (ppm)', val: reading.copper, max: 3, color: '#E65100' },
+              ].map((p, idx, arr) => (
+                <View key={p.label} style={s.nutrientProgressRow}>
+                  <View style={s.npHdr}>
+                    <Text style={[s.npLbl, { color: T.text }]}>{p.label}</Text>
+                    <Text style={[s.npVal, { color: p.color }]}>{p.val ?? 0}</Text>
+                  </View>
+                  <View style={[s.npTrack, { backgroundColor: T.border + '40' }]}>
+                    <View
+                      style={[
+                        s.npFill,
+                        {
+                          width: `${Math.min(100, ((p.val ?? 0) / p.max) * 100)}%`,
+                          backgroundColor: p.color,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+              ))}
+            </SectionCard>
           </>
         );
       }
+
+      // 1: Farmer
+      case 1:
+        return <FarmerTabView reading={reading} T={T} />;
+
+      // 2: Crop Rec
+      case 2:
+        return (
+          <CropRecommendationTabView
+            reading={reading}
+            soilAIRecs={soilAIRecs}
+            soilAIRecsLoading={soilAIRecsLoading}
+            soilAIRecsError={soilAIRecsError}
+            T={T}
+          />
+        );
+
+      // 3: Fertilizer
+      case 3:
+        return (
+          <FertilizerAdvisoryTabView
+            deviceId={deviceId}
+            readingId={readingId}
+            reading={reading}
+            fertRec={fertRec}
+            fertRecLoading={fertRecLoading}
+            fertRecError={fertRecError}
+            soilRecs={soilRecs}
+            soilRecsLoading={soilRecsLoading}
+            soilRecsError={soilRecsError}
+            dispatch={dispatch}
+            T={T}
+          />
+        );
+
+      // 4: Crop Match
+      case 4:
+        return (
+          <CropMatchTabView
+            deviceId={deviceId}
+            readingId={readingId}
+            cropMatch={cropMatch}
+            cropMatchLoading={cropMatchLoading}
+            cropMatchError={cropMatchError}
+            dispatch={dispatch}
+            T={T}
+          />
+        );
+
+      // 5: Yield Predictor
+      case 5:
+        return (
+          <YieldPredictorTabView
+            deviceId={deviceId}
+            readingId={readingId}
+            reading={reading}
+            yieldOptions={yieldOptions}
+            yieldOptionsLoading={yieldOptionsLoading}
+            yieldPrediction={yieldPrediction}
+            yieldPredictionLoading={yieldPredictionLoading}
+            yieldPredictionError={yieldPredictionError}
+            dispatch={dispatch}
+            T={T}
+          />
+        );
 
       default:
         return null;
@@ -2015,7 +2541,39 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
         theme={theme}
       />
 
-      {/* ── Scrollable tab bar ── */}
+      {/* ── Quick Header Actions Bar ── */}
+      <View style={[s.actionsBar, { backgroundColor: T.card, borderBottomColor: T.border }]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.actionsContent}>
+          <TouchableOpacity
+            style={[s.actionPill, { backgroundColor: '#16A34A18', borderColor: '#16A34A40' }]}
+            onPress={() => setShowNPKModal(true)}
+            activeOpacity={0.7}
+          >
+            <Icon name="chart-donut" size={13} color="#16A34A" />
+            <Text style={[s.actionPillTxt, { color: '#16A34A' }]}>NPK Chart</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[s.actionPill, { backgroundColor: '#7C3AED18', borderColor: '#7C3AED40' }]}
+            onPress={() => setShowFullChartModal(true)}
+            activeOpacity={0.7}
+          >
+            <Icon name="chart-pie" size={13} color="#7C3AED" />
+            <Text style={[s.actionPillTxt, { color: '#7C3AED' }]}>Full Chart</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[s.actionPill, { backgroundColor: '#2563EB18', borderColor: '#2563EB40' }]}
+            onPress={() => setShowFertDosesModal(true)}
+            activeOpacity={0.7}
+          >
+            <Icon name="seed" size={13} color="#2563EB" />
+            <Text style={[s.actionPillTxt, { color: '#2563EB' }]}>Fertilizer Doses</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+
+      {/* ── Scrollable Tab Bar ── */}
       <View
         style={[
           s.tabBarWrap,
@@ -2034,7 +2592,6 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
               key={tab}
               style={[
                 s.tab,
-                { minWidth: SCREEN_W / TABS.length },
                 activeTab === i && {
                   borderBottomColor: DEVICE_COLOR,
                   borderBottomWidth: 2.5,
@@ -2047,7 +2604,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
                   s.tabTxt,
                   {
                     color: activeTab === i ? DEVICE_COLOR : T.muted,
-                    fontWeight: activeTab === i ? '800' : '500',
+                    fontWeight: activeTab === i ? '800' : '600',
                   },
                 ]}
               >
@@ -2065,6 +2622,58 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
         {renderTab()}
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      {/* ── Modal: NPK Chart ── */}
+      <Modal visible={showNPKModal} transparent animationType="fade">
+        <View style={s.modalBackdrop}>
+          <View style={[s.chartModalBox, { backgroundColor: T.card, borderColor: T.border }]}>
+            <View style={s.modalHdr}>
+              <Text style={[s.modalHdrTitle, { color: T.text }]}>NPK Distribution</Text>
+              <TouchableOpacity onPress={() => setShowNPKModal(false)}>
+                <Icon name="close" size={22} color={T.muted} />
+              </TouchableOpacity>
+            </View>
+            <NPKPieChart reading={reading} T={T} />
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal: Full Chart ── */}
+      <Modal visible={showFullChartModal} transparent animationType="fade">
+        <View style={s.modalBackdrop}>
+          <View style={[s.chartModalBox, { backgroundColor: T.card, borderColor: T.border }]}>
+            <View style={s.modalHdr}>
+              <Text style={[s.modalHdrTitle, { color: T.text }]}>All Parameters Distribution</Text>
+              <TouchableOpacity onPress={() => setShowFullChartModal(false)}>
+                <Icon name="close" size={22} color={T.muted} />
+              </TouchableOpacity>
+            </View>
+            <AllValuesPieChart reading={reading} T={T} />
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal: Fertilizer Doses ── */}
+      <Modal visible={showFertDosesModal} transparent animationType="slide">
+        <View style={s.modalBackdrop}>
+          <View style={[s.dosesModalBox, { backgroundColor: T.card, borderColor: T.border }]}>
+            <View style={s.modalHdr}>
+              <Text style={[s.modalHdrTitle, { color: T.text }]}>Fertilizer Doses & FYM</Text>
+              <TouchableOpacity onPress={() => setShowFertDosesModal(false)}>
+                <Icon name="close" size={22} color={T.muted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 420 }}>
+              {(soilRecs?.recommendations?.crop_fertilizer ?? []).map((group, i) => (
+                <FertilizerYearCard key={i} group={group} isFirst={i === 0} T={T} />
+              ))}
+              {(soilRecs?.recommendations?.fym ?? []).map((group, i) => (
+                <FYMCard key={i} lines={group} T={T} />
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2076,12 +2685,25 @@ const s = StyleSheet.create({
   scroll: { padding: Spacing.lg, paddingTop: Spacing.md },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  tabBarWrap: { borderBottomWidth: 1 },
-  tabBarContent: { flexDirection: 'row', minWidth: '100%' },
-  tab: {
-    paddingVertical: 13,
+  actionsBar: { borderBottomWidth: 1, paddingVertical: 6 },
+  actionsContent: { flexDirection: 'row', paddingHorizontal: Spacing.md, gap: 6 },
+  actionPill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 4,
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+  },
+  actionPillTxt: { fontSize: 11, fontWeight: '700' },
+
+  tabBarWrap: { borderBottomWidth: 1 },
+  tabBarContent: { flexDirection: 'row', paddingHorizontal: Spacing.sm },
+  tab: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: 'center',
     borderBottomWidth: 2.5,
     borderBottomColor: 'transparent',
   },
@@ -2089,43 +2711,198 @@ const s = StyleSheet.create({
 
   statRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
 
-  secRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: Spacing.md,
-  },
-  secIco: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
+  nutrientProgressRow: { marginBottom: 10 },
+  npHdr: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
+  npLbl: { fontSize: 12, fontWeight: '600' },
+  npVal: { fontSize: 12, fontWeight: '800' },
+  npTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  npFill: { height: '100%', borderRadius: 3 },
+
+  emptyWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  secTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    flex: 1,
-  },
-  countPill: {
-    borderRadius: Radius.full,
+    padding: Spacing.xl,
+    borderRadius: Radius.lg,
     borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
+    ...Shadow.sm,
   },
-  countTxt: { fontSize: 10, fontWeight: '700' },
+  emptyTitle: { fontSize: 16, fontWeight: '800', marginTop: 10 },
+  emptySub: { fontSize: 12, marginTop: 4, textAlign: 'center' },
 
-  infoBox: {
+  nutriTable: { marginTop: 4 },
+  nutriTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    borderRadius: Radius.md,
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  nutriTableLbl: { fontSize: 12, fontWeight: '700' },
+  nutriTableVal: { fontSize: 13, fontWeight: '900' },
+  nutriTableRange: { fontSize: 11 },
+
+  filterCard: {
+    borderRadius: Radius.lg,
     borderWidth: 1,
     padding: Spacing.md,
     marginBottom: Spacing.md,
+    ...Shadow.sm,
   },
-  infoTxt: { fontSize: 13, fontWeight: '600', flex: 1 },
-  retryTxt: { fontSize: 12, fontWeight: '800' },
+  filterTitle: { fontSize: 12, fontWeight: '800', marginBottom: 8 },
+  filterInputsRow: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  filterInput: {
+    flex: 1,
+    height: 38,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    fontSize: 12,
+  },
+  filterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    height: 38,
+    borderRadius: Radius.md,
+    justifyContent: 'center',
+  },
+  filterBtnTxt: { fontSize: 12, fontWeight: '800', color: '#FFFFFF' },
+  filterSub: { fontSize: 10, marginTop: 6, lineHeight: 14 },
+
+  loadingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: Spacing.md,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  loadingTxt: { fontSize: 12 },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: Spacing.md,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    marginBottom: Spacing.md,
+  },
+  errorTxt: { fontSize: 12, flex: 1 },
+
+  tableWrap: { marginTop: 4 },
+  tHead: {
+    flexDirection: 'row',
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: Radius.sm,
+  },
+  th: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+  tRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+  },
+  td: { fontSize: 11 },
+  statusPill: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2, alignSelf: 'flex-start' },
+  statusPillTxt: { fontSize: 9, fontWeight: '800' },
+
+  yieldCompRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  yieldCompBox: {
+    flex: 1,
+    borderRadius: Radius.md,
+    padding: 10,
+    alignItems: 'center',
+  },
+  yieldCompLbl: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  yieldCompVal: { fontSize: 20, fontWeight: '900', marginVertical: 2 },
+  yieldCompUnit: { fontSize: 9 },
+
+  secHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  secHeaderText: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
+
+  progressBarTrack: { width: '100%', height: 6, backgroundColor: '#E2E8F0', borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: '100%', borderRadius: 3 },
+  scoreTxt: { fontSize: 9, fontWeight: '700', marginTop: 2 },
+  tempBadge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2, alignSelf: 'flex-start' },
+  tempBadgeTxt: { fontSize: 9, fontWeight: '800' },
+
+  cropCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    marginBottom: Spacing.sm,
+    overflow: 'hidden',
+    ...Shadow.sm,
+  },
+  cropCardHdr: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.md,
+    gap: 8,
+    borderBottomWidth: 1,
+  },
+  cropRankBadge: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  cropRankTxt: { fontSize: 12, fontWeight: '900' },
+  cropCardName: { fontSize: 14, fontWeight: '800' },
+  cropCardSub: { fontSize: 10, marginTop: 1 },
+  cropCardBody: { padding: Spacing.md },
+  weatherBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingBottom: 8,
+    marginBottom: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#CBD5E1',
+  },
+  weatherTxt: { fontSize: 11, fontWeight: '600', flex: 1 },
+  weatherScoreTxt: { fontSize: 11, fontWeight: '800' },
+  guideSec: { marginBottom: 10 },
+  guideTitle: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6, marginBottom: 4 },
+  defSec: { marginTop: 6 },
+  defRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 2 },
+  defTxt: { fontSize: 11, flex: 1 },
+
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: Spacing.lg,
+  },
+  chartModalBox: {
+    width: '100%',
+    maxWidth: 380,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    padding: Spacing.lg,
+    ...Shadow.lg,
+  },
+  dosesModalBox: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: Radius.xl,
+    borderWidth: 1,
+    padding: Spacing.lg,
+    ...Shadow.lg,
+  },
+  modalHdr: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalHdrTitle: { fontSize: 15, fontWeight: '800' },
 });

@@ -296,10 +296,10 @@ const normalizeSoil = data => {
 function _buildReading(src, raw) {
   _dataCount += 1;
   return {
-    ph: src.pH != null ? parseFloat(src.pH) : null,
-    ec: src.TDS != null ? parseFloat(src.TDS) : null,
-    voltage: src.pHVoltage != null ? parseFloat(src.pHVoltage) : null,
-    ecVoltage: src.ECVoltage != null ? parseFloat(src.ECVoltage) : null,
+    ph: src.pH != null ? parseFloat(src.pH) : (src.ph != null ? parseFloat(src.ph) : null),
+    ec: src.ec != null ? parseFloat(src.ec) : (src.EC != null ? parseFloat(src.EC) : (src.TDS != null ? parseFloat(src.TDS) : null)),
+    voltage: src.pHVoltage != null ? parseFloat(src.pHVoltage) : (src.phVoltage != null ? parseFloat(src.phVoltage) : (src.voltage != null ? parseFloat(src.voltage) : null)),
+    ecVoltage: src.ECVoltage != null ? parseFloat(src.ECVoltage) : (src.ecVoltage != null ? parseFloat(src.ecVoltage) : null),
     temperature: src.temperature != null ? parseFloat(src.temperature) : null,
     temperatureFallback: src.temperatureFallback ?? false,
     raw,

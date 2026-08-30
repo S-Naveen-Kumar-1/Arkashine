@@ -1,11 +1,13 @@
-// src/redux/reducers/soilsaathiReducer.js
-
 import {
   SOIL_LIST_REQUEST,
   SOIL_CREATE_REQUEST,
   SOIL_DETAIL_REQUEST,
   SOIL_RECS_REQUEST,
   SOIL_AI_RECS_REQUEST,
+  SOIL_FERT_REC_REQUEST,
+  SOIL_CROP_MATCH_REQUEST,
+  SOIL_YIELD_OPTIONS_REQUEST,
+  SOIL_YIELD_PREDICT_REQUEST,
   SOIL_CLEAR,
   SOIL_SET_CURRENT_ID,
 } from '../actions/soilsaathiActions';
@@ -42,6 +44,24 @@ const init = {
   aiRecsStatus: 'idle',
   aiRecsError: null,
   aiRecommendations: null,
+
+  // ── Fertilizer Advisory (RDF Rule Book) ──────────────────────────────────
+  fertRecStatus: 'idle',
+  fertRecError: null,
+  fertilizerRec: null,
+
+  // ── Crop Match (Rule-based top 5) ───────────────────────────────────────
+  cropMatchStatus: 'idle',
+  cropMatchError: null,
+  cropMatch: null,
+
+  // ── Yield Predictor ─────────────────────────────────────────────────────
+  yieldOptionsStatus: 'idle',
+  yieldOptionsError: null,
+  yieldOptions: null,
+  yieldPredictionStatus: 'idle',
+  yieldPredictionError: null,
+  yieldPrediction: null,
 
   // ── SENSOR CALIBRATION ──────────────────────────────────────────────────
   calibrationPhase: 'idle',      // 'idle' | 'reading' | 'done' | 'error'
@@ -161,6 +181,82 @@ export default function soilsaathiReducer(state = init, action) {
           action.error?.message ??
           action.payload ??
           'Failed to load AI recommendation',
+      };
+
+    // ── FERTILIZER ADVISORY (RDF) ──────────────────────────────────────────
+    case SOIL_FERT_REC_REQUEST:
+      return { ...state, fertRecStatus: 'loading', fertRecError: null };
+    case `${SOIL_FERT_REC_REQUEST}_SUCCESS`:
+      return {
+        ...state,
+        fertRecStatus: 'success',
+        fertilizerRec: action.payload.data,
+      };
+    case `${SOIL_FERT_REC_REQUEST}_FAIL`:
+      return {
+        ...state,
+        fertRecStatus: 'error',
+        fertRecError:
+          action.error?.message ??
+          action.payload ??
+          'Failed to load fertilizer recommendations',
+      };
+
+    // ── CROP MATCH (TOP 5) ──────────────────────────────────────────────────
+    case SOIL_CROP_MATCH_REQUEST:
+      return { ...state, cropMatchStatus: 'loading', cropMatchError: null };
+    case `${SOIL_CROP_MATCH_REQUEST}_SUCCESS`:
+      return {
+        ...state,
+        cropMatchStatus: 'success',
+        cropMatch: action.payload.data,
+      };
+    case `${SOIL_CROP_MATCH_REQUEST}_FAIL`:
+      return {
+        ...state,
+        cropMatchStatus: 'error',
+        cropMatchError:
+          action.error?.message ??
+          action.payload ??
+          'Failed to load crop match',
+      };
+
+    // ── YIELD PREDICTOR OPTIONS ─────────────────────────────────────────────
+    case SOIL_YIELD_OPTIONS_REQUEST:
+      return { ...state, yieldOptionsStatus: 'loading', yieldOptionsError: null };
+    case `${SOIL_YIELD_OPTIONS_REQUEST}_SUCCESS`:
+      return {
+        ...state,
+        yieldOptionsStatus: 'success',
+        yieldOptions: action.payload.data,
+      };
+    case `${SOIL_YIELD_OPTIONS_REQUEST}_FAIL`:
+      return {
+        ...state,
+        yieldOptionsStatus: 'error',
+        yieldOptionsError:
+          action.error?.message ??
+          action.payload ??
+          'Failed to load yield options',
+      };
+
+    // ── YIELD PREDICTION ───────────────────────────────────────────────────
+    case SOIL_YIELD_PREDICT_REQUEST:
+      return { ...state, yieldPredictionStatus: 'loading', yieldPredictionError: null };
+    case `${SOIL_YIELD_PREDICT_REQUEST}_SUCCESS`:
+      return {
+        ...state,
+        yieldPredictionStatus: 'success',
+        yieldPrediction: action.payload.data,
+      };
+    case `${SOIL_YIELD_PREDICT_REQUEST}_FAIL`:
+      return {
+        ...state,
+        yieldPredictionStatus: 'error',
+        yieldPredictionError:
+          action.error?.message ??
+          action.payload ??
+          'Failed to estimate yield',
       };
 
     case SOIL_SET_CURRENT_ID:

@@ -274,7 +274,11 @@ function MetricCard({ icon, title, value, unit, status, T, children }) {
       </View>
       {value !== null && value !== undefined ? (
         <View style={mc.valueRow}>
-          <Text style={[mc.value, { color: status?.color ?? T.text }]}>
+          <Text
+            style={[mc.value, { color: status?.color ?? T.text }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
             {value}
           </Text>
           {unit ? (
@@ -325,9 +329,10 @@ const mc = StyleSheet.create({
   badgeText: { fontSize: 11, fontWeight: '800' },
   valueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
   value: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: '900',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    flexShrink: 1,
   },
   unit: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
   noData: { fontSize: 16, fontWeight: '600', fontStyle: 'italic' },
@@ -355,7 +360,7 @@ function VoltageRow({ label, value, T }) {
           fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
         }}
       >
-        {value !== null ? `${value.toFixed(4)} V` : '—'}
+        {value !== null ? `${value.toFixed(6)} V` : '—'}
       </Text>
     </View>
   );
@@ -383,9 +388,9 @@ export default function PHECResultScreen({ navigation }) {
   const hasSavedRef = useRef(false);
   const data = finalPhResult;
   const ph = toNum(data?.ph ?? data?.pH);
-  const ec = toNum(data?.ec ?? data?.TDS);
+  const ec = toNum(data?.ec ?? data?.EC ?? data?.TDS);
   const temp = toNum(data?.temperature);
-  const phVoltage = toNum(data?.voltage ?? data?.pHVoltage);
+  const phVoltage = toNum(data?.voltage ?? data?.phVoltage ?? data?.pHVoltage);
   const ecVoltage = toNum(data?.ecVoltage ?? data?.ECVoltage);
   const tempFallback = data?.temperatureFallback ?? false;
 
@@ -564,18 +569,18 @@ export default function PHECResultScreen({ navigation }) {
             <MetricCard
               icon="ph"
               title="Soil pH"
-              value={phVoltage?.toFixed(2)}
+              value={ph !== null ? ph.toFixed(6) : null}
               status={phStatus}
               T={T}
             >
-              <PHScaleBar ph={phVoltage} T={T} />
+              <PHScaleBar ph={ph} T={T} />
             </MetricCard>
 
             {/* EC Card */}
             <MetricCard
               icon="lightning-bolt"
               title="EC / Conductivity"
-              value={ecVoltage?.toFixed(3)}
+              value={ec !== null ? ec.toFixed(6) : null}
               unit="dS/m"
               status={ecStatus}
               T={T}

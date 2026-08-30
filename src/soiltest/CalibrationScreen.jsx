@@ -151,6 +151,7 @@ export default function CalibrationScreen({ navigation }) {
   const [running, setRunning] = useState(false);
   const [stepStatus, setStepStatus] = useState('idle');
   const [seenChannels, setSeenChannels] = useState({});
+  const [storedChannels, setStoredChannels] = useState(null);
   const [loopNumber, setLoopNumber] = useState(0);
   const [totalLoops, setTotalLoops] = useState(100);
   const [currentPhase, setCurrentPhase] = useState('spectral');
@@ -179,18 +180,26 @@ export default function CalibrationScreen({ navigation }) {
       NUTRIENTS.forEach(n =>
         POINT_KEYS.forEach(p => allKeys.push(asyncKeyFor(n.key, p))),
       );
+      allKeys.push('soil_channel_readings');
       const pairs = await AsyncStorage.multiGet(allKeys);
       const nextSet = new Set();
       const nextValues = {};
       pairs.forEach(([key, raw]) => {
         if (!raw) return;
+        if (key === 'soil_channel_readings') {
+          try {
+            setStoredChannels(JSON.parse(raw));
+          } catch (_) {}
+          return;
+        }
         const parts = key.split(':'); // soil_cal:NUT:POINT
         const nutrient = parts[1];
         const point = parts[2];
         try {
           const parsed = JSON.parse(raw);
-          nextSet.add(setKeyFor(nutrient, point));
-          nextValues[setKeyFor(nutrient, point)] = parsed.values;
+          const k = setKeyFor(nutrient, point);
+          nextSet.add(k);
+          nextValues[k] = parsed;
         } catch (_) {}
       });
       if (nextSet.size) {
@@ -201,6 +210,26 @@ export default function CalibrationScreen({ navigation }) {
       console.log('[UI] hydrateFromStorage failed:', e.message);
     }
   };
+
+  // ─── Auto-save live channel readings to AsyncStorage ──────────────────────
+  useEffect(() => {
+    if (
+      calibrationLiveChannels &&
+      Object.keys(calibrationLiveChannels).length > 0
+    ) {
+      const liveData = {
+        channels: calibrationLiveChannels,
+        savedAt: Date.now(),
+        nutrient: selectedNutrient,
+        point: selectedPoint,
+      };
+      setStoredChannels(liveData);
+      AsyncStorage.setItem(
+        'soil_channel_readings',
+        JSON.stringify(liveData),
+      ).catch(err => console.log('[UI] Save live channels failed:', err.message));
+    }
+  }, [calibrationLiveChannels]);
 
   // ─── Sync completedSet from the device's authoritative table when it arrives ─
   useEffect(() => {
@@ -365,11 +394,25 @@ export default function CalibrationScreen({ navigation }) {
       const k = setKeyFor(entry.nutrient, entry.point);
       // Optimistic update — don't wait for the device table round-trip
       setCompletedSet(prev => new Set(prev).add(k));
-      setCachedValues(prev => ({ ...prev, [k]: entry.values }));
+      const payloadToSave = {
+        values: entry.values,
+        channels: calibrationLiveChannels,
+        savedAt: entry.savedAt,
+      };
+      setCachedValues(prev => ({ ...prev, [k]: payloadToSave }));
       try {
         await AsyncStorage.setItem(
           asyncKeyFor(entry.nutrient, entry.point),
-          JSON.stringify({ values: entry.values, savedAt: entry.savedAt }),
+          JSON.stringify(payloadToSave),
+        );
+        await AsyncStorage.setItem(
+          'soil_channel_readings',
+          JSON.stringify({
+            channels: calibrationLiveChannels,
+            savedAt: entry.savedAt,
+            nutrient: entry.nutrient,
+            point: entry.point,
+          }),
         );
       } catch (e) {
         console.log('[UI] AsyncStorage save failed:', e.message);
@@ -834,9 +877,27 @@ export default function CalibrationScreen({ navigation }) {
                   />
                 </View>
 
-                <Text style={[s.channelsHeader, { color: T.textSub }]}>
-                  Live channel readings ({Object.keys(seenChannels).length}/21)
-                </Text>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginTop: 10,
+                  }}
+                >
+                  <Text style={[s.channelsHeader, { color: T.textSub, marginTop: 0 }]}>
+                    Live channel readings ({Object.keys(seenChannels).length}/21)
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setMatrixModalVisible(true)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                  >
+                    <Icon name="eye-outline" size={14} color={T.primary} />
+                    <Text style={{ fontSize: 12, color: T.primary, fontWeight: '700' }}>
+                      Overview
+                    </Text>
+                  </TouchableOpacity>
+                </View>
                 <View style={s.channelGrid}>
                   {ALL_CHANNELS.map(ch => {
                     const val = calibrationLiveChannels?.[ch];
@@ -886,22 +947,27 @@ export default function CalibrationScreen({ navigation }) {
               <View
                 style={[
                   s.statusCard,
-                  { backgroundColor: T.red + '15', borderColor: T.red },
+                  {
+                    backgroundColor: T.red + '15',
+                    borderColor: T.red,
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    textAlign: 'center',
+                  },
                 ]}
               >
-                <Icon name="alert-circle" size={22} color={T.red} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.statusTitle, { color: T.text }]}>
-                    Reading failed
-                  </Text>
-                  <Text style={[s.statusSub, { color: T.red }]}>
-                    {calibrationError ?? 'The device reported an error.'}
-                  </Text>
-                </View>
+                <Icon name="alert-circle" size={32} color={T.red} />
+                <Text style={[s.statusTitle, { color: T.text, marginTop: 8 }]}>
+                  Calibration Failed
+                </Text>
+                <Text style={[s.statusSub, { color: T.red, marginTop: 4 }]}>
+                  {calibrationError ?? 'No response or error from device.'}
+                </Text>
               </View>
             )}
           </View>
 
+          {/* Action buttons during calibration */}
           {stepStatus === 'error' ? (
             <View
               style={{ flexDirection: 'row', gap: 10, marginTop: Spacing.sm }}
@@ -956,6 +1022,10 @@ export default function CalibrationScreen({ navigation }) {
         nutrients={NUTRIENTS}
         points={POINTS}
         completedSet={completedSet}
+        cachedValues={cachedValues}
+        storedChannels={storedChannels}
+        allChannels={ALL_CHANNELS}
+        wavelengths={WAVELENGTH_NM}
         onClose={() => setMatrixModalVisible(false)}
         onSelectCell={handleMatrixCellSelect}
         theme={theme}

@@ -1023,7 +1023,7 @@ export default function ProfileScreen({ navigation }) {
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={[s.appName, { color: T.text }]}>ARKASHINE</Text>
             <Text style={[s.appVer, { color: T.muted }]}>
-              Version 1.0.0 · Agriculture Intelligence
+              Version 1.0.1 · Agriculture Intelligence
             </Text>
           </View>
         </View>

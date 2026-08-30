@@ -20,6 +20,22 @@ export const SOIL_AI_RECS_REQUEST = 'SOIL_AI_RECS_REQUEST';
 export const SOIL_AI_RECS_SUCCESS = 'SOIL_AI_RECS_SUCCESS';
 export const SOIL_AI_RECS_FAIL = 'SOIL_AI_RECS_FAIL';
 
+export const SOIL_FERT_REC_REQUEST = 'SOIL_FERT_REC_REQUEST';
+export const SOIL_FERT_REC_SUCCESS = 'SOIL_FERT_REC_SUCCESS';
+export const SOIL_FERT_REC_FAIL = 'SOIL_FERT_REC_FAIL';
+
+export const SOIL_CROP_MATCH_REQUEST = 'SOIL_CROP_MATCH_REQUEST';
+export const SOIL_CROP_MATCH_SUCCESS = 'SOIL_CROP_MATCH_SUCCESS';
+export const SOIL_CROP_MATCH_FAIL = 'SOIL_CROP_MATCH_FAIL';
+
+export const SOIL_YIELD_OPTIONS_REQUEST = 'SOIL_YIELD_OPTIONS_REQUEST';
+export const SOIL_YIELD_OPTIONS_SUCCESS = 'SOIL_YIELD_OPTIONS_SUCCESS';
+export const SOIL_YIELD_OPTIONS_FAIL = 'SOIL_YIELD_OPTIONS_FAIL';
+
+export const SOIL_YIELD_PREDICT_REQUEST = 'SOIL_YIELD_PREDICT_REQUEST';
+export const SOIL_YIELD_PREDICT_SUCCESS = 'SOIL_YIELD_PREDICT_SUCCESS';
+export const SOIL_YIELD_PREDICT_FAIL = 'SOIL_YIELD_PREDICT_FAIL';
+
 export const SOIL_CLEAR = 'SOIL_CLEAR';
 export const SOIL_SET_CURRENT_ID = 'SOIL_SET_CURRENT_ID';
 // PDF DOWNLOAD
@@ -86,6 +102,78 @@ export function getSoilAIRecommendations(deviceId, callId) {
         method: 'GET',
         url: `/api/mobile/devices/${deviceId}/soilsaathi/ai-recommendation/`,
         params: { call_id: callId },
+      },
+    },
+  };
+}
+
+export function getSoilFertilizerRecommendation(deviceId, callId, state, crop) {
+  const params = {};
+  if (callId) params.call_id = callId;
+  if (state) params.state = state;
+  if (crop) params.crop = crop;
+  return {
+    type: SOIL_FERT_REC_REQUEST,
+    payload: {
+      request: {
+        method: 'GET',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/fertilizer-recommendation/`,
+        params,
+      },
+    },
+  };
+}
+
+export function getSoilCropMatch(deviceId, callId, state) {
+  const params = {};
+  if (callId) params.call_id = callId;
+  if (state) params.state = state;
+  return {
+    type: SOIL_CROP_MATCH_REQUEST,
+    payload: {
+      request: {
+        method: 'GET',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/crop-recommendation/`,
+        params,
+      },
+    },
+  };
+}
+
+export function getSoilYieldOptions(deviceId, callId) {
+  const params = {};
+  if (callId) params.call_id = callId;
+  return {
+    type: SOIL_YIELD_OPTIONS_REQUEST,
+    payload: {
+      request: {
+        method: 'GET',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/yield-options/`,
+        params,
+      },
+    },
+  };
+}
+
+export function getSoilYieldPrediction(
+  deviceId,
+  { callId, district, crop, soc, pH, N, P, K } = {},
+) {
+  const params = { district, crop };
+  if (callId) params.call_id = callId;
+  if (soc !== undefined && soc !== null && soc !== '') params.soc = soc;
+  if (pH !== undefined && pH !== null && pH !== '') params.pH = pH;
+  if (N !== undefined && N !== null && N !== '') params.N = N;
+  if (P !== undefined && P !== null && P !== '') params.P = P;
+  if (K !== undefined && K !== null && K !== '') params.K = K;
+
+  return {
+    type: SOIL_YIELD_PREDICT_REQUEST,
+    payload: {
+      request: {
+        method: 'GET',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/yield-prediction/`,
+        params,
       },
     },
   };
