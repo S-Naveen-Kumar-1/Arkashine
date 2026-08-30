@@ -1653,7 +1653,6 @@ function YieldPredictorTabView({
       c.toLowerCase().includes(cropSearch.toLowerCase()),
     );
   }, [cropList, cropSearch]);
-  }, [cropList, cropSearch]);
 
   const handleStateChange = st => {
     setSelectedState(st);
