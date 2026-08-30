@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   StatusBar,
   TouchableOpacity,
@@ -40,7 +41,7 @@ export default function LoginScreen({ navigation }) {
 
   useEffect(() => {
     dispatch(clearAuthError());
-  }, []);
+  }, [dispatch]);
 
   const validate = () => {
     const e = {};
@@ -138,22 +139,11 @@ export default function LoginScreen({ navigation }) {
         <View style={s.inner}>
           {/* ── Brand ── */}
           <View style={s.brandSection}>
-            <View
-              style={[
-                s.logoRing,
-                { borderColor: T.primary, backgroundColor: T.primaryDim },
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="sprout"
-                size={36}
-                color={T.primary}
-              />
-            </View>
-            <Text style={[s.brandName, { color: T.primary }]}>Arkashine</Text>
-            <Text style={[s.brandSub, { color: T.textSub }]}>
-              Agriculture Intelligence
-            </Text>
+            <Image
+              source={require('../assets/images/app_logo.png')}
+              style={{ width: 180, height: 120 }}
+              resizeMode="contain"
+            />
           </View>
 
           {/* ── Card ── */}

@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import {
   StatusBar,
   Animated,
   View,
   Text,
+  Image,
   StyleSheet,
 } from 'react-native';
 
@@ -18,12 +19,7 @@ export function SplashScreen({ navigation }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
 
-  useEffect(() => {
-    startAnimation();
-    checkLogin();
-  }, []);
-
-  const startAnimation = () => {
+  const startAnimation = useCallback(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -38,15 +34,15 @@ export function SplashScreen({ navigation }) {
         useNativeDriver: true,
       }),
     ]).start();
-  };
-  const checkLogin = async () => {
+  }, [fadeAnim, scaleAnim]);
+
+  const checkLogin = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem('token');
       const refreshToken = await AsyncStorage.getItem('refreshToken');
       const userData = await AsyncStorage.getItem('user');
 
       const parsedUser = userData ? JSON.parse(userData) : null;
-      console.log(parsedUser.user, 'check parsedUser.userparsedUser.user');
 
       setTimeout(async () => {
         if (token) {
@@ -55,15 +51,14 @@ export function SplashScreen({ navigation }) {
             payload: {
               token,
               refreshToken,
-              user: parsedUser.user,
+              user: parsedUser?.user,
             },
           });
-          if (parsedUser.user.user_type === 'soil_partner') {
+          if (parsedUser?.user?.user_type === 'soil_partner') {
             navigation.replace('SoilPartnerTabs');
           } else {
             navigation.replace('AppTabs');
           }
-          
         } else {
           navigation.replace('LoginScreen');
         }
@@ -72,7 +67,12 @@ export function SplashScreen({ navigation }) {
       console.log(e);
       navigation.replace('LoginScreen');
     }
-  };
+  }, [dispatch, navigation]);
+
+  useEffect(() => {
+    startAnimation();
+    checkLogin();
+  }, [startAnimation, checkLogin]);
   return (
     <SafeAreaView style={styles.splash}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
@@ -84,13 +84,11 @@ export function SplashScreen({ navigation }) {
           alignItems: 'center',
         }}
       >
-        <View style={styles.splashLogo}>
-          <Text style={styles.splashLogoText}>A</Text>
-        </View>
-
-        <Text style={styles.splashTitle}>ARKASHINE</Text>
-
-        <Text style={styles.splashSub}>Soil Intelligence System</Text>
+        <Image
+          source={require('../assets/images/app_logo.png')}
+          style={styles.splashLogoImg}
+          resizeMode="contain"
+        />
 
         <View style={styles.splashDot} />
       </Animated.View>
@@ -101,21 +99,15 @@ export function SplashScreen({ navigation }) {
 const styles = StyleSheet.create({
   splash: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  splashLogo: {
-    width: 96,
-    height: 96,
-    borderRadius: 28,
-    backgroundColor: C.accentDim,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-    borderWidth: 2,
-    borderColor: C.accent,
+  splashLogoImg: {
+    width: 220,
+    height: 220,
+    marginBottom: 10,
   },
 
   splashLogoText: {

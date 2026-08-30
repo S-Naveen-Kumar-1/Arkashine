@@ -4,6 +4,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import {
   View,
   Text,
+  ScrollView,
   StyleSheet,
   StatusBar,
   Animated,
@@ -42,6 +43,7 @@ export function SensorScreen({ navigation }) {
   const [timerStarted, setTimerStarted] = useState(false);
 
   const intervalRef = useRef(null);
+  const sensorStateFromBle = soilSathiData?.sensorStateFromBle;
 
   // Check sensor status every 3 seconds
   useEffect(() => {
@@ -50,20 +52,16 @@ export function SensorScreen({ navigation }) {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [dispatch]);
 
   // ✅ Monitor sensor status from BLE and stop timer when STOPPED
   useEffect(() => {
-    const status = soilSathiData?.sensorStateFromBle;
+    const status = sensorStateFromBle;
     console.log('[SensorScreen] Status from BLE:', status);
 
     // Check for STOPPED status (case insensitive)
     if (status && status.toLowerCase() === 'stopped') {
-      console.log(
-        '[SensorScreen] Sensor stopped - stopping timer at',
-        sensorTime,
-        'seconds',
-      );
+      console.log('[SensorScreen] Sensor stopped - stopping timer');
       setSensorStopped(true);
       setTimerDone(true);
       setTimerStarted(false);
@@ -74,11 +72,11 @@ export function SensorScreen({ navigation }) {
         intervalRef.current = null;
       }
     }
-  }, [soilSathiData?.sensorStateFromBle]);
+  }, [sensorStateFromBle]);
 
   // Start timer on mount - only if sensor is NOT already stopped
   useEffect(() => {
-    const initialStatus = soilSathiData?.sensorStateFromBle;
+    const initialStatus = sensorStateFromBle;
     console.log('[SensorScreen] Initial sensor status:', initialStatus);
 
     // If sensor is already stopped, don't start the timer
@@ -104,22 +102,6 @@ export function SensorScreen({ navigation }) {
 
     intervalRef.current = setInterval(() => {
       setSensorTime(prev => {
-        // Check if we should stop the timer due to STOPPED status
-        const status = soilSathiData?.sensorStateFromBle;
-        if (status && status.toLowerCase() === 'stopped') {
-          console.log(
-            '[SensorScreen] Timer stopped due to STOPPED status at',
-            prev,
-            'seconds',
-          );
-          clearInterval(intervalRef.current);
-          setTimerDone(true);
-          setSensorStopped(true);
-          setTimerStarted(false);
-          return prev;
-        }
-
-        // Count UP: increment by 1
         return prev + 1;
       });
     }, 1000);
@@ -131,7 +113,7 @@ export function SensorScreen({ navigation }) {
       }
       setTimerStarted(false);
     };
-  }, []); // Empty dependency array - only run once on mount
+  }, [sensorStateFromBle]);
 
   // 🔵 Animation
   const pulse = useRef(new Animated.Value(0)).current;
@@ -145,7 +127,7 @@ export function SensorScreen({ navigation }) {
         useNativeDriver: true,
       }),
     ).start();
-  }, []);
+  }, [pulse]);
 
   const scale = pulse.interpolate({
     inputRange: [0, 0.5, 1],
@@ -257,7 +239,10 @@ export function SensorScreen({ navigation }) {
         theme={theme}
       />
 
-      <View style={s.center}>
+      <ScrollView
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* BLE Connection Status */}
         {connected && (
           <View
@@ -410,16 +395,24 @@ export function SensorScreen({ navigation }) {
             onPress={handleFetchResults}
             color={T.primary}
             textColor="#fff"
-            style={{ marginTop: 20, width: '100%' }}
+            style={{ marginTop: 20, marginBottom: 16, width: '100%' }}
           />
         )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
   bg: { flex: 1 },
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    padding: Spacing.lg,
+    paddingTop: 12,
+    paddingBottom: 60,
+  },
   center: {
     flex: 1,
     alignItems: 'center',

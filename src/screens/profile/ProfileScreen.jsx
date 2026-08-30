@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  Image,
   ScrollView,
   StyleSheet,
   StatusBar,
@@ -1015,15 +1016,19 @@ export default function ProfileScreen({ navigation }) {
           <View
             style={[
               s.appLogoWrap,
-              { backgroundColor: T.primaryDim, borderColor: T.primary },
+              { backgroundColor: '#FFFFFF', borderColor: T.border, overflow: 'hidden' },
             ]}
           >
-            <MaterialCommunityIcons name="leaf" size={24} color={T.primary} />
+            <Image
+              source={require('../../assets/images/app_icon.png')}
+              style={{ width: 44, height: 44 }}
+              resizeMode="cover"
+            />
           </View>
           <View style={{ flex: 1, marginLeft: 14 }}>
-            <Text style={[s.appName, { color: T.text }]}>ARKASHINE</Text>
+            <Text style={[s.appName, { color: T.text }]}>SOIL PARTNER</Text>
             <Text style={[s.appVer, { color: T.muted }]}>
-              Version 1.0.1 · Agriculture Intelligence
+              Version 1.0.1 · Powered by ArkaShine
             </Text>
           </View>
         </View>

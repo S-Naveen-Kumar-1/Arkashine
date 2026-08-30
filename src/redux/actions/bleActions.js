@@ -730,21 +730,23 @@ export const connectDevice = rawDevice => async dispatch => {
   dispatch(ac.scanStop());
   try {
     const conn = await bleManager.connectToDevice(rawDevice.id, {
-      timeout: 12_000,
+      timeout: 8_000,
     });
     dispatch(ac.log('CONNECT', 'Connected — discovering services…'));
     await conn.discoverAllServicesAndCharacteristics();
 
-    try {
-      const negotiatedMtu = await conn.requestMTU(512);
-      dispatch(ac.log('CONNECT', `MTU negotiated: ${negotiatedMtu}`));
-    } catch (mtuErr) {
-      dispatch(
-        ac.log('CONNECT', `MTU request failed (non-fatal): ${mtuErr.message}`),
-      );
-    }
+    // Request MTU non-blocking so it doesn't add delay on Android
+    conn.requestMTU(512).then(mtu => {
+      dispatch(ac.log('CONNECT', `MTU negotiated: ${mtu}`));
+    }).catch(mtuErr => {
+      dispatch(ac.log('CONNECT', `MTU request non-fatal: ${mtuErr.message}`));
+    });
 
-    const cfg = await resolveUUIDs(conn, dispatch);
+    const cfg = {
+      serviceUUID: FIRMWARE_SERVICE_UUID,
+      notifyUUID: FIRMWARE_DATA_UUID,
+      writeUUID: FIRMWARE_DATA_UUID,
+    };
     _device = conn;
     _config = cfg;
     _dataCount = 0;
@@ -755,7 +757,7 @@ export const connectDevice = rawDevice => async dispatch => {
     startNotifications(conn, cfg, dispatch);
     dispatch(ac.handshakeStart());
     dispatch(ac.log('HANDSHAKE', '→ {"HANDSHAKE":"HELLO"}'));
-    await _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
+    _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
 
     conn.onDisconnected(() => {
       dispatch(ac.log('DISCONNECT', 'Device disconnected'));
@@ -769,35 +771,29 @@ export const connectDevice = rawDevice => async dispatch => {
         try {
           dispatch(ac.log('RECONNECT', 'Attempting…'));
           const r = await bleManager.connectToDevice(conn.id, {
-            timeout: 8_000,
+            timeout: 6_000,
           });
           await r.discoverAllServicesAndCharacteristics();
 
-          try {
-            const mtu = await r.requestMTU(512);
-            dispatch(ac.log('RECONNECT', `MTU negotiated: ${mtu}`));
-          } catch (mtuErr) {
-            dispatch(
-              ac.log(
-                'RECONNECT',
-                `MTU request failed (non-fatal): ${mtuErr.message}`,
-              ),
-            );
-          }
+          r.requestMTU(512).catch(() => {});
 
-          const newCfg = await resolveUUIDs(r, dispatch);
+          const newCfg = {
+            serviceUUID: FIRMWARE_SERVICE_UUID,
+            notifyUUID: FIRMWARE_DATA_UUID,
+            writeUUID: FIRMWARE_DATA_UUID,
+          };
           _device = r;
           _config = newCfg;
           dispatch(ac.configResolved(newCfg));
           dispatch(ac.connectSuccess({ id: r.id, name: r.name }));
           startNotifications(r, newCfg, dispatch);
           dispatch(ac.handshakeStart());
-          await _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
+          _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
           dispatch(ac.log('RECONNECT', 'Success ✅'));
         } catch (e) {
           dispatch(ac.log('RECONNECT', `Failed: ${e.message}`));
         }
-      }, 3_000);
+      }, 2_000);
     });
   } catch (e) {
     dispatch(ac.log('CONNECT', `Error: ${e.message}`));
@@ -821,19 +817,18 @@ export const disconnectDevice = () => dispatch => {
 
 // ph test ble commands
 export const cmdStartPhTestMotor = () => dispatch => {
-  // fresh cycle: clear any stale completion flag and status memory so a
-  // leftover "stopped" from the previous run can't bleed into this one
-  _prevMotorStatus = null;
+  _prevMotorStatus = 'running';
   _userStoppedMotor = false;
   dispatch(ac.mixingComplete(false));
+  dispatch(ac.motorStatus('running'));
   return _sendJSON({ PHTEST: 'START' }, dispatch);
 };
 
 export const cmdStopPhTestMotor = () => dispatch => {
-  // FIX: mark this as a user-initiated stop BEFORE sending, so when the
-  // firmware confirms with MOTORSTATUS/PHTEST "STOPPED", the transition
-  // handler above knows not to treat it as natural completion.
   _userStoppedMotor = true;
+  _prevMotorStatus = 'stopped';
+  dispatch(ac.motorStatus('stopped'));
+  dispatch(ac.mixingComplete(false));
   return _sendJSON({ PHTEST: 'STOP' }, dispatch);
 };
 
@@ -850,10 +845,22 @@ export const cmdGetFinalResult = () => dispatch =>
 export const clearDebugLog = () => dispatch => dispatch(ac.debugClear());
 
 // ─── Soil test commands ───────────────────────────────────────────────────────
-export const cmdStartSoilTest = () => dispatch =>
-  _sendJSON({ SOILTEST: 'START' }, dispatch);
-export const cmdStopSoilTest = () => dispatch =>
-  _sendJSON({ SOILTEST: 'STOP' }, dispatch);
+export const cmdStartSoilTest = () => dispatch => {
+  _prevMotorStatus = 'running';
+  _userStoppedMotor = false;
+  dispatch(ac.motorStatus('running'));
+  dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'Running' } });
+  return _sendJSON({ SOILTEST: 'START' }, dispatch);
+};
+
+export const cmdStopSoilTest = () => dispatch => {
+  _userStoppedMotor = true;
+  _prevMotorStatus = 'stopped';
+  dispatch(ac.motorStatus('stopped'));
+  dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'Stopped' } });
+  dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'STOPPED' } });
+  return _sendJSON({ SOILTEST: 'STOP' }, dispatch);
+};
 export const cmdCheckSoilMotorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILMOTORSTATUS: 'CHECKSOILMOTORSTATUS' }, dispatch);
 export const cmdStartSoilSensor = () => dispatch =>

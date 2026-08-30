@@ -23,6 +23,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
+  ScrollView,
   StyleSheet,
   StatusBar,
   TouchableOpacity,
@@ -236,7 +237,10 @@ export function TimerScreen({ navigation, route }) {
         theme={theme}
       />
 
-      <View style={s.body}>
+      <ScrollView
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* ── BLE CONNECTED CHIP ─────────────────────────────────── */}
         {connected && (
           <View
@@ -550,7 +554,7 @@ export function TimerScreen({ navigation, route }) {
             : 'Motor runs the soil sensor test for accurate readings'}
         </Text>
 
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -560,6 +564,14 @@ export function TimerScreen({ navigation, route }) {
 // =====================================================
 const s = StyleSheet.create({
   container: { flex: 1 },
+
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+    paddingBottom: 48,
+  },
 
   body: {
     flex: 1,
@@ -746,15 +758,17 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
     borderRadius: Radius.lg,
-    borderWidth: 1,
-    height: 40,
+    borderWidth: 1.5,
+    backgroundColor: '#EF444415',
+    height: 48,
+    marginTop: 6,
   },
   stopBtnText: {
     color: '#EF4444',
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
   },
 
   completedActions: {

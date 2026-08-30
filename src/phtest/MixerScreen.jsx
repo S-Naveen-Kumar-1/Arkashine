@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
+  ScrollView,
   StyleSheet,
   StatusBar,
   TouchableOpacity,
@@ -99,7 +100,7 @@ export default function MixerScreen({ navigation }) {
       }
     }
 
-    return () => {};
+    return () => { };
   }, [started, motorStatus, dispatch]);
 
   // =====================================================
@@ -129,7 +130,7 @@ export default function MixerScreen({ navigation }) {
       }, 1000);
     }
 
-    return () => {};
+    return () => { };
   }, [started, motorStatus]);
 
   // =====================================================
@@ -206,7 +207,7 @@ export default function MixerScreen({ navigation }) {
 
         motorStatusIntervalRef.current = null;
       }
-    } catch (e) {}
+    } catch (e) { }
   };
 
   // =====================================================
@@ -238,7 +239,10 @@ export default function MixerScreen({ navigation }) {
         theme={theme}
       />
 
-      <View style={s.body}>
+      <ScrollView
+        contentContainerStyle={s.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* ====================================== */}
         {/* BLE CONNECTED */}
         {/* ====================================== */}
@@ -276,8 +280,8 @@ export default function MixerScreen({ navigation }) {
                 motorStatus === 'running'
                   ? T.primary
                   : mixingCompleted
-                  ? '#10B981'
-                  : T.orange,
+                    ? '#10B981'
+                    : T.orange,
             },
           ]}
         >
@@ -289,16 +293,16 @@ export default function MixerScreen({ navigation }) {
                   motorStatus === 'running'
                     ? T.primary
                     : mixingCompleted
-                    ? '#10B981'
-                    : T.orange,
+                      ? '#10B981'
+                      : T.orange,
               },
             ]}
           >
             {motorStatus === 'running'
               ? '🔵 Motor RUNNING'
               : mixingCompleted
-              ? '✅ Motor DONE'
-              : '🟠 Motor STOPPED'}
+                ? '✅ Motor DONE'
+                : '🟠 Motor STOPPED'}
           </Text>
         </View>
 
@@ -326,8 +330,8 @@ export default function MixerScreen({ navigation }) {
           {started && motorStatus === 'running'
             ? 'Motor Running…'
             : mixingCompleted
-            ? 'Mixing Completed ✅'
-            : 'Motor Ready'}
+              ? 'Mixing Completed ✅'
+              : 'Motor Ready'}
         </Text>
 
         {/* ====================================== */}
@@ -358,7 +362,7 @@ export default function MixerScreen({ navigation }) {
 
             {[
               'Add 5 g soil sample to the beaker',
-              'Add 40 ml extractant solution',
+              'Add 50 ml extractant solution',
               'Place the beaker under the mixer',
               'Ensure probe is connected and ready',
             ].map((t, i) => (
@@ -574,13 +578,11 @@ export default function MixerScreen({ navigation }) {
           {started && motorStatus === 'running'
             ? 'Motor running. Please wait for 60 seconds.'
             : mixingCompleted
-            ? 'Mixing completed successfully.'
-            : 'Motor mixes the soil-extractant solution for accurate readings'}
+              ? 'Mixing completed successfully.'
+              : 'Motor mixes the soil-extractant solution for accurate readings'}
         </Text>
 
-   
-
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -592,6 +594,14 @@ export default function MixerScreen({ navigation }) {
 const s = StyleSheet.create({
   container: {
     flex: 1,
+  },
+
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+    paddingBottom: 48,
   },
 
   body: {
@@ -738,16 +748,18 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
     borderRadius: Radius.lg,
-    borderWidth: 1,
-    height: 40,
+    borderWidth: 1.5,
+    backgroundColor: '#EF444415',
+    height: 48,
+    marginTop: 6,
   },
 
   stopBtnText: {
     color: '#EF4444',
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
   },
 
   completedActions: {
