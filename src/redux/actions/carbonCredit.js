@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:8000';
+import { BASE_URL } from '../../ApiConfig';
 
 // ==============================
 // PDF REPORT URL BUILDER
@@ -30,7 +30,7 @@ export function buildPdfReportUrl(report) {
     params.append('recommendations', report.recommendations.join('|'));
   }
 
-  return `${BASE_URL}/pdf-report/?${params.toString()}`;
+  return `${BASE_URL}/api/mobile/carbon-credits/pdf-report/?${params.toString()}`;
 }
 
 // ==============================
@@ -42,7 +42,7 @@ export function calculateCarbon(data) {
     type: 'CALCULATE_CARBON',
     payload: {
       request: {
-        url: `${BASE_URL}/carbon/calculate`,
+        url: '/api/mobile/carbon-credits/calculate/',
         method: 'POST',
         data,
       },
@@ -59,7 +59,7 @@ export function analyzeFarm(data) {
     type: 'ANALYZE_FARM',
     payload: {
       request: {
-        url: `${BASE_URL}/recommendations/`,
+        url: '/api/mobile/carbon-credits/analyze/',
         method: 'POST',
         data,
       },

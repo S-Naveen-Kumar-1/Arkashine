@@ -22,6 +22,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Linking,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -1141,6 +1142,7 @@ export default function FarmerDetailScreen({ navigation, route }) {
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // useRef guards to prevent double-firing
   const statusHandled = useRef(false);
@@ -1154,6 +1156,21 @@ export default function FarmerDetailScreen({ navigation, route }) {
       dispatch(fetchFarmerApiCalls(farmerId));
     }
   }, [farmerId]);
+
+  const onRefresh = async () => {
+    if (!farmerId) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        dispatch(fetchFarmerDetail(farmerId)),
+        dispatch(fetchFarmerApiCalls(farmerId)),
+      ]);
+    } catch (error) {
+      console.log('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Reset guards when redux clears back to false
   useEffect(() => {
@@ -1381,6 +1398,16 @@ export default function FarmerDetailScreen({ navigation, route }) {
       <ScrollView
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={PRIMARY}
+            titleColor={T.text}
+            colors={[PRIMARY]}
+            progressBackgroundColor={T.card}
+          />
+        }
       >
         {/* ── Hero card ─────────────────────────────────────── */}
         <View

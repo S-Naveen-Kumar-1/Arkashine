@@ -14,6 +14,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -82,6 +83,7 @@ export default function PhBottleDetailScreen({ navigation, route }) {
 
   const reading = selectedReading ?? passed;
   const [activeTab, setActiveTab] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     dispatch(fetchReadingDetail(deviceId, readingId));
@@ -90,6 +92,20 @@ export default function PhBottleDetailScreen({ navigation, route }) {
     }
     return () => dispatch(clearSelectedReading());
   }, [deviceId, readingId, deviceType, dispatch]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        dispatch(fetchReadingDetail(deviceId, readingId)),
+        dispatch(fetchDeviceFieldSchema(deviceType)),
+      ]);
+    } catch (error) {
+      console.log('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // ── Derive field lists from schema ─────────────────────────────────────────
   const { dataFields, geoFields } = useMemo(() => {
@@ -380,6 +396,16 @@ export default function PhBottleDetailScreen({ navigation, route }) {
       <ScrollView
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={meta.color}
+            titleColor={T.text}
+            colors={[meta.color]}
+            progressBackgroundColor={T.card}
+          />
+        }
       >
         {renderTab()}
         <View style={{ height: 32 }} />

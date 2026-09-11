@@ -114,6 +114,7 @@ export default function AssessmentScreen({ navigation }) {
   const calcLoading = useSelector(s => s.carbon.calculation.loading);
   const recsLoading = useSelector(s => s.carbon.recommendations.loading);
   const loading = calcLoading || recsLoading;
+  const authToken = useSelector(s => s.auth?.token);
 
   const [currentStep, setCurrentStep] = useState('input');
   const [calcResults, setCalcResults] = useState(null);
@@ -285,8 +286,11 @@ export default function AssessmentScreen({ navigation }) {
       const fileUri = `${
         RNFS.DocumentDirectoryPath
       }/carbon_report_${Date.now()}.pdf`;
-      const result = await RNFS.downloadFile({ fromUrl: url, toFile: fileUri })
-        .promise;
+      const result = await RNFS.downloadFile({
+        fromUrl: url,
+        toFile: fileUri,
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      }).promise;
 
       if (result.statusCode === 200) {
         await Share.open({

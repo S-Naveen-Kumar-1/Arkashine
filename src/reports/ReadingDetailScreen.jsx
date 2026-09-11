@@ -22,6 +22,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -648,6 +649,7 @@ export default function ReadingDetailScreen({ navigation, route }) {
 
   const reading = selectedReading ?? passed;
   const [activeTab, setActiveTab] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   const TABS = isSoil
     ? ['Overview', 'Primary', 'Secondary', 'Chart']
@@ -661,6 +663,20 @@ export default function ReadingDetailScreen({ navigation, route }) {
     }
     return () => dispatch(clearSelectedReading());
   }, [deviceId, readingId, deviceType, dispatch]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        dispatch(fetchReadingDetail(deviceId, readingId)),
+        dispatch(fetchDeviceFieldSchema(deviceType)),
+      ]);
+    } catch (error) {
+      console.log('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // ── Derive sorted field list from schema for non-soil devices ───────────────
   // Separates field1…fieldN from geo keys
@@ -1241,6 +1257,16 @@ export default function ReadingDetailScreen({ navigation, route }) {
       <ScrollView
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={T.primary}
+            titleColor={T.text}
+            colors={[T.primary]}
+            progressBackgroundColor={T.card}
+          />
+        }
       >
         {isSoil ? renderSoilTab() : renderGenericTab()}
         <View style={{ height: 32 }} />

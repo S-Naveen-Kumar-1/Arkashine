@@ -23,10 +23,12 @@ import {
   Platform,
   Modal,
   TextInput,
+  RefreshControl,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 import { Buffer } from 'buffer';
+import { showMessage } from 'react-native-flash-message';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -151,6 +153,34 @@ function buildDonutPath(cx, cy, rOuter, rInner, startAngle, sweepAngle) {
   return `M ${p1x} ${p1y} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${p2x} ${p2y} L ${p3x} ${p3y} A ${rInner} ${rInner} 0 ${largeArc} 0 ${p4x} ${p4y} Z`;
 }
 
+// ─── PDF download error helper ────────────────────────────────────────────────
+// redux-axios-middleware rejects with the failure ACTION ({ type, error }),
+// not a raw Error — and since these requests use responseType: 'arraybuffer',
+// the server's JSON error body arrives as raw bytes, not parsed JSON.
+function extractPdfErrorMessage(e, fallback) {
+  const axiosError = e?.error ?? e;
+  const respData = axiosError?.response?.data;
+
+  if (respData) {
+    try {
+      const text =
+        respData instanceof ArrayBuffer
+          ? Buffer.from(respData).toString('utf8')
+          : typeof respData === 'string'
+          ? respData
+          : JSON.stringify(respData);
+      const parsed = JSON.parse(text);
+      if (parsed?.error || parsed?.message) {
+        return parsed.error || parsed.message;
+      }
+    } catch (_) {
+      // fall through to generic message below
+    }
+  }
+
+  return axiosError?.message || fallback;
+}
+
 // ─── PDFDownloadButton ─────────────────────────────────────────────────────────
 
 function PDFDownloadButton({
@@ -175,13 +205,14 @@ function PDFDownloadButton({
         throw new Error('No PDF data received');
       }
 
-      const base64 = Buffer.from(pdfData, 'binary').toString('base64');
+      const base64 = Buffer.from(pdfData).toString('base64');
       const filePath =
         Platform.OS === 'android'
           ? `${RNFS.DownloadDirectoryPath}/${fileName}_${readingId}.pdf`
           : `${RNFS.DocumentDirectoryPath}/${fileName}_${readingId}.pdf`;
 
       await RNFS.writeFile(filePath, base64, 'base64');
+      showMessage({ message: 'PDF downloaded successfully', type: 'success' });
 
       await Share.open({
         url: `file://${filePath}`,
@@ -189,8 +220,12 @@ function PDFDownloadButton({
         title: `Share ${title}`,
       });
     } catch (error) {
-      if (error?.message && !error.message.includes('User did not share')) {
-        Alert.alert('Error', 'Failed to download or share PDF report');
+      const msg = extractPdfErrorMessage(
+        error,
+        'Failed to download or share PDF report',
+      );
+      if (msg && !msg.includes('User did not share')) {
+        showMessage({ message: msg, type: 'danger' });
       }
     } finally {
       setDownloading(false);
@@ -264,21 +299,27 @@ function SoiLenzAdvisoryBanner({ deviceId, readingId, T, dispatch }) {
       const pdfData = response?.payload?.data;
       if (!pdfData) throw new Error('No PDF data');
 
-      const base64 = Buffer.from(pdfData, 'binary').toString('base64');
+      const base64 = Buffer.from(pdfData).toString('base64');
       const filePath =
         Platform.OS === 'android'
           ? `${RNFS.DownloadDirectoryPath}/SoiLENZ_Advisory_${readingId}.pdf`
           : `${RNFS.DocumentDirectoryPath}/SoiLENZ_Advisory_${readingId}.pdf`;
 
       await RNFS.writeFile(filePath, base64, 'base64');
+      showMessage({ message: 'PDF downloaded successfully', type: 'success' });
+
       await Share.open({
         url: `file://${filePath}`,
         type: 'application/pdf',
         title: 'SoiLENZ Advisory Report',
       });
     } catch (e) {
-      if (e?.message && !e.message.includes('User did not share')) {
-        Alert.alert('Error', 'Failed to generate advisory report PDF');
+      const msg = extractPdfErrorMessage(
+        e,
+        'Failed to generate advisory report PDF',
+      );
+      if (msg && !msg.includes('User did not share')) {
+        showMessage({ message: msg, type: 'danger' });
       }
     } finally {
       setDownloading(false);
@@ -2260,6 +2301,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
 
   const reading = selectedReading ?? passed;
   const [activeTab, setActiveTab] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Modals state
   const [showNPKModal, setShowNPKModal] = useState(false);
@@ -2280,6 +2322,27 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
 
     return () => dispatch(clearSelectedReading());
   }, [deviceId, readingId, deviceType, dispatch, schema, schemaSlot?.loading]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        dispatch(fetchReadingDetail(deviceId, readingId)).catch(() => {}),
+        dispatch(fetchDeviceFieldSchema(deviceType)).catch(() => {}),
+        dispatch(getSoilRecommendations(deviceId, readingId)).catch(() => {}),
+        dispatch(getSoilAIRecommendations(deviceId, readingId)).catch(() => {}),
+        dispatch(
+          getSoilFertilizerRecommendation(deviceId, readingId),
+        ).catch(() => {}),
+        dispatch(getSoilCropMatch(deviceId, readingId)).catch(() => {}),
+        dispatch(getSoilYieldOptions(deviceId, readingId)).catch(() => {}),
+      ]);
+    } catch (error) {
+      console.log('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const recordedAt = reading?.created_at ? new Date(reading.created_at) : new Date();
   const phVal = reading?.ph ?? 0;
@@ -2617,6 +2680,16 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
       <ScrollView
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={DEVICE_COLOR}
+            titleColor={T.text}
+            colors={[DEVICE_COLOR]}
+            progressBackgroundColor={T.card}
+          />
+        }
       >
         {renderTab()}
         <View style={{ height: 32 }} />

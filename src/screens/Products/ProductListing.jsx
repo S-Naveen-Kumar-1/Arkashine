@@ -183,7 +183,16 @@ export function ProductsListingScreen({ navigation }) {
       <TouchableOpacity
         activeOpacity={isLocked ? 1 : 0.88}
         disabled={isLoading}
-        onPress={() => !isLocked && handleStartTest(item.id)}
+        onPress={() => {
+          if (isLocked) {
+            Alert.alert(
+              'Device Not Linked',
+              'This device is not linked. Please contact admin.',
+            );
+          } else {
+            handleStartTest(item.id);
+          }
+        }}
         style={s.cardWrapper}
       >
         <LinearGradient

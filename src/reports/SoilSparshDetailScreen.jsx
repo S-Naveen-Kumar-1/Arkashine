@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Image,
   Dimensions,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -673,11 +674,23 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
   );
   const reading = selectedReading ?? passed;
   const [activeTab, setActiveTab] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     dispatch(fetchReadingDetail(deviceId, readingId));
     return () => dispatch(clearSelectedReading());
   }, [deviceId, readingId, dispatch]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await dispatch(fetchReadingDetail(deviceId, readingId));
+    } catch (error) {
+      console.log('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const fields = useMemo(() => {
     if (!reading) return [];
@@ -1001,6 +1014,16 @@ export default function SoilSparshDetailScreen({ navigation, route }) {
       <ScrollView
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={DEVICE_COLOR}
+            titleColor={T.text}
+            colors={[DEVICE_COLOR]}
+            progressBackgroundColor={T.card}
+          />
+        }
       >
         {renderTab()}
         <View style={{ height: 32 }} />

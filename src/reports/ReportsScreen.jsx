@@ -3,7 +3,7 @@
 // Screen 1: Shows stat summary + list of user devices.
 // Tapping a device card → DeviceReadingsScreen
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -38,6 +39,16 @@ const DEVICE_META = {
     icon: 'leaf-circle-outline',
     color: '#D97706',
     label: 'SoilLIFE',
+  },
+  carbon_credits: {
+    icon: 'molecule-co2',
+    color: '#0F766E',
+    label: 'CarbonCredits',
+  },
+  leaflenz: {
+    icon: 'leaf',
+    color: '#65A30D',
+    label: 'LeafLenz',
   },
 };
 
@@ -144,7 +155,28 @@ export default function ReportsScreen({ navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
-  const devices = useSelector(s => s.userDevices?.devices);
+  const devices = useSelector(s => s.reports?.devices ?? []);
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchDevices = async () => {
+    await dispatch(fetchReportDevices());
+  };
+
+  useEffect(() => {
+    fetchDevices();
+  }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchDevices();
+    } catch (error) {
+      console.log('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   console.log('Devices in ReportsScreen:', devices);
 
@@ -172,6 +204,16 @@ export default function ReportsScreen({ navigation }) {
       <ScrollView
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={T.primary}
+            titleColor={T.text}
+            colors={[T.primary]}
+            progressBackgroundColor={T.card}
+          />
+        }
       >
         {/* ── Summary stats ──────────────────────────────────────── */}
         {devices?.length > 0 && (

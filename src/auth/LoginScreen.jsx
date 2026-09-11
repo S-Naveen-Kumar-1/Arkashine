@@ -139,11 +139,19 @@ export default function LoginScreen({ navigation }) {
         <View style={s.inner}>
           {/* ── Brand ── */}
           <View style={s.brandSection}>
-            <Image
-              source={require('../assets/images/app_logo.png')}
-              style={{ width: 180, height: 120 }}
-              resizeMode="contain"
-            />
+            <View
+              style={[
+                s.logoFrame,
+                { backgroundColor: T.card, borderColor: T.primary },
+                Shadow.sm,
+              ]}
+            >
+              <Image
+                source={require('../assets/images/app_logo.png')}
+                style={{ width: 180, height: 120 }}
+                resizeMode="contain"
+              />
+            </View>
           </View>
 
           {/* ── Card ── */}
@@ -385,13 +393,12 @@ const s = StyleSheet.create({
 
   // Brand
   brandSection: { alignItems: 'center', gap: 6 },
-  logoRing: {
-    width: 72,
-    height: 72,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
+  logoFrame: {
+    borderRadius: Radius.xl,
+    borderWidth: 2,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    overflow: 'hidden',
     marginBottom: 4,
   },
   brandName: {

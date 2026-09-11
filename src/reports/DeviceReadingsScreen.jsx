@@ -11,7 +11,7 @@
 // We show max MAX_PREVIEW_COLS columns in the row preview (fits on screen).
 // All fields are shown in ReadingDetailScreen.
 
-import React, { useEffect, useCallback, useMemo } from 'react';
+import React, { useEffect, useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -48,6 +48,16 @@ const DEVICE_META = {
     icon: 'leaf-circle-outline',
     color: '#D97706',
     label: 'SoilLIFE',
+  },
+  carbon_credits: {
+    icon: 'molecule-co2',
+    color: '#0F766E',
+    label: 'CarbonCredits',
+  },
+  leaflenz: {
+    icon: 'leaf',
+    color: '#65A30D',
+    label: 'LeafLenz',
   },
 };
 
@@ -211,6 +221,8 @@ export default function DeviceReadingsScreen({ navigation, route }) {
 
   const previewCols = useMemo(() => derivePreviewCols(schema), [schema]);
 
+  const [refreshing, setRefreshing] = useState(false);
+
   useEffect(() => {
     dispatch(fetchDeviceReadings(deviceId, 1));
     if (!schema && !schemaLoading) {
@@ -222,6 +234,20 @@ export default function DeviceReadingsScreen({ navigation, route }) {
     page => dispatch(fetchDeviceReadings(deviceId, page)),
     [deviceId, dispatch],
   );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        dispatch(fetchDeviceReadings(deviceId, 1)),
+        dispatch(fetchDeviceFieldSchema(deviceType)),
+      ]);
+    } catch (error) {
+      console.log('Refresh error:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // ── Render helpers ─────────────────────────────────────────────────────────
 
@@ -541,6 +567,8 @@ export default function DeviceReadingsScreen({ navigation, route }) {
           />
         )}
         showsVerticalScrollIndicator={false}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
       />
     </SafeAreaView>
   );

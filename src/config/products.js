@@ -87,7 +87,7 @@ export const PRODUCTS = [
     id: 6,
     name: 'Leaf Lenz',
     shortName: 'LeafLenz',
-    device_type: 'leaf_lenz',
+    device_type: 'leaflenz',
     icon: 'leaf',
     color: '#86EFAC',
     description:
@@ -135,7 +135,7 @@ export const PRODUCTS = [
     id: 9,
     name: 'Carbon Monitor',
     shortName: 'CarbonMon',
-    device_type: 'carbon_monitor',
+    device_type: 'carbon_credits',
     icon: 'recycle',
     color: '#6EE7B7',
     description:
