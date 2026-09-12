@@ -34,6 +34,7 @@ import { notifyPdfDownloaded } from '../utils/downloadNotification';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
+import { useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Svg, { G, Path, Text as SvgText, Rect, Circle } from 'react-native-svg';
 import { Radius, Spacing, Shadow } from '../theme';
@@ -53,7 +54,11 @@ import {
   getSoilYieldPrediction,
   downloadSoilRecommendationPDF,
   downloadSoilDetailPDF,
+  linkPhBottle,
+  unlinkPhBottle,
+  listSoilPlots,
 } from '../redux/actions/soilsaathiActions';
+import { openReadingPicker } from '../utils/linkPicker';
 import {
   fmt,
   phClass,
@@ -1149,47 +1154,325 @@ const aic = StyleSheet.create({
 
 // ─── TAB: Farmer ─────────────────────────────────────────────────────────────
 
-function FarmerTabView({ reading, T }) {
+function FarmerTabView({ reading, T, deviceId, readingId, dispatch, navigation }) {
   const farmer = reading?.farmer;
 
-  if (!farmer) {
+  return (
+    <View>
+      {!farmer ? (
+        <View style={[s.emptyWrap, { backgroundColor: T.card, borderColor: T.border }]}>
+          <Icon name="account-off-outline" size={48} color={T.muted} />
+          <Text style={[s.emptyTitle, { color: T.text }]}>No Farmer Linked</Text>
+          <Text style={[s.emptySub, { color: T.muted }]}>
+            This reading isn't linked to any farmer profile.
+          </Text>
+        </View>
+      ) : (
+        <SectionCard
+          title="Farmer profile"
+          icon="account-outline"
+          color={DEVICE_COLOR}
+          T={T}
+        >
+          <InfoRow icon="account" label="Name" value={farmer.farmer_name ?? farmer.name} T={T} />
+          <InfoRow icon="phone-outline" label="Phone" value={farmer.phone ?? '—'} T={T} />
+          <InfoRow icon="home-city-outline" label="Village" value={farmer.village ?? '—'} T={T} />
+          <InfoRow icon="map-marker-radius-outline" label="Taluk" value={farmer.taluk ?? '—'} T={T} />
+          <InfoRow
+            icon="map-marker-outline"
+            label="District, State"
+            value={`${farmer.district ?? ''}${farmer.district && farmer.state ? ', ' : ''}${farmer.state ?? '—'}`}
+            T={T}
+          />
+          <InfoRow icon="sprout-outline" label="Crop" value={farmer.crop ?? '—'} T={T} />
+          <InfoRow
+            icon="ruler-square"
+            label="Land Area"
+            value={farmer.land_area ? `${farmer.land_area} acres` : '—'}
+            T={T}
+          />
+          <InfoRow icon="calendar-outline" label="Season" value={farmer.season ?? '—'} T={T} />
+          <InfoRow icon="shield-check-outline" label="Status" value={farmer.status ?? 'Active'} T={T} last />
+        </SectionCard>
+      )}
+
+      <PhBottleLinkBlock
+        reading={reading}
+        T={T}
+        deviceId={deviceId}
+        readingId={readingId}
+        dispatch={dispatch}
+        navigation={navigation}
+      />
+    </View>
+  );
+}
+
+// ─── PHBottle <-> SoiLENZ linking (shown in the Farmer tab, alongside the
+// farmer profile — same reading may or may not be linked to a PHBottle
+// reading; linking works from either screen) ──────────────────────────────
+function PhBottleLinkBlock({ reading, T, deviceId, readingId, dispatch, navigation }) {
+  const [busy, setBusy] = useState(false);
+  const linked = reading?.linked_ph_bottle;
+
+  const doLink = async (phBottleReading, confirm = false) => {
+    setBusy(true);
+    try {
+      await dispatch(linkPhBottle(deviceId, readingId, phBottleReading.id, confirm));
+      await dispatch(fetchReadingDetail(deviceId, readingId));
+      showMessage({ message: 'Linked to PHBottle reading', type: 'success' });
+    } catch (e) {
+      const data = e?.error?.response?.data ?? e?.response?.data;
+      if (data?.warning) {
+        Alert.alert(
+          data.warning,
+          `Current pH ${data.current?.ph ?? '—'} / EC ${data.current?.ec ?? '—'} → ` +
+            `New pH ${data.incoming?.ph ?? '—'} / EC ${data.incoming?.ec ?? '—'}.\n\n${data.detail ?? ''}`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Overwrite', style: 'destructive', onPress: () => doLink(phBottleReading, true) },
+          ],
+        );
+      } else {
+        Alert.alert('Link failed', data?.detail || 'Could not link this PHBottle reading.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePickAndLink = () => {
+    openReadingPicker({
+      navigation,
+      dispatch,
+      deviceType: 'ph_bottle',
+      onPick: phBottleReading => doLink(phBottleReading, false),
+    });
+  };
+
+  const handleUnlink = () => {
+    Alert.alert(
+      'Unlink PHBottle reading?',
+      'This reading will keep its current pH/EC values.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unlink',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            try {
+              await dispatch(unlinkPhBottle(deviceId, readingId));
+              await dispatch(fetchReadingDetail(deviceId, readingId));
+            } catch (e) {
+              Alert.alert('Error', 'Could not unlink.');
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  if (!linked) {
     return (
-      <View style={[s.emptyWrap, { backgroundColor: T.card, borderColor: T.border }]}>
-        <Icon name="account-off-outline" size={48} color={T.muted} />
-        <Text style={[s.emptyTitle, { color: T.text }]}>No Farmer Linked</Text>
+      <View
+        style={[
+          s.emptyWrap,
+          { backgroundColor: T.card, borderColor: T.border, marginTop: Spacing.md },
+        ]}
+      >
+        <Icon name="flask-off-outline" size={40} color={T.muted} />
+        <Text style={[s.emptyTitle, { color: T.text }]}>No PHBottle Linked</Text>
         <Text style={[s.emptySub, { color: T.muted }]}>
-          This reading isn't linked to any farmer profile.
+          This reading isn't linked to any PHBottle reading.
         </Text>
+        <TouchableOpacity
+          onPress={handlePickAndLink}
+          disabled={busy}
+          style={{
+            marginTop: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            backgroundColor: DEVICE_COLOR,
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            borderRadius: 8,
+          }}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Icon name="link-variant" size={16} color="#fff" />
+          )}
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+            Link PHBottle
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   }
 
   return (
     <SectionCard
-      title="Farmer profile"
-      icon="account-outline"
-      color={DEVICE_COLOR}
+      title="Linked PHBottle Reading"
+      icon="flask-outline"
+      color="#2563EB"
       T={T}
     >
-      <InfoRow icon="account" label="Name" value={farmer.farmer_name ?? farmer.name} T={T} />
-      <InfoRow icon="phone-outline" label="Phone" value={farmer.phone ?? '—'} T={T} />
-      <InfoRow icon="home-city-outline" label="Village" value={farmer.village ?? '—'} T={T} />
-      <InfoRow icon="map-marker-radius-outline" label="Taluk" value={farmer.taluk ?? '—'} T={T} />
+      <InfoRow icon="pound" label="Reading ID" value={`#${linked.id}`} T={T} />
+      <InfoRow icon="flask-outline" label="pH" value={linked.ph} T={T} />
+      <InfoRow icon="water-outline" label="EC" value={linked.ec} T={T} />
+      {linked.tag ? <InfoRow icon="tag-outline" label="Tag" value={linked.tag} T={T} /> : null}
       <InfoRow
-        icon="map-marker-outline"
-        label="District, State"
-        value={`${farmer.district ?? ''}${farmer.district && farmer.state ? ', ' : ''}${farmer.state ?? '—'}`}
+        icon="calendar-outline"
+        label="Recorded At"
+        value={linked.created_at ? new Date(linked.created_at).toLocaleString('en-IN') : '—'}
         T={T}
+        last
       />
-      <InfoRow icon="sprout-outline" label="Crop" value={farmer.crop ?? '—'} T={T} />
-      <InfoRow
-        icon="ruler-square"
-        label="Land Area"
-        value={farmer.land_area ? `${farmer.land_area} acres` : '—'}
-        T={T}
-      />
-      <InfoRow icon="calendar-outline" label="Season" value={farmer.season ?? '—'} T={T} />
-      <InfoRow icon="shield-check-outline" label="Status" value={farmer.status ?? 'Active'} T={T} last />
+      <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+        <TouchableOpacity
+          onPress={() =>
+            navigation.navigate('PhBottleDetailScreen', {
+              readingId: linked.id,
+              deviceId: linked.device_id,
+              deviceType: 'ph_bottle',
+              deviceName: 'PHBottle',
+            })
+          }
+          style={{
+            flex: 1,
+            alignItems: 'center',
+            paddingVertical: 10,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: T.border,
+          }}
+        >
+          <Text style={{ color: T.text, fontWeight: '700', fontSize: 12 }}>
+            View Full Reading
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={handlePickAndLink}
+          disabled={busy}
+          style={{
+            flex: 1,
+            alignItems: 'center',
+            paddingVertical: 10,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: T.border,
+          }}
+        >
+          <Text style={{ color: T.text, fontWeight: '700', fontSize: 12 }}>Change</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={handleUnlink}
+          disabled={busy}
+          style={{
+            flex: 1,
+            alignItems: 'center',
+            paddingVertical: 10,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: '#EF4444',
+          }}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#EF4444" />
+          ) : (
+            <Text style={{ color: '#EF4444', fontWeight: '700', fontSize: 12 }}>Unlink</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </SectionCard>
+  );
+}
+
+// ─── Plot boundaries (Soil Lens Map) ─────────────────────────────────────────
+// A SoiLENZ reading can have one or more saved field-plot boundaries drawn on
+// the Soil Lens Map (GeoJSON polygons). This lists what's already saved and
+// links out to the map to view or draw more.
+function PlotsSection({ deviceId, readingId, reading, T, dispatch, navigation }) {
+  const [loading, setLoading] = useState(true);
+  const [plots, setPlots] = useState([]);
+  const [error, setError] = useState(null);
+
+  const loadPlots = useCallback(() => {
+    setLoading(true);
+    return dispatch(listSoilPlots(deviceId, readingId))
+      .then(res => setPlots(res?.payload?.data ?? []))
+      .catch(() => setError('Could not load saved plot boundaries.'))
+      .finally(() => setLoading(false));
+  }, [deviceId, readingId, dispatch]);
+
+  // Runs on initial mount and every time this screen regains focus — e.g.
+  // coming back from the map screen after saving a new boundary there,
+  // where a mount-only effect wouldn't see the update.
+  useFocusEffect(
+    useCallback(() => {
+      loadPlots();
+    }, [loadPlots]),
+  );
+
+  const openMap = () => {
+    navigation.navigate('SoilMaps', {
+      deviceId,
+      readingId,
+      lat: reading?.latitude || undefined,
+      lon: reading?.longitude || undefined,
+    });
+  };
+
+  return (
+    <SectionCard title="Plot Boundaries" icon="map-outline" color="#0F766E" T={T}>
+      {loading ? (
+        <ActivityIndicator size="small" color="#0F766E" style={{ marginVertical: 12 }} />
+      ) : error ? (
+        <Text style={{ color: '#EF4444', fontSize: 12 }}>{error}</Text>
+      ) : plots.length === 0 ? (
+        <Text style={{ color: T.muted, fontSize: 12, marginBottom: 12 }}>
+          No plot boundary saved yet for this reading.
+        </Text>
+      ) : (
+        plots.map((plot, i) => (
+          <InfoRow
+            key={plot.id}
+            icon="vector-polygon"
+            label={plot.name || `Plot #${plot.id}`}
+            value={
+              plot.centroid
+                ? `${plot.centroid.lat?.toFixed(4)}, ${plot.centroid.lon?.toFixed(4)}`
+                : '—'
+            }
+            T={T}
+            last={i === plots.length - 1}
+          />
+        ))
+      )}
+      <TouchableOpacity
+        onPress={openMap}
+        style={{
+          marginTop: 12,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 6,
+          borderWidth: 1,
+          borderColor: '#0F766E',
+          borderRadius: 8,
+          paddingVertical: 10,
+        }}
+      >
+        <Icon name="map-outline" size={16} color="#0F766E" />
+        <Text style={{ color: '#0F766E', fontWeight: '700', fontSize: 12 }}>
+          {plots.length > 0 ? 'View / Add Plot on Map' : 'Draw Plot on Map'}
+        </Text>
+      </TouchableOpacity>
     </SectionCard>
   );
 }
@@ -2595,13 +2878,31 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
                 </View>
               ))}
             </SectionCard>
+
+            <PlotsSection
+              deviceId={deviceId}
+              readingId={readingId}
+              reading={reading}
+              T={T}
+              dispatch={dispatch}
+              navigation={navigation}
+            />
           </>
         );
       }
 
       // 1: Farmer
       case 1:
-        return <FarmerTabView reading={reading} T={T} />;
+        return (
+          <FarmerTabView
+            reading={reading}
+            T={T}
+            deviceId={deviceId}
+            readingId={readingId}
+            dispatch={dispatch}
+            navigation={navigation}
+          />
+        );
 
       // 2: Crop Rec
       case 2:

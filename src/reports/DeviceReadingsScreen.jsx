@@ -20,6 +20,7 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -202,7 +203,7 @@ export default function DeviceReadingsScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors;
 
-  const { deviceId, deviceName, deviceType, device } = route.params;
+  const { deviceId, deviceName, deviceType, device, pickMode, onPick } = route.params;
   console.log('DeviceReadingsScreen route.params:', route.params);
   console.log('DeviceReadingsScreen params:', route.params);
   const meta = DEVICE_META[deviceType] || DEVICE_META.soilsaathi;
@@ -214,6 +215,22 @@ export default function DeviceReadingsScreen({ navigation, route }) {
   const readingsMeta = slot?.meta ?? {};
   const currentPage = readingsMeta.page ?? 1;
   const totalPages = readingsMeta.total_pages ?? 1;
+
+  // Pick mode: this screen was opened to choose a reading to link (e.g. from
+  // a SoiLENZ <-> PHBottle linking flow) rather than to view detail. Tapping
+  // a row calls onPick(reading) and returns, instead of navigating on.
+  // Search filters the current page's readings by tag/crop client-side.
+  const [searchQuery, setSearchQuery] = useState('');
+  const filteredReadings = useMemo(() => {
+    if (!pickMode) return readings;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return readings;
+    return readings.filter(r => {
+      const tag = (r.tag || '').toLowerCase();
+      const crop = (r.crop_type || '').toLowerCase();
+      return tag.includes(q) || crop.includes(q);
+    });
+  }, [pickMode, searchQuery, readings]);
 
   const schemaSlot = useSelector(s => s.reports.schemas?.[deviceType]);
   const schema = schemaSlot?.schema ?? null;
@@ -498,6 +515,15 @@ export default function DeviceReadingsScreen({ navigation, route }) {
     );
   };
 
+  const handleRowPress = item => {
+    if (pickMode) {
+      onPick?.(item);
+      navigation.goBack();
+      return;
+    }
+    handleDetailNavigate(item);
+  };
+
   const handleDetailNavigate = item => {
     console.log('Navigating to detail with item:', item);
     const screen =
@@ -527,10 +553,24 @@ export default function DeviceReadingsScreen({ navigation, route }) {
       />
       <TopBar
         title={deviceName}
-        subtitle={meta.label}
+        subtitle={pickMode ? 'Select a reading to link' : meta.label}
         onBack={() => navigation.goBack()}
         theme={theme}
       />
+
+      {pickMode && (
+        <View style={s.pickSearchWrap}>
+          <Icon name="magnify" size={16} color={T.muted} />
+          <TextInput
+            style={[s.pickSearchInput, { color: T.text }]}
+            placeholder="Search by tag or crop…"
+            placeholderTextColor={T.muted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+          />
+        </View>
+      )}
 
       {readingsError && (
         <View
@@ -552,7 +592,7 @@ export default function DeviceReadingsScreen({ navigation, route }) {
       )}
 
       <FlatList
-        data={readings}
+        data={filteredReadings}
         keyExtractor={item => item.id.toString()}
         contentContainerStyle={s.list}
         ListHeaderComponent={renderHeader}
@@ -564,7 +604,7 @@ export default function DeviceReadingsScreen({ navigation, route }) {
             previewCols={previewCols}
             color={meta.color}
             T={T}
-            onPress={() => handleDetailNavigate(item)}
+            onPress={() => handleRowPress(item)}
           />
         )}
         showsVerticalScrollIndicator={false}
@@ -594,6 +634,21 @@ function InfoCell({ label, value, T, accentColor }) {
 const s = StyleSheet.create({
   root: { flex: 1 },
   list: { padding: Spacing.lg, paddingTop: Spacing.sm },
+
+  // ── Pick-mode search bar ──────────────────────────────────────────────────
+  pickSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.35)',
+  },
+  pickSearchInput: { flex: 1, fontSize: 13, padding: 0 },
 
   // ── Info card ──────────────────────────────────────────────────────────────
   infoCard: {

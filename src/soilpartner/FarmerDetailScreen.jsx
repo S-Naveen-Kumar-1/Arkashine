@@ -836,9 +836,12 @@ const DEVICE_ICONS = {
 };
 
 // ─── Single reading row in the table ─────────────────────────────────────────
-function ReadingRow({ reading, colKeys, T, isLast }) {
+function ReadingRow({ reading, colKeys, T, isLast, onPress }) {
   return (
-    <View
+    <TouchableOpacity
+      activeOpacity={onPress ? 0.6 : 1}
+      onPress={onPress}
+      disabled={!onPress}
       style={[
         rr.row,
         !isLast && {
@@ -873,7 +876,8 @@ function ReadingRow({ reading, colKeys, T, isLast }) {
             })
           : '—'}
       </Text>
-    </View>
+      {onPress && <Icon name="chevron-right" size={14} color={T.muted} />}
+    </TouchableOpacity>
   );
 }
 const rr = StyleSheet.create({
@@ -948,11 +952,33 @@ const rth = StyleSheet.create({
   },
 });
 
+// Maps a farmer-api-calls device_type to the detail screen it should open —
+// mirrors DeviceReadingsScreen.jsx's handleDetailNavigate so tapping a
+// reading here behaves the same as tapping one from the device list.
+const READING_DETAIL_SCREEN = {
+  soilsaathi: 'SoilSaathiDetailScreen',
+  soil_life: 'SoilLifeDetailScreen',
+  atmo_sense: 'SoilSparshDetailScreen',
+};
+
 // ─── Per-device reading card ───────────────────────────────────────────────────
 function DeviceReadingsCard({ device, T, navigation, farmerId }) {
   const [expanded, setExpanded] = useState(false);
   const color = DEVICE_COLORS[device.device_type] ?? '#6B7280';
   const icon = DEVICE_ICONS[device.device_type] ?? 'devices';
+
+  const openReading = reading => {
+    if (!navigation) return;
+    const screen = READING_DETAIL_SCREEN[device.device_type] ?? 'PhBottleDetailScreen';
+    navigation.navigate(screen, {
+      readingId: reading.id,
+      deviceId: device.device_id,
+      deviceType: device.device_type,
+      deviceName: device.device_name,
+      device,
+      reading,
+    });
+  };
 
   // Derive column keys from first reading
   const colKeys = useMemo(() => {
@@ -1032,6 +1058,7 @@ function DeviceReadingsCard({ device, T, navigation, farmerId }) {
                 colKeys={colKeys}
                 T={T}
                 isLast={i === device.readings.length - 1}
+                onPress={() => openReading(r)}
               />
             ))}
           </View>

@@ -44,6 +44,35 @@ export const finalPhResult = r => ({
   payload: r,
 });
 
+// Links this PHBottle reading to an existing SoiLENZ reading, syncing this
+// bottle's pH/EC into it. If this would overwrite different pH/EC values
+// (or replace an existing link), the backend returns 409 with a `warning` —
+// re-call with confirm=true once the caller has shown that to the user.
+export function linkSoilLens(deviceId, callId, soilLensId, confirm = false) {
+  return {
+    type: 'LINK_SOIL_LENS_REQUEST',
+    payload: {
+      request: {
+        method: 'POST',
+        url: `/api/mobile/devices/${deviceId}/ph-bottle/${callId}/link-soil-lens/`,
+        data: { soil_lens_id: soilLensId, confirm },
+      },
+    },
+  };
+}
+
+export function unlinkSoilLens(deviceId, callId) {
+  return {
+    type: 'UNLINK_SOIL_LENS_REQUEST',
+    payload: {
+      request: {
+        method: 'DELETE',
+        url: `/api/mobile/devices/${deviceId}/ph-bottle/${callId}/link-soil-lens/`,
+      },
+    },
+  };
+}
+
 export function createPHBottleReading({
   device_id,
   field1, // pH Value

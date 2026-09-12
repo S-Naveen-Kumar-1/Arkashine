@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 import { WebView } from 'react-native-webview';
-import { predictSoil } from '../redux/actions/soilsaathiActions';
+import { predictSoil, listSoilPlots, addSoilPlot } from '../redux/actions/soilsaathiActions';
 import { useDispatch } from 'react-redux';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -310,6 +310,7 @@ var map=L.map('map',{
   var MODE='tap',drawing=false,drawPts=[],drawPolyline=null;
   // nutrient overlay
   var nutrientPolygon=null, currentColor='#22C55E';
+  var readingMarker=null;
 
   map.setView([22.5,82.0],4);
 
@@ -450,6 +451,28 @@ var map=L.map('map',{
       case 'SHOW_NUTRIENT':
         // called when user taps a nutrient in the results sheet
         showNutrientOverlay(d.color, d.label, d.value, d.unit);
+        break;
+      case 'LOAD_POLYGON':
+        // Draws an already-saved plot boundary (points: [[lat,lng], ...]) on
+        // open, so the user sees what's already recorded for this reading.
+        // Tells RN about it too (DRAW_COMPLETE, same as a fresh draw) so its
+        // points/isClosed state matches what's on screen — otherwise
+        // Undo/Clear/Save think there's nothing there, and a fresh tap is
+        // blocked because the map still thinks the polygon is closed.
+        marks.forEach(function(m){map.removeLayer(m);});marks=[];pts=[];closed=false;
+        if(polygon){map.removeLayer(polygon);polygon=null;}
+        if(polyline){map.removeLayer(polyline);polyline=null;}
+        (d.points||[]).forEach(function(p,i){pts.push(p);var m=L.marker(p,{icon:makeIcon(i)}).addTo(map);marks.push(m);});
+        if(pts.length>=3){
+          closed=true;redraw();
+          if(polygon)map.fitBounds(polygon.getBounds(),{padding:[80,80],animate:true,maxZoom:17});
+          window.ReactNativeWebView.postMessage(JSON.stringify({type:'DRAW_COMPLETE',points:pts.map(function(p){return{latitude:p[0],longitude:p[1]};}),closed:true}));
+        }
+        break;
+      case 'SET_READING_MARKER':
+        if(readingMarker){map.removeLayer(readingMarker);readingMarker=null;}
+        readingMarker=L.circleMarker([d.lat,d.lng],{radius:8,color:'#F97316',weight:3,fillColor:'#F97316',fillOpacity:0.5}).addTo(map);
+        readingMarker.bindTooltip('Reading location',{permanent:false,direction:'top'});
         break;
     }
   }
@@ -953,7 +976,7 @@ const rs = StyleSheet.create({
 });
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export function MapScreen({ navigation }) {
+export function MapScreen({ navigation, route }) {
   const webViewRef = useRef(null);
   const searchTimer = useRef(null);
   const cachedLoc = useRef(null);
@@ -961,6 +984,13 @@ export function MapScreen({ navigation }) {
   const locDelivered = useRef(false);
   const retryInterval = useRef(null);
   const dispatch = useDispatch();
+
+  // Opened from a SoiLENZ reading's "Plot Boundaries" section, to view/add
+  // that reading's own saved plot(s) instead of the standalone AI-predict
+  // flow. deviceId/readingId are the SoiLENZ device + reading; lat/lon (if
+  // set) is where that reading was recorded, shown as a reference marker.
+  const { deviceId, readingId, lat: readingLat, lon: readingLon } = route?.params || {};
+  const isLinkedToReading = !!(deviceId && readingId);
 
   const [points, setPoints] = useState([]);
   const [isClosed, setIsClosed] = useState(false);
@@ -974,6 +1004,9 @@ export function MapScreen({ navigation }) {
   const [soilData, setSoilData] = useState(null);
   const [selectedNutrient, setSelectedNutrient] = useState(null);
   const [mapLoading, setMapLoading] = useState(true);
+  const [existingPlot, setExistingPlot] = useState(null);
+  const [savingPlot, setSavingPlot] = useState(false);
+
   useEffect(() => {
     fetchLocation();
     return () => {
@@ -981,6 +1014,65 @@ export function MapScreen({ navigation }) {
       clearInterval(retryInterval.current);
     };
   }, []);
+
+  // Load this reading's already-saved plot boundary (if any) so it draws on
+  // open instead of starting from a blank map.
+  useEffect(() => {
+    if (!isLinkedToReading) return;
+    dispatch(listSoilPlots(deviceId, readingId))
+      .then(res => {
+        const plots = res?.payload?.data ?? [];
+        if (plots.length > 0) setExistingPlot(plots[0]);
+      })
+      .catch(() => {});
+  }, [isLinkedToReading, deviceId, readingId, dispatch]);
+
+  // Once the map + WebView bridge are ready, center on this reading (its
+  // saved plot if one exists, else its own recorded lat/lon), and draw the
+  // plot polygon and/or the reading's location marker.
+  useEffect(() => {
+    if (!mapReady.current || !isLinkedToReading) return;
+    const hasPlot = !!existingPlot?.geometry?.coordinates?.[0];
+    if (hasPlot) {
+      const ring = existingPlot.geometry.coordinates[0].map(([lng, lat]) => [lat, lng]);
+      webViewRef.current?.postMessage(JSON.stringify({ type: 'LOAD_POLYGON', points: ring }));
+    } else if (readingLat && readingLon) {
+      // No saved plot yet — at least center on where this reading was
+      // recorded, LOAD_POLYGON's fitBounds (above) takes over once a plot
+      // exists so this only matters on the very first visit.
+      webViewRef.current?.postMessage(
+        JSON.stringify({ type: 'FLY_TO', lat: readingLat, lng: readingLon, zoom: 16 }),
+      );
+    }
+    if (readingLat && readingLon) {
+      webViewRef.current?.postMessage(
+        JSON.stringify({ type: 'SET_READING_MARKER', lat: readingLat, lng: readingLon }),
+      );
+    }
+  }, [isLinkedToReading, existingPlot, readingLat, readingLon, mapLoading]);
+
+  const savePlot = async () => {
+    if (!isClosed || points.length < 3) {
+      Alert.alert('Close the polygon first');
+      return;
+    }
+    setSavingPlot(true);
+    try {
+      const geometry = {
+        type: 'Polygon',
+        coordinates: [points.map(p => [p.longitude, p.latitude])],
+      };
+      await dispatch(addSoilPlot(deviceId, readingId, { geometry }));
+      Alert.alert('Saved', 'Plot boundary saved for this reading.', [
+        { text: 'OK', onPress: () => navigation.goBack() },
+      ]);
+    } catch (e) {
+      const msg = e?.error?.response?.data?.detail || e?.response?.data?.detail || 'Could not save plot boundary.';
+      Alert.alert('Error', msg);
+    } finally {
+      setSavingPlot(false);
+    }
+  };
 
   // ── Retry loop ────────────────────────────────────────────────────────────
   const startRetryLoop = () => {
@@ -1037,6 +1129,11 @@ export function MapScreen({ navigation }) {
 
   const pushLocation = (lat, lng) => {
     cachedLoc.current = { lat, lng };
+    // Opened from a reading: center on that reading's own location/plot
+    // instead of the phone's live GPS position (the two can be far apart —
+    // the person viewing the app isn't necessarily where the sample was
+    // taken). GPS is still fetched so the "current location" FAB works.
+    if (isLinkedToReading) return;
     startRetryLoop();
     if (mapReady.current)
       webViewRef.current?.postMessage(
@@ -1068,7 +1165,7 @@ export function MapScreen({ navigation }) {
     if (data.type === 'MAP_READY') {
       mapReady.current = true;
       setMapLoading(false); // ← add this line
-      if (cachedLoc.current)
+      if (cachedLoc.current && !isLinkedToReading)
         webViewRef.current?.postMessage(
           JSON.stringify({ type: 'SET_LOCATION', ...cachedLoc.current }),
         );
@@ -1086,7 +1183,7 @@ export function MapScreen({ navigation }) {
   const onLoadEnd = () => {
     setTimeout(() => {
       if (!mapReady.current) mapReady.current = true;
-      if (cachedLoc.current && !locDelivered.current)
+      if (cachedLoc.current && !locDelivered.current && !isLinkedToReading)
         webViewRef.current?.postMessage(
           JSON.stringify({ type: 'SET_LOCATION', ...cachedLoc.current }),
         );
@@ -1448,19 +1545,35 @@ export function MapScreen({ navigation }) {
           <Text style={s.btnIco}>✕</Text>
           <Text style={s.btnLbl}>Clear</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            s.btn,
-            s.sendBtn,
-            (!isClosed || points.length < 3) && s.btnOff,
-          ]}
-          onPress={sendCoordinates}
-          disabled={!isClosed || points.length < 3}
-          activeOpacity={0.75}
-        >
-          <Text style={[s.btnIco, { color: C.bg }]}>↑</Text>
-          <Text style={[s.btnLbl, { color: C.bg }]}>Analyse</Text>
-        </TouchableOpacity>
+        {isLinkedToReading ? (
+          <TouchableOpacity
+            style={[
+              s.btn,
+              s.sendBtn,
+              (!isClosed || points.length < 3 || savingPlot) && s.btnOff,
+            ]}
+            onPress={savePlot}
+            disabled={!isClosed || points.length < 3 || savingPlot}
+            activeOpacity={0.75}
+          >
+            <Text style={[s.btnIco, { color: C.bg }]}>{savingPlot ? '…' : '✓'}</Text>
+            <Text style={[s.btnLbl, { color: C.bg }]}>Save Plot</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[
+              s.btn,
+              s.sendBtn,
+              (!isClosed || points.length < 3) && s.btnOff,
+            ]}
+            onPress={sendCoordinates}
+            disabled={!isClosed || points.length < 3}
+            activeOpacity={0.75}
+          >
+            <Text style={[s.btnIco, { color: C.bg }]}>↑</Text>
+            <Text style={[s.btnLbl, { color: C.bg }]}>Analyse</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Loading */}

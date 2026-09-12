@@ -10,6 +10,10 @@ import {
   SOIL_YIELD_PREDICT_REQUEST,
   SOIL_CLEAR,
   SOIL_SET_CURRENT_ID,
+  SOIL_LINK_PHBOTTLE_REQUEST,
+  SOIL_UNLINK_PHBOTTLE_REQUEST,
+  SOIL_PLOTS_LIST_REQUEST,
+  SOIL_PLOTS_ADD_REQUEST,
 } from '../actions/soilsaathiActions';
 
 export const SENSOR_DURATION = 60;
@@ -63,6 +67,17 @@ const init = {
   yieldPredictionStatus: 'idle',
   yieldPredictionError: null,
   yieldPrediction: null,
+
+  // ── PHBottle link/unlink ────────────────────────────────────────────────
+  linkPhBottleStatus: 'idle',
+  linkPhBottleError: null,
+
+  // ── Plot boundaries (Soil Lens Map) ─────────────────────────────────────
+  plotsStatus: 'idle',
+  plotsError: null,
+  plots: [],
+  plotsAddStatus: 'idle',
+  plotsAddError: null,
 
   // ── SENSOR CALIBRATION ──────────────────────────────────────────────────
   calibrationPhase: 'idle',      // 'idle' | 'reading' | 'done' | 'error'
@@ -264,6 +279,64 @@ export default function soilsaathiReducer(state = init, action) {
 
     case SOIL_SET_CURRENT_ID:
       return { ...state, currentId: action.payload };
+
+    // ── PHBOTTLE LINK / UNLINK ───────────────────────────────────────────────
+    case SOIL_LINK_PHBOTTLE_REQUEST:
+      return { ...state, linkPhBottleStatus: 'loading', linkPhBottleError: null };
+    case `${SOIL_LINK_PHBOTTLE_REQUEST}_SUCCESS`:
+      return {
+        ...state,
+        linkPhBottleStatus: 'success',
+        currentRecord: action.payload.data,
+      };
+    case `${SOIL_LINK_PHBOTTLE_REQUEST}_FAIL`:
+      return {
+        ...state,
+        linkPhBottleStatus: 'error',
+        linkPhBottleError: action.error?.response?.data ?? action.payload ?? null,
+      };
+
+    case SOIL_UNLINK_PHBOTTLE_REQUEST:
+      return { ...state, linkPhBottleStatus: 'loading', linkPhBottleError: null };
+    case `${SOIL_UNLINK_PHBOTTLE_REQUEST}_SUCCESS`:
+      return {
+        ...state,
+        linkPhBottleStatus: 'success',
+        currentRecord: action.payload.data,
+      };
+    case `${SOIL_UNLINK_PHBOTTLE_REQUEST}_FAIL`:
+      return {
+        ...state,
+        linkPhBottleStatus: 'error',
+        linkPhBottleError: action.error?.response?.data ?? action.payload ?? null,
+      };
+
+    // ── PLOT BOUNDARIES ──────────────────────────────────────────────────────
+    case SOIL_PLOTS_LIST_REQUEST:
+      return { ...state, plotsStatus: 'loading', plotsError: null };
+    case `${SOIL_PLOTS_LIST_REQUEST}_SUCCESS`:
+      return { ...state, plotsStatus: 'success', plots: action.payload.data ?? [] };
+    case `${SOIL_PLOTS_LIST_REQUEST}_FAIL`:
+      return {
+        ...state,
+        plotsStatus: 'error',
+        plotsError: action.error?.message ?? action.payload ?? 'Failed to load plots',
+      };
+
+    case SOIL_PLOTS_ADD_REQUEST:
+      return { ...state, plotsAddStatus: 'loading', plotsAddError: null };
+    case `${SOIL_PLOTS_ADD_REQUEST}_SUCCESS`:
+      return {
+        ...state,
+        plotsAddStatus: 'success',
+        plots: [...state.plots, action.payload.data],
+      };
+    case `${SOIL_PLOTS_ADD_REQUEST}_FAIL`:
+      return {
+        ...state,
+        plotsAddStatus: 'error',
+        plotsAddError: action.error?.message ?? action.payload ?? 'Failed to save plot',
+      };
 
     // ── SENSOR CALIBRATION ──────────────────────────────────────────────────
     case 'SOIL_CALIBRATION_START':

@@ -15,10 +15,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { showMessage } from 'react-native-flash-message';
 import { Radius, Spacing, Shadow } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
@@ -27,6 +29,8 @@ import {
   clearSelectedReading,
   fetchDeviceFieldSchema,
 } from '../redux/actions/reportsActions';
+import { linkSoilLens, unlinkSoilLens } from '../redux/actions/phTestActions';
+import { openReadingPicker } from '../utils/linkPicker';
 import {
   fmt,
   phClass,
@@ -281,6 +285,46 @@ export default function PhBottleDetailScreen({ navigation, route }) {
                 last
               />
             </SectionCard>
+
+            {reading.farmer ? (
+              <SectionCard
+                title="Farmer profile"
+                icon="account-outline"
+                color={meta.color}
+                T={T}
+              >
+                <InfoRow icon="account" label="Name" value={reading.farmer.farmer_name ?? reading.farmer.name} T={T} />
+                <InfoRow icon="phone-outline" label="Phone" value={reading.farmer.phone ?? '—'} T={T} />
+                <InfoRow icon="home-city-outline" label="Village" value={reading.farmer.village ?? '—'} T={T} />
+                <InfoRow
+                  icon="map-marker-outline"
+                  label="District, State"
+                  value={`${reading.farmer.district ?? ''}${reading.farmer.district && reading.farmer.state ? ', ' : ''}${reading.farmer.state ?? '—'}`}
+                  T={T}
+                />
+                <InfoRow icon="sprout-outline" label="Crop" value={reading.farmer.crop ?? '—'} T={T} last />
+              </SectionCard>
+            ) : (
+              <View style={[s.emptyCard, { backgroundColor: T.card, borderColor: T.border }]}>
+                <Icon name="account-off-outline" size={40} color={T.muted} />
+                <Text style={[s.emptyCardTitle, { color: T.text }]}>No Farmer Linked</Text>
+                <Text style={[s.emptyCardSub, { color: T.muted }]}>
+                  This reading isn't linked to any farmer profile.
+                </Text>
+              </View>
+            )}
+
+            {deviceType === 'ph_bottle' && (
+              <SoilLensLinkBlock
+                reading={reading}
+                T={T}
+                meta={meta}
+                deviceId={deviceId}
+                readingId={readingId}
+                dispatch={dispatch}
+                navigation={navigation}
+              />
+            )}
           </>
         );
 
@@ -414,6 +458,160 @@ export default function PhBottleDetailScreen({ navigation, route }) {
   );
 }
 
+// ─── Soil Lens <-> PHBottle linking — the reverse of SoilSaathiDetailScreen's
+// PhBottleLinkBlock: lets this PHBottle reading link itself to an existing
+// SoiLENZ reading. Linking always copies THIS bottle's pH/EC into the
+// chosen SoiLENZ reading (the backend's link-soil-lens endpoint is
+// symmetric with link-ph-bottle — either side can initiate the link). ────
+function SoilLensLinkBlock({ reading, T, meta, deviceId, readingId, dispatch, navigation }) {
+  const [busy, setBusy] = useState(false);
+  const linked = reading?.linked_soil_lens;
+
+  const doLink = async (soilLensReading, confirm = false) => {
+    setBusy(true);
+    try {
+      await dispatch(linkSoilLens(deviceId, readingId, soilLensReading.id, confirm));
+      await dispatch(fetchReadingDetail(deviceId, readingId));
+      showMessage({ message: 'Linked to SoiLENZ reading', type: 'success' });
+    } catch (e) {
+      const data = e?.error?.response?.data ?? e?.response?.data;
+      if (data?.warning) {
+        Alert.alert(
+          data.warning,
+          `Current pH ${data.current?.ph ?? '—'} / EC ${data.current?.ec ?? '—'} → ` +
+            `New pH ${data.incoming?.ph ?? '—'} / EC ${data.incoming?.ec ?? '—'}.\n\n${data.detail ?? ''}`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Overwrite', style: 'destructive', onPress: () => doLink(soilLensReading, true) },
+          ],
+        );
+      } else {
+        Alert.alert('Link failed', data?.detail || 'Could not link this SoiLENZ reading.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePickAndLink = () => {
+    openReadingPicker({
+      navigation,
+      dispatch,
+      deviceType: 'soilsaathi',
+      onPick: soilLensReading => doLink(soilLensReading, false),
+    });
+  };
+
+  const handleUnlink = () => {
+    Alert.alert(
+      'Unlink SoiLENZ reading?',
+      'Its current pH/EC values will be kept as-is.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unlink',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            try {
+              await dispatch(unlinkSoilLens(deviceId, readingId));
+              await dispatch(fetchReadingDetail(deviceId, readingId));
+            } catch (e) {
+              Alert.alert('Error', 'Could not unlink.');
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  if (!linked) {
+    return (
+      <View style={[s.emptyCard, { backgroundColor: T.card, borderColor: T.border }]}>
+        <Icon name="leaf-off" size={40} color={T.muted} />
+        <Text style={[s.emptyCardTitle, { color: T.text }]}>No Soil Lens Linked</Text>
+        <Text style={[s.emptyCardSub, { color: T.muted }]}>
+          This reading isn't linked to any SoiLENZ reading.
+        </Text>
+        <TouchableOpacity
+          onPress={handlePickAndLink}
+          disabled={busy}
+          style={{
+            marginTop: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            backgroundColor: meta.color,
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            borderRadius: 8,
+          }}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Icon name="link-variant" size={16} color="#fff" />
+          )}
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+            Link Soil Lens
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <SectionCard title="Linked Soil Lens Reading" icon="leaf-circle-outline" color="#16A34A" T={T}>
+      <InfoRow icon="pound" label="Reading ID" value={`#${linked.id}`} T={T} />
+      <InfoRow icon="flask-outline" label="pH" value={linked.ph} T={T} />
+      <InfoRow icon="water-outline" label="EC" value={linked.ec} T={T} />
+      {linked.tag ? <InfoRow icon="tag-outline" label="Tag" value={linked.tag} T={T} /> : null}
+      <InfoRow
+        icon="calendar-outline"
+        label="Recorded At"
+        value={linked.created_at ? new Date(linked.created_at).toLocaleString('en-IN') : '—'}
+        T={T}
+        last
+      />
+      <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+        <TouchableOpacity
+          onPress={() =>
+            navigation.navigate('SoilSaathiDetailScreen', {
+              readingId: linked.id,
+              deviceId: linked.device_id,
+              deviceType: 'soilsaathi',
+              deviceName: 'SoiLENZ',
+            })
+          }
+          style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: T.border }}
+        >
+          <Text style={{ color: T.text, fontWeight: '700', fontSize: 12 }}>View Full Reading</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={handlePickAndLink}
+          disabled={busy}
+          style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: T.border }}
+        >
+          <Text style={{ color: T.text, fontWeight: '700', fontSize: 12 }}>Change</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={handleUnlink}
+          disabled={busy}
+          style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#EF4444' }}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#EF4444" />
+          ) : (
+            <Text style={{ color: '#EF4444', fontWeight: '700', fontSize: 12 }}>Unlink</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    </SectionCard>
+  );
+}
+
 const s = StyleSheet.create({
   root: { flex: 1 },
   scroll: { padding: Spacing.lg, paddingTop: Spacing.md },
@@ -423,6 +621,17 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 40,
   },
+
+  emptyCard: {
+    alignItems: 'center',
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    padding: Spacing.lg,
+    marginBottom: Spacing.md,
+    ...Shadow.sm,
+  },
+  emptyCardTitle: { fontSize: 14, fontWeight: '700', marginTop: 10 },
+  emptyCardSub: { fontSize: 12, textAlign: 'center', marginTop: 4 },
 
   tabBar: { flexDirection: 'row', borderBottomWidth: 1 },
   tab: {

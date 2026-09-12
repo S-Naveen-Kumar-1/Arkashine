@@ -14,6 +14,13 @@ import { Radius, Shadow, Typography } from '../../theme';
 
 import Svg, { Circle } from 'react-native-svg';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { useNavigation } from '@react-navigation/native';
+
+// Root tab-navigator screens users land on after login — whichever is
+// already in the stack (soil partner vs regular flow) is where "Home" jumps
+// to. Kept as a small list rather than a single name since the app has two
+// separate post-login tab roots depending on account type.
+const HOME_ROUTE_NAMES = ['SoilPartnerTabs', 'AppTabs'];
 
 // ── AppButton ─────────────────────────────────────────────────────────────────
 export function AppButton({
@@ -340,11 +347,22 @@ export function DayCard({ day, action, qty, type, icon, theme }) {
 }
 
 // ── TopBar ────────────────────────────────────────────────────────────────────
+// Every sub-screen (anything passing onBack) also gets a Home button next to
+// the custom right-side icon, so there's always a one-tap way back to the
+// tab root instead of repeated back-presses through a deep stack.
 export function TopBar({ title, onBack, rightIcon, onRight, theme, onHome }) {
   const T = theme?.colors || {};
+  const navigation = useNavigation();
 
-  // decide left action
-  const leftAction = onHome || onBack;
+  const goHome = onHome || (() => {
+    const routes = navigation.getState()?.routes || [];
+    const homeRoute = routes.find(r => HOME_ROUTE_NAMES.includes(r.name));
+    if (homeRoute) {
+      navigation.navigate(homeRoute.name);
+    } else if (navigation.canGoBack()) {
+      navigation.popToTop();
+    }
+  });
 
   return (
     <View
@@ -360,13 +378,9 @@ export function TopBar({ title, onBack, rightIcon, onRight, theme, onHome }) {
     >
       {/* LEFT */}
       <View style={{ width: 40, alignItems: 'flex-start' }}>
-        {leftAction && (
-          <TouchableOpacity onPress={leftAction} style={c.topBarBtn}>
-            {onHome ? (
-              <Icon name="home-outline" size={22} color={T.primary} />
-            ) : (
-              <Icon name="arrow-left" size={22} color={T.primary} />
-            )}
+        {onBack && (
+          <TouchableOpacity onPress={onBack} style={c.topBarBtn}>
+            <Icon name="arrow-left" size={22} color={T.primary} />
           </TouchableOpacity>
         )}
       </View>
@@ -376,8 +390,21 @@ export function TopBar({ title, onBack, rightIcon, onRight, theme, onHome }) {
         {title}
       </Text>
 
-      {/* RIGHT */}
-      <View style={{ width: 40, alignItems: 'flex-end' }}>
+      {/* RIGHT — Home (whenever this is a sub-screen) + optional custom icon */}
+      <View
+        style={{
+          minWidth: 40,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 4,
+        }}
+      >
+        {onBack && (
+          <TouchableOpacity onPress={goHome} style={c.topBarBtn}>
+            <Icon name="home-outline" size={22} color={T.primary} />
+          </TouchableOpacity>
+        )}
         {onRight && (
           <TouchableOpacity onPress={onRight} style={c.topBarBtn}>
             <Icon

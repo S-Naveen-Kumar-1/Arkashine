@@ -42,7 +42,79 @@ export const SOIL_SET_CURRENT_ID = 'SOIL_SET_CURRENT_ID';
 export const SOIL_PDF_REQUEST = 'SOIL_PDF_REQUEST';
 export const SOIL_PDF_SUCCESS = 'SOIL_PDF_SUCCESS';
 export const SOIL_PDF_FAIL = 'SOIL_PDF_FAIL';
+
+// PHBottle link/unlink
+export const SOIL_LINK_PHBOTTLE_REQUEST = 'SOIL_LINK_PHBOTTLE_REQUEST';
+export const SOIL_LINK_PHBOTTLE_SUCCESS = 'SOIL_LINK_PHBOTTLE_SUCCESS';
+export const SOIL_LINK_PHBOTTLE_FAIL = 'SOIL_LINK_PHBOTTLE_FAIL';
+export const SOIL_UNLINK_PHBOTTLE_REQUEST = 'SOIL_UNLINK_PHBOTTLE_REQUEST';
+export const SOIL_UNLINK_PHBOTTLE_SUCCESS = 'SOIL_UNLINK_PHBOTTLE_SUCCESS';
+export const SOIL_UNLINK_PHBOTTLE_FAIL = 'SOIL_UNLINK_PHBOTTLE_FAIL';
+
+// Plot boundaries (Soil Lens Map)
+export const SOIL_PLOTS_LIST_REQUEST = 'SOIL_PLOTS_LIST_REQUEST';
+export const SOIL_PLOTS_LIST_SUCCESS = 'SOIL_PLOTS_LIST_SUCCESS';
+export const SOIL_PLOTS_LIST_FAIL = 'SOIL_PLOTS_LIST_FAIL';
+export const SOIL_PLOTS_ADD_REQUEST = 'SOIL_PLOTS_ADD_REQUEST';
+export const SOIL_PLOTS_ADD_SUCCESS = 'SOIL_PLOTS_ADD_SUCCESS';
+export const SOIL_PLOTS_ADD_FAIL = 'SOIL_PLOTS_ADD_FAIL';
+
 export const testReset = () => ({ type: 'TEST_RESET' });
+
+// Links this SoiLENZ reading to an existing PHBottle reading, syncing
+// ph/ec from it. If this would overwrite different pH/EC values (or
+// replace an existing link), the backend returns 409 with a `warning` —
+// re-call with confirm=true once the caller has shown that to the user.
+export function linkPhBottle(deviceId, callId, phBottleId, confirm = false) {
+  return {
+    type: SOIL_LINK_PHBOTTLE_REQUEST,
+    payload: {
+      request: {
+        method: 'POST',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/link-ph-bottle/`,
+        data: { ph_bottle_id: phBottleId, confirm },
+      },
+    },
+  };
+}
+
+export function unlinkPhBottle(deviceId, callId) {
+  return {
+    type: SOIL_UNLINK_PHBOTTLE_REQUEST,
+    payload: {
+      request: {
+        method: 'DELETE',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/link-ph-bottle/`,
+      },
+    },
+  };
+}
+
+// A SoiLENZ reading can have more than one saved plot boundary.
+export function listSoilPlots(deviceId, callId) {
+  return {
+    type: SOIL_PLOTS_LIST_REQUEST,
+    payload: {
+      request: {
+        method: 'GET',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/plots/`,
+      },
+    },
+  };
+}
+
+export function addSoilPlot(deviceId, callId, { name, geometry }) {
+  return {
+    type: SOIL_PLOTS_ADD_REQUEST,
+    payload: {
+      request: {
+        method: 'POST',
+        url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/plots/`,
+        data: { name, geometry },
+      },
+    },
+  };
+}
 
 export function listSoilReadings(deviceId) {
   return {
