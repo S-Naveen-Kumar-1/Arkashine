@@ -8,6 +8,7 @@
 import { BleManager } from 'react-native-ble-plx';
 import { Buffer } from 'buffer';
 import { Alert } from 'react-native';
+import { showMessage } from 'react-native-flash-message';
 
 import {
   BLE_STATE_CHANGED,
@@ -62,6 +63,102 @@ let _chunkBuffer = '';
 //   "the mix finished naturally".
 let _prevMotorStatus = null;
 let _userStoppedMotor = false;
+
+// ─── Mock/simulated device mode (dev-only) ─────────────────────────────────
+// Lets a developer walk through the soil-test / pH-test screen flow without
+// a real SoiLENZ device in range. When active, _sendJSON short-circuits into
+// _mockSendJSON below instead of writing to a real BLE characteristic, and
+// synthesizes the same firmware reply strings a real device would send —
+// fed through the existing parsePayload() so every reducer/dispatch path
+// behaves exactly as it does for a real connection. Only the transport is
+// faked; nothing else about the app needs to know mock mode exists.
+let _mockMode = false;
+export function isMockModeActive() {
+  return _mockMode;
+}
+const _mock = {
+  motorRunning: false,
+  motorStartedAt: 0,
+  motorDurationMs: 6000,
+  soilMotorRunning: false,
+  soilMotorStartedAt: 0,
+  soilMotorDurationMs: 6000,
+  sensorRunning: false,
+  sensorStartedAt: 0,
+  sensorDurationMs: 6000,
+};
+
+// ─── Ack-wait timers — so "waiting for the device" never hangs silently ────
+// Cleared as soon as the matching notification arrives; if they fire, the
+// device never confirmed in time and we tell the user instead of leaving
+// them stuck on a spinner/countdown that may not reflect reality.
+const HANDSHAKE_ACK_TIMEOUT_MS = 10_000;
+const MOTOR_ACK_TIMEOUT_MS = 8_000;
+let _handshakeTimer = null;
+let _phMotorAckTimer = null;
+let _soilMotorAckTimer = null;
+
+function _clearHandshakeTimer() {
+  if (_handshakeTimer) {
+    clearTimeout(_handshakeTimer);
+    _handshakeTimer = null;
+  }
+}
+
+function _armHandshakeTimer(dispatch) {
+  _clearHandshakeTimer();
+  _handshakeTimer = setTimeout(() => {
+    _handshakeTimer = null;
+    dispatch(ac.handshakeFailed());
+    dispatch(ac.log('HANDSHAKE', '❌ No response within timeout'));
+    showMessage({
+      message: 'No response from device',
+      description: "Check it's powered on and in range, then reconnect.",
+      type: 'danger',
+      duration: 4000,
+    });
+  }, HANDSHAKE_ACK_TIMEOUT_MS);
+}
+
+function _clearPhMotorAckTimer() {
+  if (_phMotorAckTimer) {
+    clearTimeout(_phMotorAckTimer);
+    _phMotorAckTimer = null;
+  }
+}
+
+function _armPhMotorAckTimer(dispatch) {
+  _clearPhMotorAckTimer();
+  _phMotorAckTimer = setTimeout(() => {
+    _phMotorAckTimer = null;
+    showMessage({
+      message: 'No confirmation from device',
+      description: 'The motor may not have started. Please try again.',
+      type: 'danger',
+      duration: 4000,
+    });
+  }, MOTOR_ACK_TIMEOUT_MS);
+}
+
+function _clearSoilMotorAckTimer() {
+  if (_soilMotorAckTimer) {
+    clearTimeout(_soilMotorAckTimer);
+    _soilMotorAckTimer = null;
+  }
+}
+
+function _armSoilMotorAckTimer(dispatch) {
+  _clearSoilMotorAckTimer();
+  _soilMotorAckTimer = setTimeout(() => {
+    _soilMotorAckTimer = null;
+    showMessage({
+      message: 'No confirmation from device',
+      description: 'The soil test may not have started. Please try again.',
+      type: 'danger',
+      duration: 4000,
+    });
+  }, MOTOR_ACK_TIMEOUT_MS);
+}
 
 // ─── FIX: self-healing balanced-JSON scanner ───────────────────────────────
 // Replaces the old _isCompleteJSON + _extractFirstJSON pair. The old scanner
@@ -152,6 +249,8 @@ export const ac = {
   deviceError: e => ({ type: BLE_DEVICE_ERROR, payload: e }),
   calibrationStatus: s => ({ type: BLE_CALIBRATION_STATUS, payload: s }),
   finalResult: r => ({ type: 'PH_FINAL_RESULT', payload: r }),
+  // ← NEW: stage-1 (EC-only) mix result, kept separate from finalResult
+  ecResult: r => ({ type: 'PH_EC_RESULT', payload: r }),
   // ← NEW
   mixingComplete: v => ({ type: BLE_MIXING_COMPLETE, payload: v }),
   // ← NEW: { status: 'printing' | 'done' | 'error', message? }
@@ -247,7 +346,138 @@ async function resolveUUIDs(conn, dispatch) {
   };
 }
 
+// Schedules `parsePayload` on a synthesized reply, exactly as if it had
+// arrived over the real notify characteristic — same dispatches, same
+// timers cleared, same reducers updated.
+function _mockReply(obj, dispatch, delayMs = 400) {
+  setTimeout(() => {
+    parsePayload(JSON.stringify(obj), dispatch);
+  }, delayMs);
+}
+
+async function _mockSendJSON(payload, dispatch) {
+  const jsonStr = JSON.stringify(payload);
+  dispatch(ac.log('CMD', `→ ${jsonStr} (simulated)`));
+  dispatch(ac.cmdSent(jsonStr));
+
+  if (payload.HANDSHAKE === 'HELLO') {
+    _mockReply({ HANDSHAKE: 'ACK' }, dispatch, 500);
+  } else if (
+    payload.PHTEST === 'START_EC' ||
+    payload.PHTEST === 'START_PH' ||
+    payload.PHTEST === 'START'
+  ) {
+    _mock.motorRunning = true;
+    _mock.motorStartedAt = Date.now();
+    const started =
+      payload.PHTEST === 'START_PH'
+        ? 'STARTED_PH'
+        : payload.PHTEST === 'START_EC'
+        ? 'STARTED_EC'
+        : 'STARTED';
+    _mockReply({ PHTEST: started }, dispatch, 400);
+  } else if (payload.PHTEST === 'STOP') {
+    _mock.motorRunning = false;
+    _mockReply({ PHTEST: 'STOPPED' }, dispatch, 300);
+  } else if (payload.CHECKMOTORSTATUS !== undefined) {
+    const running =
+      _mock.motorRunning &&
+      Date.now() - _mock.motorStartedAt < _mock.motorDurationMs;
+    if (_mock.motorRunning && !running) _mock.motorRunning = false;
+    _mockReply({ MOTORSTATUS: running ? 'running' : 'stopped' }, dispatch, 200);
+  } else if (payload.EC_RESULT !== undefined) {
+    _mockReply({ EC_RESULT: { ec: 1.42, ecVoltage: 0.87 } }, dispatch, 400);
+  } else if (payload.FINAL_RESULT !== undefined) {
+    _mockReply(
+      {
+        FINAL_RESULT: {
+          pH: 6.8,
+          EC: 1.42,
+          pHVoltage: 2.05,
+          ECVoltage: 0.87,
+          temperature: 27.4,
+        },
+      },
+      dispatch,
+      400,
+    );
+  } else if (payload.CALIBERATE !== undefined) {
+    const type = payload.CALIBERATE;
+    const voltage = (Math.random() * 0.5 + 1.5).toFixed(3);
+    _mockReply(
+      {
+        CALIBERATE: type,
+        STATUS: 'DONE',
+        value: payload.value,
+        ...(type === 'PH' ? { pHVoltage: voltage } : { ECVoltage: voltage }),
+      },
+      dispatch,
+      600,
+    );
+  } else if (payload.CALIBRATION_STATUS !== undefined) {
+    _mockReply({ CALIBRATION_STATUS: 'done' }, dispatch, 300);
+  } else if (payload.SOILTEST === 'START') {
+    _mock.soilMotorRunning = true;
+    _mock.soilMotorStartedAt = Date.now();
+    _mockReply({ SOILTEST: 'STARTED' }, dispatch, 400);
+  } else if (payload.SOILTEST === 'STOP') {
+    _mock.soilMotorRunning = false;
+  } else if (payload.CHECKSOILMOTORSTATUS !== undefined) {
+    const running =
+      _mock.soilMotorRunning &&
+      Date.now() - _mock.soilMotorStartedAt < _mock.soilMotorDurationMs;
+    if (_mock.soilMotorRunning && !running) _mock.soilMotorRunning = false;
+    _mockReply(
+      { SOILMOTORSTATUS: running ? 'RUNNING' : 'STOPPED' },
+      dispatch,
+      200,
+    );
+  } else if (payload.SOILSENSOR === 'READ') {
+    _mock.sensorRunning = true;
+    _mock.sensorStartedAt = Date.now();
+  } else if (payload.CHECKSOILSENSORSTATUS !== undefined) {
+    let status;
+    if (!_mock.sensorRunning) {
+      status = 'NOT_STARTED';
+    } else if (Date.now() - _mock.sensorStartedAt < _mock.sensorDurationMs) {
+      status = 'READING';
+    } else {
+      status = 'SENSOR_READING_DONE';
+      _mock.sensorRunning = false;
+    }
+    _mockReply({ SOILSENSORSTATUS: status }, dispatch, 200);
+  } else if (payload.SOILRESULT === 'GET') {
+    _mockReply(
+      {
+        FINALSOILRESULT: {
+          ph: 6.8,
+          ec: 1.2,
+          OC: 0.65,
+          N: 280,
+          P: 22,
+          K: 190,
+          Ca: 8.4,
+          Mg: 2.1,
+          S: 12,
+          Fe: 4.8,
+          Mn: 3.2,
+          Cu: 0.9,
+          Zn: 1.1,
+          B: 0.4,
+        },
+      },
+      dispatch,
+      500,
+    );
+  } else if (payload.SOILPRINT === 'START') {
+    _mockReply({ SOILPRINT: 'STARTED' }, dispatch, 200);
+    _mockReply({ SOILPRINT: 'DONE' }, dispatch, 1200);
+  }
+  return true;
+}
+
 async function _sendJSON(payload, dispatch) {
+  if (_mockMode) return _mockSendJSON(payload, dispatch);
   if (!_device || !_config) {
     dispatch(ac.log('CMD', 'Not connected — dropped'));
     return false;
@@ -281,6 +511,11 @@ async function _sendJSON(payload, dispatch) {
     const msg = `Both write methods failed: ${e2.message}`;
     dispatch(ac.log('CMD', `❌ ${msg}`));
     dispatch(ac.cmdFailed(msg));
+    showMessage({
+      message: 'Command failed to send',
+      description: 'Check the Bluetooth connection and try again.',
+      type: 'danger',
+    });
     return false;
   }
 }
@@ -360,24 +595,35 @@ function parsePayload(jsonStr, dispatch) {
 
   if (parsed.STATUS === 'BLE_CONNECTED') {
     dispatch(ac.log('HANDSHAKE', '← BLE_CONNECTED ✅'));
+    _clearHandshakeTimer();
     dispatch(ac.handshakeSuccess(raw));
+    showMessage({ message: 'Device verified ✅', type: 'success', duration: 1500 });
     return null;
   }
 
   if (parsed.HANDSHAKE === 'ACK') {
     dispatch(ac.log('HANDSHAKE', '← HANDSHAKE ACK ✅'));
+    _clearHandshakeTimer();
     dispatch(ac.handshakeSuccess(raw));
+    showMessage({ message: 'Device verified ✅', type: 'success', duration: 1500 });
     return null;
   }
 
-  if (parsed.PHTEST === 'STARTED') {
-    dispatch(ac.log('TEST', '← PHTEST STARTED'));
+  if (
+    parsed.PHTEST === 'STARTED' ||
+    parsed.PHTEST === 'STARTED_EC' ||
+    parsed.PHTEST === 'STARTED_PH'
+  ) {
+    dispatch(ac.log('TEST', `← PHTEST ${parsed.PHTEST}`));
+    _clearPhMotorAckTimer();
     dispatch(ac.testStarted());
+    showMessage({ message: 'Motor started ✅', type: 'success', duration: 1500 });
     return null;
   }
 
   if (parsed.PHTEST === 'STOPPED') {
     dispatch(ac.log('TEST', '← PHTEST STOPPED'));
+    _clearPhMotorAckTimer();
     dispatch(ac.testStopped());
     _handleMotorStatusTransition('stopped', dispatch);
     dispatch(ac.motorStatus('stopped'));
@@ -427,6 +673,11 @@ function parsePayload(jsonStr, dispatch) {
         : parseFloat(parsed.ECVoltage);
     dispatch(ac.log('CAL', `← ${type} DONE — value=${value}`));
     dispatch({ type: CAL_POINT_DONE, payload: { type, value, voltage } });
+    showMessage({
+      message: `${type} calibration point confirmed ✅`,
+      type: 'success',
+      duration: 1500,
+    });
     return null;
   }
 
@@ -442,7 +693,21 @@ function parsePayload(jsonStr, dispatch) {
     const reading = _buildReading(parsed.FINAL_RESULT, raw);
     dispatch(ac.log('FINAL', `← FINAL_RESULT pH=${reading.ph}`));
     dispatch(ac.finalResult(reading));
+    showMessage({ message: 'Results received ✅', type: 'success', duration: 1500 });
     return reading;
+  }
+
+  // ← {"EC_RESULT":{"ec":...,"ecVoltage":...}}  stage-1 (EC-only) mix result
+  if (parsed.EC_RESULT && typeof parsed.EC_RESULT === 'object') {
+    const ec = parsed.EC_RESULT.ec != null ? parseFloat(parsed.EC_RESULT.ec) : null;
+    const ecVoltage =
+      parsed.EC_RESULT.ecVoltage != null
+        ? parseFloat(parsed.EC_RESULT.ecVoltage)
+        : null;
+    dispatch(ac.log('FINAL', `← EC_RESULT ec=${ec}`));
+    dispatch(ac.ecResult({ ec, ecVoltage }));
+    showMessage({ message: 'EC result received ✅', type: 'success', duration: 1500 });
+    return null;
   }
 
   if (parsed.ERROR) {
@@ -458,8 +723,12 @@ function parsePayload(jsonStr, dispatch) {
   }
 
   // ─── Soil test messages ───────────────────────────────────────────────────
-  if (parsed.SOILTEST === 'STARTED')
+  if (parsed.SOILTEST === 'STARTED') {
+    _clearSoilMotorAckTimer();
+    dispatch(ac.motorStatus('running'));
     dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'running' } });
+    showMessage({ message: 'Motor started ✅', type: 'success', duration: 1500 });
+  }
   if (parsed.SOILTEST === 'MIXING_COMPLETED')
     dispatch({
       type: 'SOIL_MOTOR_STATE',
@@ -757,6 +1026,13 @@ export const connectDevice = rawDevice => async dispatch => {
     startNotifications(conn, cfg, dispatch);
     dispatch(ac.handshakeStart());
     dispatch(ac.log('HANDSHAKE', '→ {"HANDSHAKE":"HELLO"}'));
+    showMessage({
+      message: 'Connecting…',
+      description: 'Waiting for device handshake',
+      type: 'info',
+      duration: 2000,
+    });
+    _armHandshakeTimer(dispatch);
     _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
 
     conn.onDisconnected(() => {
@@ -788,6 +1064,7 @@ export const connectDevice = rawDevice => async dispatch => {
           dispatch(ac.connectSuccess({ id: r.id, name: r.name }));
           startNotifications(r, newCfg, dispatch);
           dispatch(ac.handshakeStart());
+          _armHandshakeTimer(dispatch);
           _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
           dispatch(ac.log('RECONNECT', 'Success ✅'));
         } catch (e) {
@@ -812,53 +1089,157 @@ export const disconnectDevice = () => dispatch => {
   _device?.cancelConnection();
   _device = null;
   _config = null;
+  _mockMode = false;
   dispatch(ac.disconnect());
 };
 
-// ph test ble commands
-export const cmdStartPhTestMotor = () => dispatch => {
-  _prevMotorStatus = 'running';
-  _userStoppedMotor = false;
-  dispatch(ac.mixingComplete(false));
-  dispatch(ac.motorStatus('running'));
-  return _sendJSON({ PHTEST: 'START' }, dispatch);
+// ─── Simulated device (dev-only) ───────────────────────────────────────────
+// Skips real scanning/pairing entirely and fakes a successful connect +
+// handshake so the soil-test / pH-test screen flow can be exercised without
+// a physical SoiLENZ in range. See _mockSendJSON above for the simulated
+// firmware replies this drives once commands start flowing.
+export const connectMockDevice = () => async dispatch => {
+  const mockId = 'MOCK-SOILENZ-0001';
+  const cfg = {
+    serviceUUID: FIRMWARE_SERVICE_UUID,
+    notifyUUID: FIRMWARE_DATA_UUID,
+    writeUUID: FIRMWARE_DATA_UUID,
+  };
+  _mockMode = true;
+  _device = null;
+  _config = cfg;
+  _dataCount = 0;
+  dispatch(ac.connectRequest(mockId));
+  dispatch(ac.log('CONNECT', 'Simulated device — no real BLE hardware'));
+  await new Promise(resolve => setTimeout(resolve, 300));
+  dispatch(ac.configResolved(cfg));
+  dispatch(
+    ac.connectSuccess({ id: mockId, name: 'SoiLENZ (Simulated)' }),
+  );
+  dispatch(ac.handshakeStart());
+  _armHandshakeTimer(dispatch);
+  _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
 };
 
-export const cmdStopPhTestMotor = () => dispatch => {
+// ph test ble commands
+// ─── EC-only mix (stage 1 of the two-stage ph-bottle procedure) ───────────
+// Does NOT set motorStatus optimistically — the real {"PHTEST":"STARTED_EC"}
+// ack (handled in parsePayload) is what flips motorStatus to 'running', so
+// the UI never shows "running" before the device actually confirms it.
+export const cmdStartPhTestMotorEc = () => async dispatch => {
+  _userStoppedMotor = false;
+  dispatch(ac.mixingComplete(false));
+  showMessage({
+    message: 'Start command sent',
+    description: 'Waiting for device to begin EC mixing…',
+    type: 'info',
+    duration: 2000,
+  });
+  _armPhMotorAckTimer(dispatch);
+  const ok = await _sendJSON({ PHTEST: 'START_EC' }, dispatch);
+  if (!ok) _clearPhMotorAckTimer();
+  return ok;
+};
+
+// ─── pH-only mix (stage 2, after the user swaps in the pH meter) ──────────
+export const cmdStartPhTestMotorPh = () => async dispatch => {
+  _userStoppedMotor = false;
+  dispatch(ac.mixingComplete(false));
+  showMessage({
+    message: 'Start command sent',
+    description: 'Waiting for device to begin pH mixing…',
+    type: 'info',
+    duration: 2000,
+  });
+  _armPhMotorAckTimer(dispatch);
+  const ok = await _sendJSON({ PHTEST: 'START_PH' }, dispatch);
+  if (!ok) _clearPhMotorAckTimer();
+  return ok;
+};
+
+// Kept as an alias for any existing call site expecting the old single-stage
+// behavior (e.g. TimerScreen's pre-soil-test mix) — defaults to the EC stage,
+// which is what this command used to do end-to-end.
+export const cmdStartPhTestMotor = () => cmdStartPhTestMotorEc();
+
+export const cmdStopPhTestMotor = () => async dispatch => {
   _userStoppedMotor = true;
   _prevMotorStatus = 'stopped';
+  _clearPhMotorAckTimer();
   dispatch(ac.motorStatus('stopped'));
   dispatch(ac.mixingComplete(false));
+  showMessage({ message: 'Stop command sent', type: 'info', duration: 1500 });
   return _sendJSON({ PHTEST: 'STOP' }, dispatch);
 };
 
 export const cmdCheckMotorStatus = () => dispatch =>
   _sendJSON({ CHECKMOTORSTATUS: 'CHECKMOTORSTATUS' }, dispatch);
-export const cmdCalibratePhPoint = standardPH => dispatch =>
-  _sendJSON({ CALIBERATE: 'PH', value: Number(standardPH) }, dispatch);
-export const cmdCalibrateEcPoint = standardEC => dispatch =>
-  _sendJSON({ CALIBERATE: 'EC', value: Number(standardEC) }, dispatch);
+export const cmdCalibratePhPoint = standardPH => dispatch => {
+  showMessage({
+    message: 'Waiting for device to confirm calibration point…',
+    type: 'info',
+    duration: 2000,
+  });
+  return _sendJSON({ CALIBERATE: 'PH', value: Number(standardPH) }, dispatch);
+};
+export const cmdCalibrateEcPoint = standardEC => dispatch => {
+  showMessage({
+    message: 'Waiting for device to confirm calibration point…',
+    type: 'info',
+    duration: 2000,
+  });
+  return _sendJSON({ CALIBERATE: 'EC', value: Number(standardEC) }, dispatch);
+};
 export const cmdCheckCalibrationStatus = () => dispatch =>
   _sendJSON({ CALIBRATION_STATUS: true }, dispatch);
-export const cmdGetFinalResult = () => dispatch =>
-  _sendJSON({ FINAL_RESULT: 'FINAL_RESULT' }, dispatch);
+export const cmdGetFinalResult = () => dispatch => {
+  showMessage({ message: 'Fetching results…', type: 'info', duration: 2000 });
+  return _sendJSON({ FINAL_RESULT: 'FINAL_RESULT' }, dispatch);
+};
+// ─── Stage-1 EC-only result fetch ──────────────────────────────────────────
+export const cmdGetEcResult = () => dispatch => {
+  showMessage({ message: 'Fetching EC result…', type: 'info', duration: 2000 });
+  return _sendJSON({ EC_RESULT: 'EC_RESULT' }, dispatch);
+};
 export const clearDebugLog = () => dispatch => dispatch(ac.debugClear());
 
+// ─── Retry a stuck handshake without a full reconnect ──────────────────────
+export const retryHandshake = () => dispatch => {
+  dispatch(ac.handshakeStart());
+  dispatch(ac.log('HANDSHAKE', '→ retry {"HANDSHAKE":"HELLO"}'));
+  showMessage({
+    message: 'Retrying…',
+    description: 'Waiting for device handshake',
+    type: 'info',
+    duration: 2000,
+  });
+  _armHandshakeTimer(dispatch);
+  return _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
+};
+
 // ─── Soil test commands ───────────────────────────────────────────────────────
-export const cmdStartSoilTest = () => dispatch => {
-  _prevMotorStatus = 'running';
+export const cmdStartSoilTest = () => async dispatch => {
   _userStoppedMotor = false;
-  dispatch(ac.motorStatus('running'));
-  dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'Running' } });
-  return _sendJSON({ SOILTEST: 'START' }, dispatch);
+  showMessage({
+    message: 'Start command sent',
+    description: 'Waiting for device to begin the soil test…',
+    type: 'info',
+    duration: 2000,
+  });
+  _armSoilMotorAckTimer(dispatch);
+  const ok = await _sendJSON({ SOILTEST: 'START' }, dispatch);
+  if (!ok) _clearSoilMotorAckTimer();
+  return ok;
 };
 
 export const cmdStopSoilTest = () => dispatch => {
   _userStoppedMotor = true;
   _prevMotorStatus = 'stopped';
+  _clearSoilMotorAckTimer();
   dispatch(ac.motorStatus('stopped'));
   dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'Stopped' } });
   dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'STOPPED' } });
+  showMessage({ message: 'Stop command sent', type: 'info', duration: 1500 });
   return _sendJSON({ SOILTEST: 'STOP' }, dispatch);
 };
 export const cmdCheckSoilMotorStatus = () => dispatch =>

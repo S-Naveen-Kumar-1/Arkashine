@@ -54,7 +54,9 @@ export function TimerScreen({ navigation, route }) {
   const autoStart = !!route?.params?.autoStart;
 
   // ── BLE connection state (same source MixerScreen reads from) ────────
-  const { connected, device, lastDeviceError } = useSelector(s => s.ble);
+  const { connected, device, lastDeviceError, motorStatus } = useSelector(
+    s => s.ble,
+  );
 
   // ── Soil sensor status text, same source the original screen used.
   const soilSathiData = useSelector(s => s.soilsaathi);
@@ -66,12 +68,32 @@ export function TimerScreen({ navigation, route }) {
   const [completed, setCompleted] = useState(false);
   const [timeLeft, setTimeLeft] = useState(MOTOR_DURATION);
   const [starting, setStarting] = useState(false); // brief "kicking off" state for autoStart
+  // True between tapping Start and the device's real ack (or the ack
+  // timing out) — mirrors MixerScreen's fix for the same race.
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false);
 
   // =====================================================
   // REFS
   // =====================================================
   const timerRef = useRef(null);
   const statusIntervalRef = useRef(null);
+  const awaitingTimeoutRef = useRef(null);
+
+  // Sync local `started` with the ack-driven redux motorStatus — only the
+  // device's real confirmation (not the button press) starts the countdown.
+  useEffect(() => {
+    if (motorStatus === 'running' && !started && !completed) {
+      setStarted(true);
+    }
+    if (motorStatus === 'running' && awaitingConfirm) {
+      setAwaitingConfirm(false);
+      if (awaitingTimeoutRef.current) {
+        clearTimeout(awaitingTimeoutRef.current);
+        awaitingTimeoutRef.current = null;
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [motorStatus]);
 
   // =====================================================
   // POLL SOIL MOTOR STATUS (only while running, like Mixer)
@@ -138,12 +160,18 @@ export function TimerScreen({ navigation, route }) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
+      if (awaitingTimeoutRef.current) clearTimeout(awaitingTimeoutRef.current);
     };
   }, []);
 
   // =====================================================
   // START — manual entry (Start button), soil-sensor-only test
   // =====================================================
+  // NOTE: cmdStartSoilSensor ({"SOILSENSOR":"READ"}) has no dedicated
+  // start-confirmation ack from firmware (unlike cmdStartSoilTest's
+  // {"SOILTEST":"STARTED"}), so this manual-entry path can't be gated on a
+  // real ack the way startFullSoilTest below is — it keeps the prior
+  // optimistic-start behavior.
   const handleStart = async () => {
     try {
       if (started || !connected) return;
@@ -175,11 +203,21 @@ export function TimerScreen({ navigation, route }) {
 
       await dispatch(cmdStartPhTestMotor());
       dispatch({ type: 'TEST_RESET' });
+
+      setAwaitingConfirm(true);
+      // `started` is intentionally NOT set here — it only flips once the
+      // device's real {"SOILTEST":"STARTED"} ack arrives (see the
+      // motorStatus sync effect above), so the countdown can never start
+      // before the motor actually does.
       await dispatch(cmdStartSoilTest());
 
-      setStarted(true);
+      if (awaitingTimeoutRef.current) clearTimeout(awaitingTimeoutRef.current);
+      awaitingTimeoutRef.current = setTimeout(() => {
+        awaitingTimeoutRef.current = null;
+        setAwaitingConfirm(false);
+      }, 8500);
     } catch (e) {
-      setStarted(false);
+      setAwaitingConfirm(false);
     } finally {
       setStarting(false);
     }
@@ -193,6 +231,7 @@ export function TimerScreen({ navigation, route }) {
       await dispatch(cmdStopSoilTest());
 
       setStarted(false);
+      setAwaitingConfirm(false);
       setTimeLeft(MOTOR_DURATION);
 
       if (timerRef.current) {
@@ -202,6 +241,10 @@ export function TimerScreen({ navigation, route }) {
       if (statusIntervalRef.current) {
         clearInterval(statusIntervalRef.current);
         statusIntervalRef.current = null;
+      }
+      if (awaitingTimeoutRef.current) {
+        clearTimeout(awaitingTimeoutRef.current);
+        awaitingTimeoutRef.current = null;
       }
     } catch (e) {}
   };
@@ -238,6 +281,7 @@ export function TimerScreen({ navigation, route }) {
       />
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -386,20 +430,24 @@ export function TimerScreen({ navigation, route }) {
               s.ctaBtn,
               {
                 backgroundColor: T.primary,
-                opacity: connected ? 1 : 0.5,
+                opacity: connected && !awaitingConfirm ? 1 : 0.5,
               },
             ]}
             activeOpacity={0.85}
-            disabled={!connected || starting}
+            disabled={!connected || starting || awaitingConfirm}
             onPress={startFullSoilTest}
           >
             <Icon
-              name={starting ? 'loading' : 'play-circle'}
+              name={starting || awaitingConfirm ? 'loading' : 'play-circle'}
               size={22}
               color="#fff"
             />
             <Text style={s.ctaBtnText}>
-              {starting ? 'Starting…' : 'Start Soil Test (60 s)'}
+              {starting
+                ? 'Starting…'
+                : awaitingConfirm
+                ? 'Waiting for device to confirm…'
+                : 'Start Soil Test (60 s)'}
             </Text>
           </TouchableOpacity>
         )}

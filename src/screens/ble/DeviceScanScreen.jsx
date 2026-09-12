@@ -22,7 +22,9 @@ import {
   startScan,
   stopScan,
   connectDevice,
+  connectMockDevice,
   disconnectDevice,
+  retryHandshake,
 } from '../../redux/actions/bleActions';
 
 export default function DeviceScanScreen({ route, navigation }) {
@@ -133,6 +135,22 @@ export default function DeviceScanScreen({ route, navigation }) {
           </View>
         )}
 
+        {/* ── Dev-only: skip real hardware and simulate a device ────── */}
+        {__DEV__ && !connected && (
+          <TouchableOpacity
+            style={[
+              s.alertBox,
+              { borderColor: T.primary, backgroundColor: T.primary + '18' },
+            ]}
+            onPress={() => dispatch(connectMockDevice())}
+          >
+            <Icon name="flask-outline" size={18} color={T.primary} />
+            <Text style={[s.alertText, { color: T.primary }]}>
+              Simulate Device (Dev) — skip real BLE for testing
+            </Text>
+          </TouchableOpacity>
+        )}
+
         {/* ── Connected banner with handshake status ────── */}
         {connected && connectedDevice && (
           <ConnectedBanner
@@ -143,6 +161,7 @@ export default function DeviceScanScreen({ route, navigation }) {
             T={T}
             onDisconnect={() => dispatch(disconnectDevice())}
             onProceed={handleProceed}
+            onRetryHandshake={() => dispatch(retryHandshake())}
           />
         )}
 
@@ -246,6 +265,7 @@ function ConnectedBanner({
   T,
   onDisconnect,
   onProceed,
+  onRetryHandshake,
 }) {
   const pending = handshakeStatus === 'pending';
   const success = handshakeStatus === 'success';
@@ -305,6 +325,12 @@ function ConnectedBanner({
           <Text style={[cb.hsRaw, { color: T.muted }]} numberOfLines={1}>
             {handshakeRaw}
           </Text>
+        )}
+        {failed && (
+          <TouchableOpacity onPress={onRetryHandshake} style={cb.retryBtn}>
+            <Icon name="refresh" size={13} color={hsColor} />
+            <Text style={[cb.retryText, { color: hsColor }]}>Retry</Text>
+          </TouchableOpacity>
         )}
       </View>
 
@@ -577,6 +603,8 @@ const cb = StyleSheet.create({
   },
   hsLabel: { fontSize: 12, fontWeight: '700' },
   hsRaw: { fontSize: 10, flex: 1, fontFamily: 'Courier' },
+  retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto' },
+  retryText: { fontSize: 12, fontWeight: '800' },
   uuidBox: { borderRadius: Radius.sm, borderWidth: 1, padding: 8, gap: 4 },
   uuidRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   uuidLabel: { fontSize: 10, fontWeight: '800', width: 28 },

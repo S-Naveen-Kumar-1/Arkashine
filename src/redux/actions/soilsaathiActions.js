@@ -183,6 +183,10 @@ export function buildSoilPayload(results, meta = {}) {
   const r = results ?? {}; // ✅ handle null safely
 
   return {
+    // Only present for soil-partner tests started from a farmer's page —
+    // regular (non-partner) BLE flows have no farmerId to send.
+    ...(meta.farmerId ? { farmer_id: meta.farmerId } : {}),
+
     area_name: meta.areaName ?? 'Test Area',
     tag: meta.tag ?? '',
 
@@ -227,6 +231,11 @@ export function predictSoil({ lat, lon, polygon = [] }) {
   };
 }
 
+// The report is generated on-demand server-side and can take 45-50s,
+// well past the shared axios client's default 15s timeout — override it
+// per-request instead of raising the timeout for every API call.
+const PDF_REQUEST_TIMEOUT_MS = 90000;
+
 export function downloadSoilRecommendationPDF(
   deviceId,
   callId,
@@ -239,6 +248,7 @@ export function downloadSoilRecommendationPDF(
         method: 'GET',
         url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/recommendation-pdf/`,
         responseType: 'arraybuffer',
+        timeout: PDF_REQUEST_TIMEOUT_MS,
 
         headers: {
           Accept: '*/*',
@@ -259,6 +269,7 @@ export function downloadSoilDetailPDF(
         method: 'GET',
         url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/pdf/`,
         responseType: 'arraybuffer',
+        timeout: PDF_REQUEST_TIMEOUT_MS,
 
         headers: {
           Accept: '*/*',

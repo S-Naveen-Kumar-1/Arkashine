@@ -49,6 +49,13 @@ const init = {
   farmerApiCallsLoading: false,
   farmerApiCallsError: null,
 
+  // Active farmer context — set when a partner starts a test (pH / Soil
+  // Lenz) for a farmer, so the BLE test flow can send farmer_id in its
+  // final save call without needing every intermediate screen to forward
+  // it as a navigation param.
+  activeFarmerId: null,
+  activeFarmerName: null,
+
   // Payments
   payments: [],
   paymentsMeta: {
@@ -67,6 +74,17 @@ export default function soilPartnerReducer(state = init, action) {
   switch (action.type) {
     case 'LOGOUT_REQUEST':
       return { ...init };
+
+    // ── Active farmer for in-progress test flow ───────────────────────────
+    case 'SP_SET_ACTIVE_FARMER':
+      return {
+        ...state,
+        activeFarmerId: action.payload?.farmerId ?? null,
+        activeFarmerName: action.payload?.farmerName ?? null,
+      };
+
+    case 'SP_CLEAR_ACTIVE_FARMER':
+      return { ...state, activeFarmerId: null, activeFarmerName: null };
 
     // ── Fetch farmers list ────────────────────────────────────────────────
     case 'SP_FETCH_FARMERS_REQUEST':

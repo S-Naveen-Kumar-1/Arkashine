@@ -20,12 +20,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import LinearGradient from 'react-native-linear-gradient';
 import Share from 'react-native-share';
+import FileViewer from 'react-native-file-viewer';
 import RNFS from 'react-native-fs';
+import { Buffer } from 'buffer';
 import { useDispatch, useSelector } from 'react-redux';
+import { notifyPdfDownloaded } from '../utils/downloadNotification';
 
 import { Typography, Spacing, Radius, Shadow } from '../theme';
 import {
   buildPdfReportUrl,
+  downloadCarbonPdfReport,
   analyzeFarm,
   calculateCarbon,
   resetCarbon,
@@ -114,12 +118,13 @@ export default function AssessmentScreen({ navigation }) {
   const calcLoading = useSelector(s => s.carbon.calculation.loading);
   const recsLoading = useSelector(s => s.carbon.recommendations.loading);
   const loading = calcLoading || recsLoading;
-  const authToken = useSelector(s => s.auth?.token);
 
   const [currentStep, setCurrentStep] = useState('input');
   const [calcResults, setCalcResults] = useState(null);
   const [aiRecs, setAiRecs] = useState(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState(null);
+  const [reportFilePath, setReportFilePath] = useState(null);
 
   // Form fields
   const [farmerName, setFarmerName] = useState('Rajesh Kumar');
@@ -250,9 +255,35 @@ export default function AssessmentScreen({ navigation }) {
   };
 
   // ── Download PDF ───────────────────────────────────────
-  const downloadReport = async () => {
-    if (!calcResults) return;
-    setIsDownloading(true);
+  // redux-axios-middleware rejects with the failure ACTION
+  // ({ type, error }), not a raw Error — and the arraybuffer error
+  // body needs decoding to reach the real backend message.
+  const extractReportErrorMessage = (error, fallback) => {
+    const axiosError = error?.error ?? error;
+    let message = axiosError?.message || fallback;
+    const respData = axiosError?.response?.data;
+    if (respData) {
+      try {
+        const text =
+          respData instanceof ArrayBuffer
+            ? Buffer.from(respData).toString('utf8')
+            : typeof respData === 'string'
+            ? respData
+            : JSON.stringify(respData);
+        const parsed = JSON.parse(text);
+        message = parsed?.error || parsed?.message || message;
+      } catch (_) {
+        // fall back to the generic message above
+      }
+    }
+    return message;
+  };
+
+  // Fetches + writes the PDF once, caching the path so View/Share after the
+  // first download don't re-hit the network.
+  const ensureReportDownloaded = async () => {
+    if (reportFilePath) return reportFilePath;
+    if (!calcResults) return null;
 
     const reportPayload = {
       farmer_name: calcResults.farmer_name,
@@ -269,51 +300,91 @@ export default function AssessmentScreen({ navigation }) {
       recommendations: aiRecs?.recommendations || [],
     };
 
-    const url = buildPdfReportUrl(reportPayload);
+    // Dispatched via the shared axios client, whose request interceptor
+    // attaches the Bearer token automatically — more reliable than
+    // RNFS.downloadFile's manual `headers` option on Android.
+    const response = await dispatch(downloadCarbonPdfReport(reportPayload));
+    const pdfData = response?.payload?.data;
+    if (!pdfData) throw new Error('No PDF data received');
+
+    // Public Downloads dir (not app-private cache/files) — sharing a
+    // private-storage file:// URI needs a FileProvider, which this app
+    // doesn't declare, and silently crashes with a null Uri otherwise.
+    const fileUri =
+      Platform.OS === 'android'
+        ? `${RNFS.DownloadDirectoryPath}/carbon_report_${Date.now()}.pdf`
+        : `${RNFS.DocumentDirectoryPath}/carbon_report_${Date.now()}.pdf`;
+    const base64 = Buffer.from(pdfData).toString('base64');
+    await RNFS.writeFile(fileUri, base64, 'base64');
+    notifyPdfDownloaded({ title: 'Carbon Credit Report', filePath: fileUri });
+    setReportFilePath(fileUri);
+    return fileUri;
+  };
+
+  // Opens the PDF directly in the device's PDF viewer, same as the
+  // SoiLENZ advisory report on the Soil Lenz reading detail screen.
+  const viewReport = async () => {
+    if (!calcResults) return;
 
     if (Platform.OS === 'web') {
+      const reportPayload = {
+        farmer_name: calcResults.farmer_name,
+        crop_type: calcResults.crop_type,
+        state: calcResults.state,
+        carbon_credits: calcResults.carbon_credits,
+        soil_score: calcResults.soil_score,
+        esg_score: calcResults.esg_score,
+        sustainability_score: calcResults.sustainability_score,
+        yearly_projection: calcResults.yearly_projection,
+        co2_offset: (calcResults.carbon_credits * 0.35).toFixed(2),
+        verification_status: 'AI VERIFIED',
+        carbon_credit_potential: calcResults.carbon_credit_potential,
+        recommendations: aiRecs?.recommendations || [],
+      };
       try {
-        await Linking.openURL(url);
+        await Linking.openURL(buildPdfReportUrl(reportPayload));
       } catch {
         Alert.alert('Open PDF Failed', 'Please allow popups.');
-      } finally {
-        setIsDownloading(false);
       }
       return;
     }
 
+    setIsDownloading(true);
+    setDownloadError(null);
     try {
-      const fileUri = `${
-        RNFS.DocumentDirectoryPath
-      }/carbon_report_${Date.now()}.pdf`;
-      const result = await RNFS.downloadFile({
-        fromUrl: url,
-        toFile: fileUri,
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-      }).promise;
-
-      if (result.statusCode === 200) {
-        await Share.open({
-          url: Platform.OS === 'android' ? `file://${fileUri}` : fileUri,
-          type: 'application/pdf',
-          title: 'Carbon Report',
-        });
-      } else {
-        throw new Error(`Download failed with status ${result.statusCode}`);
-      }
+      const path = await ensureReportDownloaded();
+      if (!path) return;
+      await FileViewer.open(path, { showOpenWithDialog: true });
     } catch (error) {
-      if (error?.message === 'User did not share') {
-        setIsDownloading(false);
-        return;
-      }
-      Alert.alert(
-        'Download options',
-        `Could not download PDF: ${error?.message || error}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open in Browser', onPress: () => Linking.openURL(url) },
-        ],
+      const message = extractReportErrorMessage(
+        error,
+        'Could not open the PDF report.',
       );
+      setDownloadError(`Could not download PDF: ${message}`);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const shareReport = async () => {
+    if (!calcResults || Platform.OS === 'web') return;
+    setIsDownloading(true);
+    setDownloadError(null);
+    try {
+      const path = await ensureReportDownloaded();
+      if (!path) return;
+      await Share.open({
+        url: Platform.OS === 'android' ? `file://${path}` : path,
+        type: 'application/pdf',
+        title: 'Carbon Report',
+      });
+    } catch (error) {
+      if (error?.message === 'User did not share') return;
+      const message = extractReportErrorMessage(
+        error,
+        'Could not share the PDF report.',
+      );
+      setDownloadError(`Could not download PDF: ${message}`);
     } finally {
       setIsDownloading(false);
     }
@@ -324,6 +395,8 @@ export default function AssessmentScreen({ navigation }) {
     dispatch(resetCarbon());
     setCalcResults(null);
     setAiRecs(null);
+    setDownloadError(null);
+    setReportFilePath(null);
     setCurrentStep('input');
   };
 
@@ -1311,7 +1384,11 @@ export default function AssessmentScreen({ navigation }) {
               >
                 <SectionHeader
                   title="Download & Certification"
-                  subtitle="Obtain digital proof of your eco-friendly carbon offsets."
+                  subtitle={
+                    isDownloading
+                      ? 'Generating your report — this can take up to a minute…'
+                      : 'Obtain digital proof of your eco-friendly carbon offsets.'
+                  }
                 />
 
                 {/* Certificate */}
@@ -1448,11 +1525,38 @@ export default function AssessmentScreen({ navigation }) {
                       style={{ marginTop: Spacing.xl }}
                     />
                   ) : (
-                    <PrimaryBtn
-                      label="Download PDF Report"
-                      icon="download"
-                      onPress={downloadReport}
-                    />
+                    <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                      {Platform.OS !== 'web' && (
+                        <TouchableOpacity
+                          style={[
+                            s.shareIconBtn,
+                            { borderColor: T.primary, backgroundColor: T.primaryDim },
+                          ]}
+                          onPress={shareReport}
+                          activeOpacity={0.85}
+                        >
+                          <Icon name="share-social" size={20} color={T.primary} />
+                        </TouchableOpacity>
+                      )}
+                      <PrimaryBtn
+                        label="View Report"
+                        icon="eye"
+                        onPress={viewReport}
+                        style={{ flex: 1 }}
+                      />
+                    </View>
+                  )}
+                  {downloadError && (
+                    <Text
+                      style={{
+                        color: '#EF4444',
+                        fontSize: 13,
+                        textAlign: 'center',
+                        marginTop: Spacing.sm,
+                      }}
+                    >
+                      {downloadError}
+                    </Text>
                   )}
                   <SecondaryBtn
                     label="Start New Assessment"
@@ -1778,6 +1882,14 @@ const s = StyleSheet.create({
     borderRadius: Radius.lg,
     height: 54,
     flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shareIconBtn: {
+    width: 54,
+    height: 54,
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
   },

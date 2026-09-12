@@ -525,6 +525,7 @@ export default function CalibrationScreen({ navigation }) {
 
       {!running ? (
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={s.scroll}
           showsVerticalScrollIndicator={false}
         >
@@ -760,6 +761,7 @@ export default function CalibrationScreen({ navigation }) {
         </ScrollView>
       ) : (
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={s.scroll}
           showsVerticalScrollIndicator={false}
         >

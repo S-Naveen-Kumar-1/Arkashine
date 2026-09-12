@@ -6,7 +6,7 @@
 //   • Sensor data history
 //   • Clear log button
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,11 +17,24 @@ import {
   ScrollView,
   Dimensions,
   TouchableWithoutFeedback,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
+import Share from 'react-native-share';
 import { clearDebugLog } from '../redux/actions/bleActions';
+import { store } from '../redux/store';
 
-const { height: SH } = Dimensions.get('window');
+const { width: SW, height: SH } = Dimensions.get('window');
+
+// FAB size (see fl.fabTouch) — start it above the bottom tab bar instead
+// of behind it, and let the drag handler below keep it fully on-screen.
+const FAB_SIZE = 42;
+const START_X = SW - FAB_SIZE - 20;
+const START_Y = SH - FAB_SIZE - 160;
+// A release is treated as a tap (not a drag) when the finger moved less
+// than this many px, so a quick tap still opens the menu.
+const TAP_SLOP = 6;
 
 // ─── Tag colours ──────────────────────────────────────────────────────────────
 const TAG_COLORS = {
@@ -240,6 +253,10 @@ function DataTab({ ble }) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
+// Single draggable FAB combining the old separate BLE-debug and
+// share-redux-store buttons — a tap opens a small menu to pick one of the
+// two tools, and the button can be dragged anywhere on screen so it can
+// never permanently block the tab bar or other controls underneath it.
 export default function FloatingDebugPanel() {
   const dispatch = useDispatch();
   const ble = useSelector(s => s.ble);
@@ -247,8 +264,65 @@ export default function FloatingDebugPanel() {
 
   const [visible, setVisible] = useState(false);
   const [tab, setTab] = useState('log');
+  const [menuVisible, setMenuVisible] = useState(false);
+
+  const pan = useRef(new Animated.ValueXY({ x: START_X, y: START_Y })).current;
+  const dragged = useRef(false);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        dragged.current = false;
+        pan.setOffset({ x: pan.x._value, y: pan.y._value });
+        pan.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: (_, gesture) => {
+        if (Math.abs(gesture.dx) > TAP_SLOP || Math.abs(gesture.dy) > TAP_SLOP) {
+          dragged.current = true;
+        }
+        Animated.event([null, { dx: pan.x, dy: pan.y }], {
+          useNativeDriver: false,
+        })(_, gesture);
+      },
+      onPanResponderRelease: () => {
+        pan.flattenOffset();
+        // Clamp so the FAB always stays fully on-screen after a drag.
+        const clampedX = Math.min(Math.max(pan.x._value, 0), SW - FAB_SIZE);
+        const clampedY = Math.min(Math.max(pan.y._value, 0), SH - FAB_SIZE);
+        Animated.spring(pan, {
+          toValue: { x: clampedX, y: clampedY },
+          useNativeDriver: false,
+        }).start();
+
+        if (!dragged.current) {
+          setMenuVisible(v => !v);
+        }
+      },
+    }),
+  ).current;
 
   const handleClear = useCallback(() => dispatch(clearDebugLog()), [dispatch]);
+
+  const handleShareStore = useCallback(async () => {
+    setMenuVisible(false);
+    try {
+      const fullState = store.getState();
+      const formattedData = JSON.stringify(fullState, null, 2);
+      await Share.open({
+        title: 'Redux Store Data',
+        message: 'Complete Redux Store Data\n\n' + formattedData,
+      });
+    } catch (e) {
+      console.log('Share failed', e);
+    }
+  }, []);
+
+  const openDebugPanel = useCallback(() => {
+    setMenuVisible(false);
+    setVisible(true);
+  }, []);
 
   const isConnected = ble.connected;
   const hasError = !!ble.error || ble.handshakeStatus === 'failed';
@@ -263,13 +337,32 @@ export default function FloatingDebugPanel() {
 
   return (
     <>
-      {/* ── Floating button ──────────────────────────────────────── */}
-      <View style={fl.fab}>
-        <TouchableOpacity
-          style={fl.fabTouch}
-          onPress={() => setVisible(true)}
-          activeOpacity={0.85}
-        >
+      {/* ── Floating button — draggable, tap opens the tool menu ───── */}
+      <Animated.View
+        style={[fl.fab, { transform: pan.getTranslateTransform() }]}
+        {...panResponder.panHandlers}
+      >
+        {menuVisible && (
+          <View style={fl.menu}>
+            <TouchableOpacity
+              style={fl.menuItem}
+              onPress={openDebugPanel}
+              activeOpacity={0.8}
+            >
+              <Text style={fl.menuIcon}>🔧</Text>
+              <Text style={fl.menuLabel}>BLE Debug</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={fl.menuItem}
+              onPress={handleShareStore}
+              activeOpacity={0.8}
+            >
+              <Text style={fl.menuIcon}>🐛</Text>
+              <Text style={fl.menuLabel}>Share State</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        <View style={fl.fabTouch}>
           <View style={[fl.dot, { backgroundColor: dotColor }]} />
           <Text style={fl.fabIcon}>🔧</Text>
           {debugLogs.length > 0 && (
@@ -279,8 +372,8 @@ export default function FloatingDebugPanel() {
               </Text>
             </View>
           )}
-        </TouchableOpacity>
-      </View>
+        </View>
+      </Animated.View>
 
       {/* ── Debug panel modal ────────────────────────────────────── */}
       <Modal
@@ -397,15 +490,15 @@ export default function FloatingDebugPanel() {
 const fl = StyleSheet.create({
   fab: {
     position: 'absolute',
+    top: 0,
+    left: 0,
     zIndex: 9999,
     elevation: 20,
-    bottom: 30,
-    right: 20,
   },
   fabTouch: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
     backgroundColor: '#111827',
     borderWidth: 1.5,
     borderColor: '#374151',
@@ -417,30 +510,57 @@ const fl = StyleSheet.create({
     shadowRadius: 8,
     elevation: 12,
   },
-  fabIcon: { fontSize: 22 },
+  fabIcon: { fontSize: 16 },
   dot: {
     position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    top: 2,
+    right: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     borderWidth: 1.5,
     borderColor: '#111827',
   },
   badge: {
     position: 'absolute',
-    bottom: 3,
-    right: -2,
+    bottom: 1,
+    right: -3,
     backgroundColor: '#EF4444',
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
+    borderRadius: 7,
+    minWidth: 14,
+    height: 14,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
   },
-  badgeText: { color: '#fff', fontSize: 9, fontWeight: '900' },
+  badgeText: { color: '#fff', fontSize: 8, fontWeight: '900' },
+  // Tap menu — anchored above the FAB so it stays reachable regardless of
+  // where on screen the button has been dragged to.
+  menu: {
+    position: 'absolute',
+    bottom: FAB_SIZE + 10,
+    right: 0,
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#374151',
+    paddingVertical: 6,
+    minWidth: 150,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 12,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  menuIcon: { fontSize: 16 },
+  menuLabel: { color: '#f1f5f9', fontSize: 13, fontWeight: '700' },
 });
 
 const p = StyleSheet.create({

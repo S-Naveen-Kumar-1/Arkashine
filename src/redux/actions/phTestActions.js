@@ -51,6 +51,9 @@ export function createPHBottleReading({
   field3, // EC Value (mS/cm)
   field4, // EC Voltage (mV)
   tag = '',
+  // Only set for soil-partner tests started from a farmer's detail page —
+  // regular (non-partner) BLE flows have no farmerId to send.
+  farmer_id = null,
 }) {
   return {
     type: 'CREATE_PH_BOTTLE_READING',
@@ -64,6 +67,7 @@ export function createPHBottleReading({
           field3,
           field4,
           tag,
+          ...(farmer_id ? { farmer_id } : {}),
         },
       },
     },

@@ -1,8 +1,6 @@
 // src/utils/constants.js
 
 export const nutrients = [
-  { key: 'ph', label: 'pH', unit: '', value: null },
-  { key: 'ec', label: 'EC', unit: 'dS/m', value: null },
 { key: 'OC', label: 'Organic Carbon', unit: '%', value: null },
   { key: 'N', label: 'Nitrogen', unit: 'kg/ha', value: null },  // ✅ Added
   { key: 'P', label: 'Phosphorus', unit: 'kg/ha', value: null },

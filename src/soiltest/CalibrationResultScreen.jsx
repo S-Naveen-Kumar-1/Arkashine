@@ -71,6 +71,7 @@ export default function CalibrationResultScreen({ navigation, route }) {
       />
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
       >

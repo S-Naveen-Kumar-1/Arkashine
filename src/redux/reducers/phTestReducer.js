@@ -38,6 +38,8 @@ const init = {
 
   lastCalibrated: null,
   finalPhResult: null,
+  // EC value captured after the stage-1 (EC-only) mix — see PH_EC_RESULT.
+  ecResult: null,
   calibrationPoints: {
     PH: {},
     EC: {},
@@ -55,6 +57,7 @@ export default function phTestReducer(state = init, action) {
         motorStartedAt: null,
         results: null,
         savedAt: null,
+        ecResult: null,
       };
 
     case TEST_MOTOR_START:
@@ -105,6 +108,13 @@ export default function phTestReducer(state = init, action) {
       return {
         ...state,
         finalPhResult: action.payload,
+      };
+
+    // ← {"EC_RESULT":{"ec":...,"ecVoltage":...}}  from stage-1 EC-only mix
+    case 'PH_EC_RESULT':
+      return {
+        ...state,
+        ecResult: action.payload,
       };
 
     // ── EC calibration ───────────────────────────────────────────────────

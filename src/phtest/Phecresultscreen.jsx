@@ -35,6 +35,7 @@ import useTheme from '../hooks/useTheme';
 import { Radius, Spacing } from '../theme';
 import { cmdGetFinalResult } from '../redux/actions/bleActions';
 import { createPHBottleReading } from '../redux/actions/phTestActions';
+import { clearActiveFarmer } from '../redux/actions/soilPartnerActions';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const toNum = v => {
@@ -380,7 +381,10 @@ export default function PHECResultScreen({ navigation }) {
   console.log(phBottleDeviceId, 'PH Bottle Device ID');
 
   const { connected } = useSelector(s => s.ble);
-  const { finalPhResult } = useSelector(s => s.phtest);
+  const { finalPhResult, ecResult } = useSelector(s => s.phtest);
+  // Set when a soil partner starts this test from a farmer's detail page
+  // (FarmerDetailScreen) — absent for the regular non-partner BLE flow.
+  const activeFarmerId = useSelector(s => s.soilPartner?.activeFarmerId);
 
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState(null);
@@ -388,10 +392,14 @@ export default function PHECResultScreen({ navigation }) {
   const hasSavedRef = useRef(false);
   const data = finalPhResult;
   const ph = toNum(data?.ph ?? data?.pH);
-  const ec = toNum(data?.ec ?? data?.EC ?? data?.TDS);
+  // EC now comes from the stage-1 (EC-only) mix, cached in state.phtest.ecResult
+  // — fall back to whatever's on the final-result payload for older single-stage
+  // firmware that still returns EC alongside pH.
+  const ec = toNum(ecResult?.ec) ?? toNum(data?.ec ?? data?.EC ?? data?.TDS);
   const temp = toNum(data?.temperature);
   const phVoltage = toNum(data?.voltage ?? data?.phVoltage ?? data?.pHVoltage);
-  const ecVoltage = toNum(data?.ecVoltage ?? data?.ECVoltage);
+  const ecVoltage =
+    toNum(ecResult?.ecVoltage) ?? toNum(data?.ecVoltage ?? data?.ECVoltage);
   const tempFallback = data?.temperatureFallback ?? false;
 
   const hasData = ph !== null || ec !== null;
@@ -422,15 +430,17 @@ export default function PHECResultScreen({ navigation }) {
         field4: ecVoltage,
 
         tag: 'PH Test',
+        farmer_id: activeFarmerId,
       }),
     )
       .then(() => {
         console.log('PH Reading Saved');
+        if (activeFarmerId) dispatch(clearActiveFarmer());
       })
       .catch(err => {
         console.log('SAVE ERROR', err);
       });
-  }, [phBottleDeviceId, ph, ec, phVoltage, ecVoltage, dispatch]);
+  }, [phBottleDeviceId, ph, ec, phVoltage, ecVoltage, dispatch, activeFarmerId]);
 
   const handleRetry = useCallback(async () => {
     if (fetching || !connected) return;
@@ -451,14 +461,16 @@ export default function PHECResultScreen({ navigation }) {
           field4: ecVoltage,
 
           tag: 'PH Test',
+          farmer_id: activeFarmerId,
         }),
       );
+      if (activeFarmerId) dispatch(clearActiveFarmer());
     } catch (e) {
       console.log(e);
     } finally {
       setFetching(false);
     }
-  }, [fetching, connected]);
+  }, [fetching, connected, activeFarmerId, dispatch]);
 
   // Single CTA: jump straight to TimerScreen. TimerScreen shows the
   // "next steps" info and kicks off the motor sequence on its own, then

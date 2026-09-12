@@ -14,7 +14,6 @@ import { startMotorTimer } from '../redux/actions/soilsaathiActions';
 import { AppButton, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Radius, Typography, Shadow } from '../theme';
-import { cmdStartSoilSensor, cmdStartSoilTest, cmdStopSoilTest } from '../redux/actions/bleActions';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function PourScreen({ navigation }) {
@@ -66,12 +65,11 @@ export default function PourScreen({ navigation }) {
     navigation.replace('SoilCalibrationScreen');
   };
 
-  const startSoilTest = async () => {
-    // ✅ reset
-    await dispatch({ type: 'TEST_RESET' });
-    await dispatch(cmdStopSoilTest());
-    await dispatch(cmdStartSoilSensor());
-    navigation.replace('SensorScreen');
+  const startSoilTest = () => {
+    // The actual start sequence (TEST_RESET / stop / start sensor) now
+    // happens after the filter-wait step, once the user has removed the
+    // filter paper — see FilterWaitScreen.
+    navigation.replace('FilterWaitScreen');
   };
 
   const dropY = dropAnim.interpolate({

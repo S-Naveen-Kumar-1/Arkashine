@@ -1,5 +1,14 @@
-// MixerScreen.jsx - FIXED VERSION (v3)
+// InsertPhMeterScreen.jsx
 //
+// Stage 2 of the two-stage ph-bottle procedure. Reached after MixerScreen
+// finishes the EC-only mix (stage 1) and fetches the EC result. Shows the
+// captured EC value, asks the user to swap in the pH meter, then runs the
+// second 60s mixing stage (PHTEST:START_PH) before fetching the combined
+// final result.
+//
+// Structurally mirrors MixerScreen.jsx (same countdown ring, motor-status
+// chip, ack-gated start/stop) — see that file for the race-condition fix
+// this pattern is built on.
 
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -26,67 +35,35 @@ import useTheme from '../hooks/useTheme';
 
 import {
   cmdCheckMotorStatus,
-  cmdGetEcResult,
-  cmdStartPhTestMotorEc,
+  cmdGetFinalResult,
+  cmdStartPhTestMotorPh,
   cmdStopPhTestMotor,
 } from '../redux/actions/bleActions';
 
 const MOTOR_DURATION = 60;
 
-export default function MixerScreen({ navigation }) {
+export default function InsertPhMeterScreen({ navigation }) {
   const theme = useTheme();
-
   const T = theme.colors;
-
   const dispatch = useDispatch();
 
-  // FIX: mixingCompleted now comes from Redux (state.ble.mixingCompleted),
-  // set centrally in bleActions.js. This survives screen remounts, unlike
-  // the old local useState version.
-  const { connected, device, motorStatus, lastDeviceError, mixingCompleted } =
-    useSelector(s => s.ble);
+  const { connected, device, motorStatus, mixingCompleted } = useSelector(
+    s => s.ble,
+  );
+  const ecResult = useSelector(s => s.phtest?.ecResult);
 
-  // =====================================================
-  // STATES
-  // =====================================================
-
-  // `started` still tracks "is a cycle actively running from this screen's
-  // point of view" — used only to drive the countdown/progress UI.
   const [started, setStarted] = useState(motorStatus === 'running');
-
   const [motorTimeLeft, setMotorTimeLeft] = useState(MOTOR_DURATION);
-
-  // True between tapping Start and the device's real ack (or the ack
-  // timing out) — lets the UI say "waiting for device" instead of either
-  // sitting frozen or optimistically showing the timer as already running.
   const [awaitingConfirm, setAwaitingConfirm] = useState(false);
 
-  // =====================================================
-  // REFS
-  // =====================================================
-
   const timerRef = useRef(null);
-
   const motorStatusIntervalRef = useRef(null);
-
   const awaitingTimeoutRef = useRef(null);
 
-  // =====================================================
-  // SYNC LOCAL "started" WITH REDUX motorStatus
-  // =====================================================
-  // If we mount/remount while the motor is already running (e.g. user left
-  // and came back mid-cycle), pick up the running state instead of
-  // defaulting to "not started".
-
+  // Sync local `started` with the ack-driven redux motorStatus.
   useEffect(() => {
-    if (motorStatus === 'running' && !started) {
-      setStarted(true);
-    }
-    if (motorStatus !== 'running' && started) {
-      setStarted(false);
-    }
-    // The device confirmed (or we're no longer expecting it to) — stop
-    // showing the "waiting for confirmation" state either way.
+    if (motorStatus === 'running' && !started) setStarted(true);
+    if (motorStatus !== 'running' && started) setStarted(false);
     if (motorStatus === 'running' && awaitingConfirm) {
       setAwaitingConfirm(false);
       if (awaitingTimeoutRef.current) {
@@ -97,10 +74,7 @@ export default function MixerScreen({ navigation }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [motorStatus]);
 
-  // =====================================================
-  // CHECK MOTOR STATUS (poll while running)
-  // =====================================================
-
+  // Poll motor status while running (same pattern as MixerScreen).
   useEffect(() => {
     if (started && motorStatus === 'running') {
       if (!motorStatusIntervalRef.current) {
@@ -108,22 +82,14 @@ export default function MixerScreen({ navigation }) {
           dispatch(cmdCheckMotorStatus());
         }, 3000);
       }
-    } else {
-      if (motorStatusIntervalRef.current) {
-        clearInterval(motorStatusIntervalRef.current);
-
-        motorStatusIntervalRef.current = null;
-      }
+    } else if (motorStatusIntervalRef.current) {
+      clearInterval(motorStatusIntervalRef.current);
+      motorStatusIntervalRef.current = null;
     }
-
-    return () => { };
+    return () => {};
   }, [started, motorStatus, dispatch]);
 
-  // =====================================================
-  // COUNTDOWN TIMER — purely visual now.
-  // Completion itself is decided in Redux/bleActions, not here.
-  // =====================================================
-
+  // Countdown — purely visual, completion decided in redux/bleActions.
   useEffect(() => {
     if (motorStatus !== 'running') {
       if (timerRef.current) {
@@ -132,7 +98,6 @@ export default function MixerScreen({ navigation }) {
       }
       return;
     }
-
     if (started && motorStatus === 'running' && !timerRef.current) {
       timerRef.current = setInterval(() => {
         setMotorTimeLeft(prev => {
@@ -145,57 +110,31 @@ export default function MixerScreen({ navigation }) {
         });
       }, 1000);
     }
-
-    return () => { };
+    return () => {};
   }, [started, motorStatus]);
-
-  // =====================================================
-  // CLEANUP
-  // =====================================================
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-
-      if (motorStatusIntervalRef.current) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (motorStatusIntervalRef.current)
         clearInterval(motorStatusIntervalRef.current);
-      }
-
-      if (awaitingTimeoutRef.current) {
-        clearTimeout(awaitingTimeoutRef.current);
-      }
+      if (awaitingTimeoutRef.current) clearTimeout(awaitingTimeoutRef.current);
     };
   }, []);
 
-  // =====================================================
-  // START
-  // =====================================================
-
   const handleStart = async () => {
     try {
-      // prevent multiple starts
-      if (started || awaitingConfirm || motorStatus === 'running') {
-        return;
-      }
+      if (started || awaitingConfirm || motorStatus === 'running') return;
 
-      // clear previous timer
       if (timerRef.current) {
         clearInterval(timerRef.current);
-
         timerRef.current = null;
       }
 
       setMotorTimeLeft(MOTOR_DURATION);
       setAwaitingConfirm(true);
 
-      // cmdStartPhTestMotorEc resets mixingCompleted in Redux (see
-      // bleActions.js) before sending PHTEST:"START_EC". `started` is
-      // intentionally NOT set here — it only flips once the device's real
-      // ack arrives (see the motorStatus sync effect above), so the
-      // countdown can never start before the motor actually does.
-      await dispatch(cmdStartPhTestMotorEc());
+      await dispatch(cmdStartPhTestMotorPh());
 
       if (awaitingTimeoutRef.current) clearTimeout(awaitingTimeoutRef.current);
       awaitingTimeoutRef.current = setTimeout(() => {
@@ -207,67 +146,43 @@ export default function MixerScreen({ navigation }) {
     }
   };
 
-  // =====================================================
-  // STOP
-  // =====================================================
-
   const handleStop = async () => {
     try {
-      // cmdStopPhTestMotor marks this as a user-initiated stop internally
-      // (bleActions.js) so the resulting STOPPED notification isn't
-      // misread as "mixing complete"
       await dispatch(cmdStopPhTestMotor());
-
       setStarted(false);
       setAwaitingConfirm(false);
+      setMotorTimeLeft(MOTOR_DURATION);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (motorStatusIntervalRef.current) {
+        clearInterval(motorStatusIntervalRef.current);
+        motorStatusIntervalRef.current = null;
+      }
       if (awaitingTimeoutRef.current) {
         clearTimeout(awaitingTimeoutRef.current);
         awaitingTimeoutRef.current = null;
       }
-
-      setMotorTimeLeft(MOTOR_DURATION);
-
-      // clear timer
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-
-        timerRef.current = null;
-      }
-
-      // clear polling
-      if (motorStatusIntervalRef.current) {
-        clearInterval(motorStatusIntervalRef.current);
-
-        motorStatusIntervalRef.current = null;
-      }
-    } catch (e) { }
+    } catch (e) {}
   };
 
-  // =====================================================
-  // CALCULATIONS
-  // =====================================================
+  const getFinalResults = async () => {
+    await dispatch(cmdGetFinalResult());
+    navigation.navigate('PHECResultScreen');
+  };
 
   const progress = MOTOR_DURATION - motorTimeLeft;
-
   const pct = Math.round((progress / MOTOR_DURATION) * 100);
-
   const minutes = Math.floor(motorTimeLeft / 60);
-
   const seconds = motorTimeLeft % 60;
 
-  // =====================================================
-  // UI
-  // =====================================================
-  const getPhMotorResults = async () => {
-    await dispatch(cmdGetEcResult());
-    navigation.navigate('InsertPhMeterScreen');
-  };
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
       <StatusBar barStyle="light-content" backgroundColor={T.bg} />
 
       <TopBar
-        title="EC Mixing"
+        title="pH Mixing"
         onBack={() => navigation.goBack()}
         theme={theme}
       />
@@ -277,39 +192,41 @@ export default function MixerScreen({ navigation }) {
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ====================================== */}
-        {/* BLE CONNECTED */}
-        {/* ====================================== */}
-
         {connected && (
           <View
             style={[
               s.chip,
-              {
-                backgroundColor: T.primaryGlow,
-
-                borderColor: T.primary,
-              },
+              { backgroundColor: T.primaryGlow, borderColor: T.primary },
             ]}
           >
             <Icon name="bluetooth-connect" size={13} color={T.primary} />
-
             <Text style={[s.chipText, { color: T.primary }]}>
               {device?.name}
             </Text>
           </View>
         )}
 
-        {/* ====================================== */}
-        {/* MOTOR STATUS */}
-        {/* ====================================== */}
+        {/* EC captured card */}
+        <View
+          style={[
+            s.ecCard,
+            { backgroundColor: T.card, borderColor: '#10B981' },
+          ]}
+        >
+          <Icon name="lightning-bolt" size={20} color="#10B981" />
+          <Text style={[s.ecCardText, { color: T.text }]}>
+            EC Captured:{' '}
+            <Text style={{ fontWeight: '900', color: '#10B981' }}>
+              {ecResult?.ec != null ? `${Number(ecResult.ec).toFixed(3)} dS/m` : '—'}
+            </Text>
+          </Text>
+        </View>
 
         <View
           style={[
             s.chip,
             {
               backgroundColor: T.cardAlt,
-
               borderColor:
                 motorStatus === 'running'
                   ? T.primary
@@ -340,16 +257,11 @@ export default function MixerScreen({ navigation }) {
           </Text>
         </View>
 
-        {/* ====================================== */}
-        {/* MOTOR ICON */}
-        {/* ====================================== */}
-
         <View
           style={[
             s.motorRing,
             {
               borderColor: T.primary,
-
               backgroundColor:
                 started && motorStatus === 'running'
                   ? T.primaryGlow
@@ -364,72 +276,36 @@ export default function MixerScreen({ navigation }) {
           {started && motorStatus === 'running'
             ? 'Motor Running…'
             : mixingCompleted
-              ? 'Mixing Completed ✅'
+              ? 'pH Mixing Completed ✅'
               : 'Motor Ready'}
         </Text>
-
-        {/* ====================================== */}
-        {/* INSTRUCTIONS */}
-        {/* ====================================== */}
 
         {!started && !mixingCompleted && motorStatus !== 'running' && (
           <View
             style={[
               s.instrCard,
-              {
-                backgroundColor: T.card,
-
-                borderColor: T.border,
-              },
+              { backgroundColor: T.card, borderColor: T.border },
             ]}
           >
-            <Text
-              style={[
-                s.instrTitle,
-                {
-                  color: T.primary,
-                },
-              ]}
-            >
+            <Text style={[s.instrTitle, { color: T.primary }]}>
               📋 Before Starting
             </Text>
 
             {[
-              'Add 5 g soil sample to the beaker',
-              'Add 50 ml extractant solution',
-              'Place the beaker under the mixer',
-              'Ensure the EC probe is connected and ready',
+              'Remove the EC probe from the beaker',
+              'Insert the pH meter into the mixer',
+              'Ensure the pH probe is connected and ready',
+              'Tap Start when ready',
             ].map((t, i) => (
               <View key={i} style={s.instrRow}>
-                <View
-                  style={[
-                    s.instrDot,
-                    {
-                      backgroundColor: T.primary,
-                    },
-                  ]}
-                >
+                <View style={[s.instrDot, { backgroundColor: T.primary }]}>
                   <Text style={s.instrDotNum}>{i + 1}</Text>
                 </View>
-
-                <Text
-                  style={[
-                    s.instrText,
-                    {
-                      color: T.text,
-                    },
-                  ]}
-                >
-                  {t}
-                </Text>
+                <Text style={[s.instrText, { color: T.text }]}>{t}</Text>
               </View>
             ))}
           </View>
         )}
-
-        {/* ====================================== */}
-        {/* TIMER */}
-        {/* ====================================== */}
 
         {started && motorStatus === 'running' && (
           <View style={s.ringWrap}>
@@ -441,50 +317,22 @@ export default function MixerScreen({ navigation }) {
               bg={T.border}
               strokeWidth={10}
             >
-              <View
-                style={{
-                  alignItems: 'center',
-                }}
-              >
-                <Text
-                  style={[
-                    s.timerNum,
-                    {
-                      color: T.primary,
-                    },
-                  ]}
-                >
+              <View style={{ alignItems: 'center' }}>
+                <Text style={[s.timerNum, { color: T.primary }]}>
                   {String(minutes).padStart(2, '0')}:
                   {String(seconds).padStart(2, '0')}
                 </Text>
-
-                <Text
-                  style={[
-                    s.timerSub,
-                    {
-                      color: T.muted,
-                    },
-                  ]}
-                >
-                  {pct}%
-                </Text>
+                <Text style={[s.timerSub, { color: T.muted }]}>{pct}%</Text>
               </View>
             </ProgressRing>
           </View>
         )}
 
-        {/* ====================================== */}
-        {/* START BUTTON */}
-        {/* ====================================== */}
-
         {!started && !mixingCompleted && motorStatus !== 'running' && (
           <TouchableOpacity
             style={[
               s.ctaBtn,
-              {
-                backgroundColor: T.primary,
-                opacity: awaitingConfirm ? 0.6 : 1,
-              },
+              { backgroundColor: T.primary, opacity: awaitingConfirm ? 0.6 : 1 },
             ]}
             activeOpacity={0.85}
             disabled={awaitingConfirm}
@@ -495,128 +343,64 @@ export default function MixerScreen({ navigation }) {
               size={22}
               color="#fff"
             />
-
             <Text style={s.ctaBtnText}>
               {awaitingConfirm
                 ? 'Waiting for device to confirm…'
-                : 'Start EC Mixing (60 s)'}
+                : 'Start pH Mixing (60 s)'}
             </Text>
           </TouchableOpacity>
         )}
-
-        {/* ====================================== */}
-        {/* RUNNING SECTION */}
-        {/* ====================================== */}
 
         {started && motorStatus === 'running' && (
           <View style={s.runningRow}>
             <View
               style={[
                 s.runningBar,
-                {
-                  backgroundColor: T.cardAlt,
-
-                  borderColor: T.border,
-                },
+                { backgroundColor: T.cardAlt, borderColor: T.border },
               ]}
             >
-              <View
-                style={[
-                  s.runningDot,
-                  {
-                    backgroundColor: T.primary,
-                  },
-                ]}
-              />
-
-              <Text
-                style={[
-                  s.runningText,
-                  {
-                    color: T.text,
-                  },
-                ]}
-              >
+              <View style={[s.runningDot, { backgroundColor: T.primary }]} />
+              <Text style={[s.runningText, { color: T.text }]}>
                 Motor running — do not remove beaker
               </Text>
             </View>
 
-            {/* STOP */}
-
             <TouchableOpacity
-              style={[
-                s.stopBtn,
-                {
-                  borderColor: '#EF4444',
-                },
-              ]}
+              style={[s.stopBtn, { borderColor: '#EF4444' }]}
               onPress={handleStop}
             >
               <Icon name="stop" size={16} color="#EF4444" />
-
               <Text style={s.stopBtnText}>Stop</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* ====================================== */}
-        {/* COMPLETED ACTIONS */}
-        {/* Driven entirely by Redux mixingCompleted now — survives */}
-        {/* navigation away/back, background/foreground, remounts. */}
-        {/* ====================================== */}
-
         {mixingCompleted && (
           <View style={s.completedActions}>
-            {/* RE RUN */}
-
             <TouchableOpacity
               style={[
                 s.reRunBtn,
-                {
-                  borderColor: T.primary,
-
-                  backgroundColor: T.primaryGlow,
-                },
+                { borderColor: T.primary, backgroundColor: T.primaryGlow },
               ]}
               activeOpacity={0.85}
               onPress={handleStart}
             >
               <Icon name="restart" size={20} color={T.primary} />
-
-              <Text
-                style={[
-                  s.reRunBtnText,
-                  {
-                    color: T.primary,
-                  },
-                ]}
-              >
+              <Text style={[s.reRunBtnText, { color: T.primary }]}>
                 Re-Run
               </Text>
             </TouchableOpacity>
 
-            {/* GET RESULTS */}
-
             <TouchableOpacity
-              style={[
-                s.resultBtn,
-                {
-                  backgroundColor: T.primary,
-                },
-              ]}
+              style={[s.resultBtn, { backgroundColor: T.primary }]}
               activeOpacity={0.85}
-              onPress={getPhMotorResults}
+              onPress={getFinalResults}
             >
               <Icon name="chart-box" size={22} color="#fff" />
-
-              <Text style={s.resultBtnText}>Continue → Insert pH Meter</Text>
+              <Text style={s.resultBtnText}>Get Results</Text>
             </TouchableOpacity>
           </View>
         )}
-
-        {/* ====================================== */}
-        {/* HINT */}
-        {/* ====================================== */}
 
         <Text style={[s.hint, { color: T.muted }]}>
           {started && motorStatus === 'running'
@@ -624,24 +408,16 @@ export default function MixerScreen({ navigation }) {
             : awaitingConfirm
               ? 'Waiting for the device to confirm it has started…'
               : mixingCompleted
-                ? 'EC mixing completed successfully.'
-                : 'Motor mixes the soil-extractant solution to measure EC'}
+                ? 'pH mixing completed successfully.'
+                : 'Motor mixes the soil-extractant solution to measure pH'}
         </Text>
-
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-// =====================================================
-// STYLES
-// =====================================================
-
 const s = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-
+  container: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     alignItems: 'center',
@@ -649,14 +425,6 @@ const s = StyleSheet.create({
     padding: Spacing.lg,
     paddingBottom: 48,
   },
-
-  body: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.lg,
-  },
-
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -667,12 +435,19 @@ const s = StyleSheet.create({
     paddingVertical: 5,
     marginBottom: 6,
   },
-
-  chipText: {
-    fontSize: 11,
-    fontWeight: '700',
+  chipText: { fontSize: 11, fontWeight: '700' },
+  ecCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    width: '100%',
+    marginBottom: Spacing.sm,
   },
-
+  ecCardText: { fontSize: 14, fontWeight: '600' },
   motorRing: {
     width: 120,
     height: 120,
@@ -683,14 +458,12 @@ const s = StyleSheet.create({
     marginBottom: Spacing.sm,
     marginTop: 8,
   },
-
   motorLabel: {
     fontSize: 17,
     fontWeight: '800',
     marginBottom: Spacing.md,
     textAlign: 'center',
   },
-
   instrCard: {
     borderRadius: Radius.lg,
     borderWidth: 1,
@@ -699,19 +472,8 @@ const s = StyleSheet.create({
     marginBottom: Spacing.md,
     gap: 10,
   },
-
-  instrTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-
-  instrRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-
+  instrTitle: { fontSize: 14, fontWeight: '800', marginBottom: 4 },
+  instrRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   instrDot: {
     width: 22,
     height: 22,
@@ -719,33 +481,11 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  instrDotNum: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '900',
-  },
-
-  instrText: {
-    fontSize: 13,
-    flex: 1,
-  },
-
-  ringWrap: {
-    marginBottom: Spacing.md,
-  },
-
-  timerNum: {
-    fontSize: 32,
-    fontWeight: '900',
-    fontFamily: 'Courier',
-  },
-
-  timerSub: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
+  instrDotNum: { color: '#fff', fontSize: 11, fontWeight: '900' },
+  instrText: { fontSize: 13, flex: 1 },
+  ringWrap: { marginBottom: Spacing.md },
+  timerNum: { fontSize: 32, fontWeight: '900', fontFamily: 'Courier' },
+  timerSub: { fontSize: 12, fontWeight: '700' },
   ctaBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -756,19 +496,8 @@ const s = StyleSheet.create({
     borderRadius: Radius.lg,
     marginBottom: Spacing.sm,
   },
-
-  ctaBtnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-
-  runningRow: {
-    width: '100%',
-    gap: 8,
-    marginBottom: Spacing.sm,
-  },
-
+  ctaBtnText: { color: '#fff', fontSize: 16, fontWeight: '900' },
+  runningRow: { width: '100%', gap: 8, marginBottom: Spacing.sm },
   runningBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -778,18 +507,8 @@ const s = StyleSheet.create({
     padding: Spacing.sm,
     width: '100%',
   },
-
-  runningDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-
-  runningText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-
+  runningDot: { width: 10, height: 10, borderRadius: 5 },
+  runningText: { fontSize: 13, fontWeight: '600' },
   stopBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -801,19 +520,8 @@ const s = StyleSheet.create({
     height: 48,
     marginTop: 6,
   },
-
-  stopBtnText: {
-    color: '#EF4444',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-
-  completedActions: {
-    width: '100%',
-    gap: 12,
-    marginTop: 10,
-  },
-
+  stopBtnText: { color: '#EF4444', fontSize: 15, fontWeight: '800' },
+  completedActions: { width: '100%', gap: 12, marginTop: 10 },
   reRunBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -824,12 +532,7 @@ const s = StyleSheet.create({
     borderRadius: Radius.lg,
     borderWidth: 1.5,
   },
-
-  reRunBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-  },
-
+  reRunBtnText: { fontSize: 15, fontWeight: '800' },
   resultBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -840,13 +543,7 @@ const s = StyleSheet.create({
     borderRadius: Radius.lg,
     marginBottom: Spacing.sm,
   },
-
-  resultBtnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-
+  resultBtnText: { color: '#fff', fontSize: 16, fontWeight: '900' },
   hint: {
     fontSize: 12,
     textAlign: 'center',

@@ -149,7 +149,7 @@ export default function CalibrationMatrixModal({
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={s.scroll}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll}>
           {activeTab === 'matrix' ? (
             <>
               {/* Column headers */}

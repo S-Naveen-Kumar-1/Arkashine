@@ -514,6 +514,7 @@ export default function DeviceReadingsScreen({ navigation, route }) {
       deviceId,
       deviceType,
       deviceName,
+      device,
       reading: item,
     });
   };

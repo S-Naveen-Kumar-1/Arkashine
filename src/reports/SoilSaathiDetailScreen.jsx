@@ -27,8 +27,10 @@ import {
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
+import FileViewer from 'react-native-file-viewer';
 import { Buffer } from 'buffer';
 import { showMessage } from 'react-native-flash-message';
+import { notifyPdfDownloaded } from '../utils/downloadNotification';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -178,6 +180,10 @@ function extractPdfErrorMessage(e, fallback) {
     }
   }
 
+  if (axiosError?.code === 'ECONNABORTED') {
+    return 'Report generation is taking longer than expected. Please try again in a moment.';
+  }
+
   return axiosError?.message || fallback;
 }
 
@@ -194,10 +200,14 @@ function PDFDownloadButton({
   fileName,
 }) {
   const [downloading, setDownloading] = useState(false);
+  const [filePath, setFilePath] = useState(null);
 
-  const handleDownload = async () => {
+  // Downloads the PDF once and caches the local path — View/Share both
+  // reuse it instead of re-fetching from the server every tap.
+  const ensureDownloaded = async () => {
+    if (filePath) return filePath;
+    setDownloading(true);
     try {
-      setDownloading(true);
       const response = await dispatch(action(deviceId, readingId));
       const pdfData = response?.payload?.data;
 
@@ -206,29 +216,49 @@ function PDFDownloadButton({
       }
 
       const base64 = Buffer.from(pdfData).toString('base64');
-      const filePath =
+      const newPath =
         Platform.OS === 'android'
           ? `${RNFS.DownloadDirectoryPath}/${fileName}_${readingId}.pdf`
           : `${RNFS.DocumentDirectoryPath}/${fileName}_${readingId}.pdf`;
 
-      await RNFS.writeFile(filePath, base64, 'base64');
+      await RNFS.writeFile(newPath, base64, 'base64');
+      setFilePath(newPath);
       showMessage({ message: 'PDF downloaded successfully', type: 'success' });
+      notifyPdfDownloaded({ title, filePath: newPath });
+      return newPath;
+    } finally {
+      setDownloading(false);
+    }
+  };
 
+  // Opens the PDF directly in the device's PDF viewer (ACTION_VIEW) —
+  // previously this went straight to the OS share sheet (ACTION_SEND),
+  // which is why WhatsApp/Facebook showed up for what was meant to be a
+  // "view the report" action.
+  const handleView = async () => {
+    try {
+      const path = await ensureDownloaded();
+      if (!path) return;
+      await FileViewer.open(path, { showOpenWithDialog: true });
+    } catch (error) {
+      const msg = extractPdfErrorMessage(error, 'Failed to open PDF report');
+      showMessage({ message: msg, type: 'danger' });
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      const path = await ensureDownloaded();
+      if (!path) return;
       await Share.open({
-        url: `file://${filePath}`,
+        url: `file://${path}`,
         type: 'application/pdf',
         title: `Share ${title}`,
       });
     } catch (error) {
-      const msg = extractPdfErrorMessage(
-        error,
-        'Failed to download or share PDF report',
-      );
-      if (msg && !msg.includes('User did not share')) {
-        showMessage({ message: msg, type: 'danger' });
-      }
-    } finally {
-      setDownloading(false);
+      if (error?.message === 'User did not share') return;
+      const msg = extractPdfErrorMessage(error, 'Failed to share PDF report');
+      showMessage({ message: msg, type: 'danger' });
     }
   };
 
@@ -238,7 +268,7 @@ function PDFDownloadButton({
         pdfs.card,
         { backgroundColor: T.card, borderColor: T.border },
       ]}
-      onPress={handleDownload}
+      onPress={handleView}
       disabled={downloading}
       activeOpacity={0.8}
     >
@@ -251,9 +281,18 @@ function PDFDownloadButton({
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[pdfs.title, { color: T.text }]}>{title}</Text>
-        <Text style={[pdfs.sub, { color: T.muted }]}>{subtitle}</Text>
+        <Text style={[pdfs.sub, { color: T.muted }]}>
+          {downloading ? 'Generating report — up to a minute…' : subtitle}
+        </Text>
       </View>
-      <Icon name="download" size={18} color={DEVICE_COLOR} />
+      <TouchableOpacity
+        onPress={handleShare}
+        disabled={downloading}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={{ padding: 4 }}
+      >
+        <Icon name="share-variant" size={18} color={DEVICE_COLOR} />
+      </TouchableOpacity>
     </TouchableOpacity>
   );
 }
@@ -289,10 +328,12 @@ const pdfs = StyleSheet.create({
 
 function SoiLenzAdvisoryBanner({ deviceId, readingId, T, dispatch }) {
   const [downloading, setDownloading] = useState(false);
+  const [filePath, setFilePath] = useState(null);
 
-  const handleDownload = async () => {
+  const ensureDownloaded = async () => {
+    if (filePath) return filePath;
+    setDownloading(true);
     try {
-      setDownloading(true);
       const response = await dispatch(
         downloadSoilRecommendationPDF(deviceId, readingId),
       );
@@ -300,29 +341,50 @@ function SoiLenzAdvisoryBanner({ deviceId, readingId, T, dispatch }) {
       if (!pdfData) throw new Error('No PDF data');
 
       const base64 = Buffer.from(pdfData).toString('base64');
-      const filePath =
+      const newPath =
         Platform.OS === 'android'
           ? `${RNFS.DownloadDirectoryPath}/SoiLENZ_Advisory_${readingId}.pdf`
           : `${RNFS.DocumentDirectoryPath}/SoiLENZ_Advisory_${readingId}.pdf`;
 
-      await RNFS.writeFile(filePath, base64, 'base64');
+      await RNFS.writeFile(newPath, base64, 'base64');
+      setFilePath(newPath);
       showMessage({ message: 'PDF downloaded successfully', type: 'success' });
+      notifyPdfDownloaded({
+        title: 'SoiLENZ Advisory Report',
+        filePath: newPath,
+      });
+      return newPath;
+    } finally {
+      setDownloading(false);
+    }
+  };
 
+  // Opens the PDF directly in the device's PDF viewer instead of the OS
+  // share sheet — that's what was popping up WhatsApp/Facebook before.
+  const handleView = async () => {
+    try {
+      const path = await ensureDownloaded();
+      if (!path) return;
+      await FileViewer.open(path, { showOpenWithDialog: true });
+    } catch (e) {
+      const msg = extractPdfErrorMessage(e, 'Failed to open advisory report PDF');
+      showMessage({ message: msg, type: 'danger' });
+    }
+  };
+
+  const handleShare = async () => {
+    try {
+      const path = await ensureDownloaded();
+      if (!path) return;
       await Share.open({
-        url: `file://${filePath}`,
+        url: `file://${path}`,
         type: 'application/pdf',
         title: 'SoiLENZ Advisory Report',
       });
     } catch (e) {
-      const msg = extractPdfErrorMessage(
-        e,
-        'Failed to generate advisory report PDF',
-      );
-      if (msg && !msg.includes('User did not share')) {
-        showMessage({ message: msg, type: 'danger' });
-      }
-    } finally {
-      setDownloading(false);
+      if (e?.message === 'User did not share') return;
+      const msg = extractPdfErrorMessage(e, 'Failed to share advisory report PDF');
+      showMessage({ message: msg, type: 'danger' });
     }
   };
 
@@ -335,14 +397,24 @@ function SoiLenzAdvisoryBanner({ deviceId, readingId, T, dispatch }) {
         <View style={{ flex: 1 }}>
           <Text style={advBanner.title}>SoiLENZ Advisory Report</Text>
           <Text style={advBanner.subtitle}>
-            6-page AI soil health PDF — crop suitability, amendment plan, carbon credit dashboard
+            {downloading
+              ? 'Generating your report — this can take up to a minute…'
+              : '6-page AI soil health PDF — crop suitability, amendment plan, carbon credit dashboard'}
           </Text>
         </View>
       </View>
       <View style={advBanner.btnRow}>
         <TouchableOpacity
+          style={advBanner.shareBtn}
+          onPress={handleShare}
+          disabled={downloading}
+          activeOpacity={0.85}
+        >
+          <Icon name="share-variant" size={16} color="#A7F3D0" />
+        </TouchableOpacity>
+        <TouchableOpacity
           style={advBanner.downloadBtn}
-          onPress={handleDownload}
+          onPress={handleView}
           disabled={downloading}
           activeOpacity={0.85}
         >
@@ -350,8 +422,8 @@ function SoiLenzAdvisoryBanner({ deviceId, readingId, T, dispatch }) {
             <ActivityIndicator size="small" color="#064E3B" />
           ) : (
             <>
-              <Icon name="download" size={14} color="#064E3B" />
-              <Text style={advBanner.downloadBtnTxt}>Download PDF Report</Text>
+              <Icon name="file-eye-outline" size={14} color="#064E3B" />
+              <Text style={advBanner.downloadBtnTxt}>View Report</Text>
             </>
           )}
         </TouchableOpacity>
@@ -390,6 +462,16 @@ const advBanner = StyleSheet.create({
     flexDirection: 'row',
     marginTop: Spacing.sm,
     justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+  },
+  shareBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.md,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   downloadBtn: {
     flexDirection: 'row',
@@ -2257,6 +2339,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
     deviceId,
     deviceType,
     deviceName,
+    device,
     reading: passed,
     schema: passedSchema,
   } = route.params;
@@ -2422,8 +2505,8 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
               color={DEVICE_COLOR}
               T={T}
             >
-              <InfoRow icon="cellphone-link" label="Device ID" value={reading.devise_id} T={T} />
-              <InfoRow icon="barcode" label="Serial No" value={reading.serial_no} T={T} />
+              <InfoRow icon="cellphone-link" label="Device ID" value={device?.devise_id ?? deviceId} T={T} />
+              <InfoRow icon="barcode" label="Serial No" value={device?.serial_no} T={T} />
               <InfoRow icon="sprout-outline" label="Crop" value={reading.crop_type} T={T} />
               <InfoRow icon="map-marker-outline" label="Area" value={reading.area_name} T={T} />
               <InfoRow icon="tag-outline" label="Tag" value={reading.tag} T={T} />

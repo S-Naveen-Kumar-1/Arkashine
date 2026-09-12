@@ -6,10 +6,12 @@ import {
   Text,
   Image,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useDispatch } from 'react-redux';
+import LinearGradient from 'react-native-linear-gradient';
 import { C } from '../utils/colors';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -74,67 +76,85 @@ export function SplashScreen({ navigation }) {
     checkLogin();
   }, [startAnimation, checkLogin]);
   return (
-    <SafeAreaView style={styles.splash}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+    <LinearGradient
+      colors={[C.bg, C.surface]}
+      style={styles.splash}
+    >
+      <SafeAreaView style={styles.splash}>
+        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
 
-      <Animated.View
-        style={{
-          opacity: fadeAnim,
-          transform: [{ scale: scaleAnim }],
-          alignItems: 'center',
-        }}
-      >
-        <Image
-          source={require('../assets/images/app_logo.png')}
-          style={styles.splashLogoImg}
-          resizeMode="contain"
-        />
+        <Animated.View
+          style={{
+            opacity: fadeAnim,
+            transform: [{ scale: scaleAnim }],
+            alignItems: 'center',
+          }}
+        >
+          <View style={styles.logoCard}>
+            <Image
+              source={require('../assets/images/app_logo.png')}
+              style={styles.splashLogoImg}
+              resizeMode="contain"
+            />
+          </View>
 
-        <View style={styles.splashDot} />
-      </Animated.View>
-    </SafeAreaView>
+          <Text style={styles.splashTitle}>SOIL LENZ</Text>
+          <Text style={styles.splashSub}>SMART SOIL DIAGNOSTICS</Text>
+
+          <ActivityIndicator
+            color={C.accent}
+            style={styles.loader}
+          />
+        </Animated.View>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   splash: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  splashLogoImg: {
-    width: 220,
-    height: 220,
-    marginBottom: 10,
+  logoCard: {
+    width: 180,
+    height: 180,
+    borderRadius: 40,
+    backgroundColor: C.white,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    shadowColor: C.accent,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
   },
 
-  splashLogoText: {
-    fontSize: 52,
-    fontWeight: '900',
-    color: C.accent,
+  splashLogoImg: {
+    width: 130,
+    height: 130,
   },
 
   splashTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '900',
     color: C.white,
-    letterSpacing: 6,
+    letterSpacing: 5,
   },
 
   splashSub: {
-    fontSize: 14,
+    fontSize: 12,
     color: C.muted,
     marginTop: 6,
     letterSpacing: 2,
   },
 
-  splashDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: C.accent,
-    marginTop: 30,
+  loader: {
+    marginTop: 36,
   },
 });

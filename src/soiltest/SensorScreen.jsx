@@ -18,6 +18,7 @@ import useTheme from '../hooks/useTheme';
 import { Spacing, Typography } from '../theme';
 import { nutrients } from '../utils/constants';
 import { useDispatch, useSelector } from 'react-redux';
+import { showMessage } from 'react-native-flash-message';
 import {
   cmdCheckSoilSensorStatus,
   cmdGetSoilResult,
@@ -43,7 +44,12 @@ export function SensorScreen({ navigation }) {
   const [timerStarted, setTimerStarted] = useState(false);
 
   const intervalRef = useRef(null);
+  const startFallbackRef = useRef(null);
   const sensorStateFromBle = soilSathiData?.sensorStateFromBle;
+
+  // True until the device's first status confirmation arrives (or the
+  // fallback grace period elapses) — see the mount-only effect below.
+  const [awaitingStart, setAwaitingStart] = useState(true);
 
   // Check sensor status every 3 seconds
   useEffect(() => {
@@ -74,46 +80,90 @@ export function SensorScreen({ navigation }) {
     }
   }, [sensorStateFromBle]);
 
-  // Start timer on mount - only if sensor is NOT already stopped
-  useEffect(() => {
-    const initialStatus = sensorStateFromBle;
-    console.log('[SensorScreen] Initial sensor status:', initialStatus);
-
-    // If sensor is already stopped, don't start the timer
-    if (initialStatus && initialStatus.toLowerCase() === 'stopped') {
-      console.log('[SensorScreen] Sensor already stopped - not starting timer');
-      setSensorStopped(true);
-      setTimerDone(true);
-      setTimerStarted(false);
-      return;
-    }
-
-    // Start the timer
+  // Actually starts the count-up timer. Called at most once per screen
+  // visit — either as soon as the device confirms it's reading, or after
+  // the fallback grace period below if no confirmation ever arrives.
+  const beginTimer = () => {
     console.log('[SensorScreen] Starting timer from 0');
+    setAwaitingStart(false);
     setSensorTime(0);
     setTimerDone(false);
     setSensorStopped(false);
     setTimerStarted(true);
 
-    // Clear any existing interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      setSensorTime(prev => prev + 1);
+    }, 1000);
+
+    if (startFallbackRef.current) {
+      clearTimeout(startFallbackRef.current);
+      startFallbackRef.current = null;
+    }
+  };
+
+  // ✅ FIX (issue #5): this used to be keyed on [sensorStateFromBle] and
+  // re-ran — resetting sensorTime back to 0 — on every distinct BLE status
+  // string (not_started → reading → running → …). It now runs once on
+  // mount only, and waits for the device's first non-idle status before
+  // starting at all (issue #3: the app timer no longer starts before the
+  // device physically does), falling back to starting anyway after a
+  // grace period so a firmware that never sends this status doesn't leave
+  // the user stuck.
+  useEffect(() => {
+    const initialStatus = sensorStateFromBle;
+
+    if (initialStatus && initialStatus.toLowerCase() === 'stopped') {
+      console.log('[SensorScreen] Sensor already stopped - not starting timer');
+      setSensorStopped(true);
+      setTimerDone(true);
+      setTimerStarted(false);
+      setAwaitingStart(false);
+      return;
     }
 
-    intervalRef.current = setInterval(() => {
-      setSensorTime(prev => {
-        return prev + 1;
-      });
-    }, 1000);
+    if (initialStatus && initialStatus.toLowerCase() !== 'not_started') {
+      beginTimer();
+    } else {
+      startFallbackRef.current = setTimeout(() => {
+        showMessage({
+          message: 'Started without confirmation',
+          description: 'No status received from the device — check the connection.',
+          type: 'warning',
+          duration: 3000,
+        });
+        beginTimer();
+      }, 9000);
+    }
 
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      if (startFallbackRef.current) {
+        clearTimeout(startFallbackRef.current);
+        startFallbackRef.current = null;
+      }
       setTimerStarted(false);
     };
-  }, [sensorStateFromBle]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // If we're still waiting for the device's first confirmation and a
+  // status update arrives before the fallback timeout fires, start now.
+  useEffect(() => {
+    if (!awaitingStart) return;
+    const status = sensorStateFromBle;
+    if (
+      status &&
+      status.toLowerCase() !== 'not_started' &&
+      status.toLowerCase() !== 'stopped'
+    ) {
+      beginTimer();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sensorStateFromBle, awaitingStart]);
 
   // 🔵 Animation
   const pulse = useRef(new Animated.Value(0)).current;
@@ -240,6 +290,7 @@ export function SensorScreen({ navigation }) {
       />
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={s.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -281,7 +332,7 @@ export function SensorScreen({ navigation }) {
           </Text>
         )}
 
-        {/* Timer Display */}
+        {/* Timer Display — compact, single line */}
         <View style={s.timerWrap}>
           <View style={s.timerBox}>
             <Text
@@ -388,17 +439,25 @@ export function SensorScreen({ navigation }) {
           </View>
         )}
 
-        {/* Action Buttons - Show when sensor stopped */}
-        {shouldShowButton && (
+      </ScrollView>
+
+      {/* Floating footer — stays in place regardless of scroll position */}
+      {shouldShowButton && (
+        <View
+          style={[
+            s.footer,
+            { backgroundColor: T.bg, borderTopColor: T.border },
+          ]}
+        >
           <AppButton
             label={hasResults ? 'View Full Results' : 'Fetch Results'}
             onPress={handleFetchResults}
             color={T.primary}
             textColor="#fff"
-            style={{ marginTop: 20, marginBottom: 16, width: '100%' }}
+            style={{ width: '100%' }}
           />
-        )}
-      </ScrollView>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -411,7 +470,7 @@ const s = StyleSheet.create({
     justifyContent: 'flex-start',
     padding: Spacing.lg,
     paddingTop: 12,
-    paddingBottom: 60,
+    paddingBottom: 20,
   },
   center: {
     flex: 1,
@@ -432,22 +491,23 @@ const s = StyleSheet.create({
   },
   chipText: { fontSize: 12, fontWeight: '700' },
   sub: { fontSize: 14, marginBottom: 16, textAlign: 'center' },
-  timerWrap: { marginBottom: 16 },
+  timerWrap: { marginBottom: 12 },
   timerBox: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+    gap: 8,
+    paddingVertical: 8,
   },
   timerNum: {
-    fontSize: 64,
+    fontSize: 28,
     fontWeight: '900',
     fontFamily: 'monospace',
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
   timerUnit: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '700',
   },
   progressWrap: {
     width: '100%',
@@ -481,15 +541,21 @@ const s = StyleSheet.create({
   },
   nutriCard: {
     flex: 1,
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1.5,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     maxWidth: '31%',
   },
-  nutriLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4, textAlign: 'center' },
-  nutriValue: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5 },
+  nutriLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    flexShrink: 1,
+  },
+  nutriValue: { fontSize: 12, fontWeight: '800', marginLeft: 4 },
   resultPreview: {
     borderRadius: 12,
     padding: 14,
@@ -521,6 +587,10 @@ const s = StyleSheet.create({
   resultSub: {
     fontSize: 11,
     marginTop: 6,
+  },
+  footer: {
+    padding: Spacing.lg,
+    borderTopWidth: 1,
   },
 });
 

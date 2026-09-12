@@ -4,7 +4,7 @@ import { BASE_URL } from '../../ApiConfig';
 // PDF REPORT URL BUILDER
 // ==============================
 
-export function buildPdfReportUrl(report) {
+function buildPdfReportParams(report) {
   const params = new URLSearchParams();
   const co2Offset = String(report.co2_offset ?? '0').replace(/[^0-9.-]/g, '');
 
@@ -30,7 +30,33 @@ export function buildPdfReportUrl(report) {
     params.append('recommendations', report.recommendations.join('|'));
   }
 
+  return params;
+}
+
+export function buildPdfReportUrl(report) {
+  const params = buildPdfReportParams(report);
   return `${BASE_URL}/api/mobile/carbon-credits/pdf-report/?${params.toString()}`;
+}
+
+// GET the carbon credits PDF report via the authenticated axios client
+// (its request interceptor attaches the Bearer token automatically), instead
+// of RNFS.downloadFile's manual headers option which isn't reliable on Android.
+export function downloadCarbonPdfReport(report) {
+  const params = buildPdfReportParams(report);
+  return {
+    type: 'CARBON_PDF_REQUEST',
+    payload: {
+      request: {
+        url: `/api/mobile/carbon-credits/pdf-report/?${params.toString()}`,
+        method: 'GET',
+        responseType: 'arraybuffer',
+        // The report is generated on-demand server-side and can take
+        // 45-50s, well past the shared axios client's default 15s timeout.
+        timeout: 90000,
+        headers: { Accept: '*/*' },
+      },
+    },
+  };
 }
 
 // ==============================

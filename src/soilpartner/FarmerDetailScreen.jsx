@@ -43,6 +43,7 @@ import {
   resetUpdateFarmer,
   resetDeleteImage,
   resetFarmerApiCalls,
+  setActiveFarmer,
 } from '../redux/actions/soilPartnerActions';
 import { showMessage } from 'react-native-flash-message';
 
@@ -1595,6 +1596,22 @@ export default function FarmerDetailScreen({ navigation, route }) {
           </View>
         </View>
 
+        {/* ── Start Test ─────────────────────────────────────── */}
+        <Section title="Start Test" icon="test-tube" color={PRIMARY} T={T}>
+          <TouchableOpacity
+            style={[s.startTestBtn, { backgroundColor: PRIMARY }]}
+            onPress={() => {
+              dispatch(setActiveFarmer(farmerId, farmer?.name));
+              navigation.navigate('ProductsListingScreen');
+            }}
+          >
+            <Icon name="bluetooth-connect" size={16} color="#fff" />
+            <Text style={s.startTestTxt}>
+              Start Test for {farmer?.name ?? 'Farmer'}
+            </Text>
+          </TouchableOpacity>
+        </Section>
+
         {/* ── Current Status ─────────────────────────────────── */}
         <Section
           title="Current Status"
@@ -1939,6 +1956,20 @@ const s = StyleSheet.create({
   root: { flex: 1 },
   scroll: { padding: Spacing.lg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+
+  startTestBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: Radius.lg ?? 12,
+  },
+  startTestTxt: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
 
   heroCard: {
     borderRadius: Radius.xl,

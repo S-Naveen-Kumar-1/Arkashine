@@ -5,6 +5,7 @@ import RegisterScreen from './auth/RegisterScreen';
 const Stack = createNativeStackNavigator();
 import IntroScreen from './soiltest/IntroScreen';
 import PourScreen from './soiltest/PourScreen';
+import FilterWaitScreen from './soiltest/FilterWaitScreen';
 import { TimerScreen } from './soiltest/TimerScreen';
 import { SensorScreen } from './soiltest/SensorScreen';
 import ResultsScreen from './soiltest/ResultsScreen';
@@ -21,6 +22,7 @@ import PHCalibrationScreen from './phtest/PHCalibrationScreen';
 import ECCalibrationScreen from './phtest/ECCalibrationScreen';
 import CalibrationSummaryScreen from './phtest/CalibrationSummaryScreen';
 import MixerScreen from './phtest/MixerScreen';
+import InsertPhMeterScreen from './phtest/InsertPhMeterScreen';
 import Phecresultscreen from './phtest/Phecresultscreen';
 import BLEScanScreen from './screens/ble/DeviceScanScreen';
 import ReportsScreen from './reports/ReportsScreen';
@@ -82,6 +84,14 @@ export const AppStack = () => {
         <Stack.Screen
           name="PourScreen"
           component={PourScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="FilterWaitScreen"
+          component={FilterWaitScreen}
           options={{
             headerShown: false,
             // gestureEnabled: false,
@@ -202,6 +212,14 @@ export const AppStack = () => {
         <Stack.Screen
           name="MixerScreen"
           component={MixerScreen}
+          options={{
+            headerShown: false,
+            // gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="InsertPhMeterScreen"
+          component={InsertPhMeterScreen}
           options={{
             headerShown: false,
             // gestureEnabled: false,

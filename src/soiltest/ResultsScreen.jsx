@@ -12,7 +12,6 @@ TouchableOpacity,
 ActivityIndicator,
 Dimensions,
 Platform,
-Share,
 Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -26,6 +25,10 @@ LinearGradient,
 Stop,
 } from 'react-native-svg';
 import { useSelector, useDispatch } from 'react-redux';
+import RNFS from 'react-native-fs';
+import RNShare from 'react-native-share';
+import FileViewer from 'react-native-file-viewer';
+import { Buffer } from 'buffer';
 
 // ── your existing imports (unchanged paths) ──────────────────────────────────
 import { TopBar, AppButton } from '../components/common';
@@ -37,9 +40,13 @@ createSoilReading,
 getSoilRecommendations,
 getSoilAIRecommendations,
 buildSoilPayload,
+downloadSoilDetailPDF,
+downloadSoilRecommendationPDF,
 } from '../redux/actions/soilsaathiActions';
 // NEW: print command
 import { cmdPrintSoilResult } from '../redux/actions/bleActions';
+import { clearActiveFarmer } from '../redux/actions/soilPartnerActions';
+import { notifyPdfDownloaded } from '../utils/downloadNotification';
 
 const { width: SW } = Dimensions.get('window');
 const PAD = Spacing.lg ?? 16;
@@ -86,225 +93,12 @@ if (key === 'OC') return 5;  // ✅ Changed from 'oc' to 'OC'
 return 100;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PDF REPORT GENERATOR
-// Uses react-native-html-to-pdf if available, falls back to Share plaintext
-// Install: npm install react-native-html-to-pdf
-// ─────────────────────────────────────────────────────────────────────────────
-async function generatePDFReport({
-mapped,
-recs,
-aiText,
-callId,
-healthPct,
-T,
-}) {
-// Build HTML string
-const date = new Date().toLocaleDateString('en-IN', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-});
-
-const nutrientRows = mapped
-  .map(n => {
-    const st = getStatus(n.key, n.value, '#9CA3AF');
-    return `
-      <tr>
-        <td>${n.label ?? n.key}</td>
-        <td style="text-align:center;font-weight:700;">${formatValue(
-          n.value,
-        )}${n.unit ? ' ' + n.unit : ''}</td>
-        <td style="text-align:center;color:${st.color};font-weight:700;">${
-      st.label
-    }</td>
-      </tr>`;
-  })
-  .join('');
-
-const fertRows = (recs?.recommendations?.crop_fertilizer ?? [])
-  .map(group => {
-    const year = group[0];
-    const items = group
-      .slice(1)
-      .map(l => `<li>${l}</li>`)
-      .join('');
-    return `<div class="year-block"><h4>${year}</h4><ul>${items}</ul></div>`;
-  })
-  .join('');
-
-const fymLines = (recs?.recommendations?.fym ?? [])
-  .flat()
-  .map(l => `<li>${l}</li>`)
-  .join('');
-
-const html = `
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<style>
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: -apple-system, Arial, sans-serif; background:#fff; color:#111; padding:32px; font-size:13px; }
-h1 { font-size:22px; font-weight:900; color:#15803D; margin-bottom:4px; }
-.subtitle { color:#6B7280; font-size:12px; margin-bottom:24px; }
-.meta { display:flex; gap:24px; margin-bottom:24px; padding:12px 16px; background:#F0FDF4; border-radius:8px; border:1px solid #BBF7D0; }
-.meta-item label { font-size:10px; color:#6B7280; font-weight:700; text-transform:uppercase; }
-.meta-item span { font-size:14px; font-weight:800; color:#111; }
-h2 { font-size:15px; font-weight:800; color:#111; margin:20px 0 10px; padding-bottom:4px; border-bottom:2px solid #E5E7EB; }
-h3 { font-size:13px; font-weight:700; color:#374151; margin:14px 0 6px; }
-table { width:100%; border-collapse:collapse; margin-bottom:16px; }
-th { background:#F9FAFB; text-align:left; padding:8px 10px; font-size:11px; font-weight:700; color:#6B7280; text-transform:uppercase; border-bottom:1px solid #E5E7EB; }
-td { padding:8px 10px; border-bottom:1px solid #F3F4F6; font-size:12px; }
-tr:last-child td { border-bottom:none; }
-.year-block { background:#F0FDF4; border:1px solid #BBF7D0; border-radius:8px; padding:12px 16px; margin-bottom:10px; }
-.year-block h4 { color:#15803D; font-size:12px; font-weight:800; margin-bottom:6px; }
-.year-block ul { padding-left:16px; }
-.year-block li { font-size:12px; color:#374151; margin-bottom:3px; }
-.fym-block { background:#FFFBEB; border:1px solid #FDE68A; border-radius:8px; padding:12px 16px; margin-bottom:16px; }
-.fym-block ul { padding-left:16px; }
-.fym-block li { font-size:12px; color:#92400E; margin-bottom:3px; }
-.ai-block { background:#F5F3FF; border:1px solid #DDD6FE; border-radius:8px; padding:14px 16px; margin-bottom:16px; }
-.ai-block p { font-size:12px; color:#4C1D95; line-height:1.7; }
-.health-score { display:inline-block; background:#F0FDF4; border:2px solid #22C55E; border-radius:50%; width:64px; height:64px; line-height:64px; text-align:center; font-size:18px; font-weight:900; color:#15803D; float:right; margin-top:-8px; }
-.footer { margin-top:32px; padding-top:12px; border-top:1px solid #E5E7EB; color:#9CA3AF; font-size:10px; text-align:center; }
-</style>
-</head>
-<body>
-<div style="display:flex;justify-content:space-between;align-items:flex-start;">
-  <div>
-    <h1>🌱 Soil Analysis Report</h1>
-    <p class="subtitle">SoilSaathi · Generated on ${date}</p>
-  </div>
-  <div class="health-score">${healthPct}%</div>
-</div>
-
-<div class="meta">
-  <div class="meta-item">
-    <label>Reading ID</label><br/>
-    <span>#${callId ?? '—'}</span>
-  </div>
-  <div class="meta-item">
-    <label>Crop</label><br/>
-    <span>${recs?.crop_type ?? 'arabica_coffee'}</span>
-  </div>
-  <div class="meta-item">
-    <label>Health Score</label><br/>
-    <span style="color:#15803D">${healthPct}%</span>
-  </div>
-</div>
-
-<h2>Soil Nutrient Levels</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Nutrient</th>
-      <th style="text-align:center">Value</th>
-      <th style="text-align:center">Status</th>
-    </tr>
-  </thead>
-  <tbody>${nutrientRows}</tbody>
-</table>
-
-${
-  recs?.npk
-    ? `
-<h2>NPK Summary</h2>
-<table>
-  <thead><tr><th>Parameter</th><th style="text-align:center">Value</th><th style="text-align:center">Status</th></tr></thead>
-  <tbody>
-    ${Object.entries(recs.npk)
-      .map(([k, v]) => {
-        const st = getStatus(k, v, '#9CA3AF');
-        return `<tr><td>${k.toUpperCase()}</td><td style="text-align:center;font-weight:700;">${formatValue(
-          v,
-        )}</td><td style="text-align:center;color:${
-          st.color
-        };font-weight:700;">${st.label}</td></tr>`;
-      })
-      .join('')}
-  </tbody>
-</table>`
-    : ''
-}
-
-${
-  fymLines
-    ? `
-<h2>Organic / FYM Recommendation</h2>
-<div class="fym-block"><ul>${fymLines}</ul></div>`
-    : ''
-}
-
-${
-  fertRows
-    ? `
-<h2>Year-wise Fertilizer Schedule</h2>
-${fertRows}`
-    : ''
-}
-
-${
-  aiText
-    ? `
-<h2>AI-Powered Insights</h2>
-<div class="ai-block"><p>${aiText.replace(/\n/g, '<br/>')}</p></div>`
-    : ''
-}
-
-<div class="footer">Generated by SoilSaathi App · ${date}</div>
-</body>
-</html>`;
-
-try {
-  // Try react-native-html-to-pdf first
-  const RNHTMLtoPDF = require('react-native-html-to-pdf').default;
-  const options = {
-    html,
-    fileName: `SoilReport_${callId ?? Date.now()}`,
-    directory: Platform.OS === 'android' ? 'Downloads' : 'Documents',
-    base64: false,
-  };
-  const file = await RNHTMLtoPDF.convert(options);
-  await Share.share({
-    title: 'Soil Analysis Report',
-    url:
-      Platform.OS === 'android' ? `file://${file.filePath}` : file.filePath,
-    message:
-      Platform.OS === 'android'
-        ? `Soil report saved to ${file.filePath}`
-        : undefined,
-  });
-} catch (pdfErr) {
-  // Fallback: share as plain text summary
-  const plainText = [
-    '🌱 SOIL ANALYSIS REPORT',
-    `Date: ${date}`,
-    `Reading: #${callId ?? '—'}  Health: ${healthPct}%`,
-    '',
-    '── NUTRIENTS ──',
-    ...mapped.map(n => {
-      const st = getStatus(n.key, n.value, 'N/A');
-      return `${(n.label ?? n.key).padEnd(14)} ${formatValue(
-        n.value,
-      ).padStart(6)}${n.unit ? ' ' + n.unit : ''}  [${st.label}]`;
-    }),
-    '',
-    ...(recs?.recommendations?.fym?.flat() ?? []).map(l => `🌿 ${l}`),
-    '',
-    ...(recs?.recommendations?.crop_fertilizer ?? []).flatMap(g => [
-      g[0],
-      ...g.slice(1).map(l => `  ${l}`),
-    ]),
-    '',
-    aiText ? `🤖 AI INSIGHTS\n${aiText}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  await Share.share({ title: 'Soil Analysis Report', message: plainText });
-}
-}
+// PDF generation is handled server-side (see downloadSoilDetailPDF in
+// soilsaathiActions.js) and shared via handleDownload below — the same
+// fetch-bytes → write → Share.open pattern used for the Carbon Credit
+// report, which is the one proven to actually deliver a real PDF on
+// Android (react-native-share's FileProvider handling, not the RN core
+// `Share` API, which doesn't support file URLs on Android at all).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ANIMATED PROGRESS BAR
@@ -967,6 +761,52 @@ return (
   </TouchableOpacity>
 );
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// ADVISORY REPORT BUTTON — the same 6-page AI advisory PDF ("View Report")
+// available on the SoiLENZ reading detail screen, offered here too.
+// ─────────────────────────────────────────────────────────────────────────────
+function AdvisoryButton({ onPress, loading, T }) {
+return (
+  <TouchableOpacity
+    onPress={onPress}
+    activeOpacity={0.8}
+    style={[
+      adv.btn,
+      { borderColor: STATUS_COLORS.green, opacity: loading ? 0.6 : 1 },
+    ]}
+    disabled={loading}
+  >
+    {loading ? (
+      <ActivityIndicator
+        size="small"
+        color={STATUS_COLORS.green}
+        style={{ marginRight: 8 }}
+      />
+    ) : (
+      <Text style={[adv.icon, { color: STATUS_COLORS.green }]}>📄</Text>
+    )}
+    <Text style={[adv.label, { color: STATUS_COLORS.green }]}>
+      {loading ? 'Generating advisory report…' : 'View Advisory Report'}
+    </Text>
+  </TouchableOpacity>
+);
+}
+const adv = StyleSheet.create({
+btn: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 12,
+  borderWidth: 1.5,
+  paddingVertical: 14,
+  gap: 8,
+  marginTop: 8,
+  marginBottom: 4,
+},
+icon: { fontSize: 16 },
+label: { fontSize: 14, fontWeight: '800', letterSpacing: 0.2 },
+});
+
 const dl = StyleSheet.create({
 btn: {
   flexDirection: 'row',
@@ -1047,6 +887,9 @@ const devices = useSelector(s => s.userDevices?.devices || []);
 const soilLenzDevice = devices.find(d => d.devise_type === 'soilsaathi');
 const soilData = useSelector(s => s.soilsaathi?.bleResultData);
 const deviceId = soilLenzDevice?.id;
+// Set when a soil partner starts this test from a farmer's detail page
+// (FarmerDetailScreen) — absent for the regular non-partner BLE flow.
+const activeFarmerId = useSelector(s => s.soilPartner?.activeFarmerId);
 
 // BLE connection + print status (printStatus comes from the
 // BLE_PRINT_STATUS action dispatched in bleActions.js — 'printing' |
@@ -1066,6 +909,8 @@ const [recsLoading, setRecsLoading] = useState(false);
 const [aiRecsLoading, setAiRecsLoading] = useState(false);
 const [tab, setTab] = useState('nutrients');
 const [pdfLoading, setPdfLoading] = useState(false);
+const [advisoryLoading, setAdvisoryLoading] = useState(false);
+const [advisoryPath, setAdvisoryPath] = useState(null);
 const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
 // local "request sent, waiting for STARTED/DONE/ERROR" flag — covers the
 // brief gap before printStatus flips, and doubles as the timeout trigger.
@@ -1140,6 +985,7 @@ const saveReading = useCallback(async () => {
       cropType: route?.params?.cropType ?? 'arabica_coffee',
       latitude: route?.params?.latitude ?? 0,
       longitude: route?.params?.longitude ?? 0,
+      farmerId: activeFarmerId,
     });
 
     const result = await dispatch(createSoilReading(deviceId, payload));
@@ -1151,6 +997,7 @@ const saveReading = useCallback(async () => {
     console.log('[SoilResults] Reading saved with ID:', id);
     setCallId(id);
     setPhase('fetching');
+    if (activeFarmerId) dispatch(clearActiveFarmer());
     fetchBothRecs(id);
   } catch (e) {
     console.warn('[SoilResults] saveReading error:', e);
@@ -1160,7 +1007,7 @@ const saveReading = useCallback(async () => {
     // function in a tight loop. The user (or retrySave) decides when to
     // try again.
   }
-}, [soilData, deviceId, hasAttemptedSave]);
+}, [soilData, deviceId, hasAttemptedSave, activeFarmerId]);
 
 // explicit, user-triggered retry. Only this resets hasAttemptedSave,
 // which lets the effect below fire saveReading() exactly once more.
@@ -1247,15 +1094,82 @@ useEffect(() => {
 
 // ── PDF download ─────────────────────────────────────────────────────────
 const handleDownload = useCallback(async () => {
+  if (!deviceId || !callId) {
+    Alert.alert(
+      'Not ready',
+      'The reading needs to finish saving before a report can be downloaded.',
+    );
+    return;
+  }
   setPdfLoading(true);
   try {
-    await generatePDFReport({ mapped, recs, aiText, callId, healthPct, T });
+    const response = await dispatch(downloadSoilDetailPDF(deviceId, callId));
+    const pdfData = response?.payload?.data;
+    if (!pdfData) throw new Error('No PDF data received');
+
+    const fileUri =
+      Platform.OS === 'android'
+        ? `${RNFS.DownloadDirectoryPath}/soil_report_${callId}_${Date.now()}.pdf`
+        : `${RNFS.DocumentDirectoryPath}/soil_report_${callId}_${Date.now()}.pdf`;
+    const base64 = Buffer.from(pdfData).toString('base64');
+    await RNFS.writeFile(fileUri, base64, 'base64');
+
+    await RNShare.open({
+      url: Platform.OS === 'android' ? `file://${fileUri}` : fileUri,
+      type: 'application/pdf',
+      title: 'Soil Analysis Report',
+    });
   } catch (e) {
+    if (e?.message === 'User did not share') return;
     Alert.alert('Export failed', e?.message ?? 'Unknown error');
   } finally {
     setPdfLoading(false);
   }
-}, [mapped, recs, aiText, callId, healthPct, T]);
+}, [deviceId, callId, dispatch]);
+
+// ── Advisory report (6-page AI PDF) download — same endpoint/flow as the
+// "View Report" button on the SoiLENZ reading detail screen, so users can
+// get the full advisory right after a BLE test instead of navigating to
+// Reports. Caches the local path so a re-tap doesn't re-download.
+const handleViewAdvisory = useCallback(async () => {
+  if (!deviceId || !callId) {
+    Alert.alert(
+      'Not ready',
+      'The reading needs to finish saving before the advisory report can be generated.',
+    );
+    return;
+  }
+  try {
+    let path = advisoryPath;
+    if (!path) {
+      setAdvisoryLoading(true);
+      const response = await dispatch(
+        downloadSoilRecommendationPDF(deviceId, callId),
+      );
+      const pdfData = response?.payload?.data;
+      if (!pdfData) throw new Error('No PDF data received');
+
+      path =
+        Platform.OS === 'android'
+          ? `${RNFS.DownloadDirectoryPath}/SoiLENZ_Advisory_${callId}.pdf`
+          : `${RNFS.DocumentDirectoryPath}/SoiLENZ_Advisory_${callId}.pdf`;
+      const base64 = Buffer.from(pdfData).toString('base64');
+      await RNFS.writeFile(path, base64, 'base64');
+      setAdvisoryPath(path);
+      notifyPdfDownloaded({ title: 'SoiLENZ Advisory Report', filePath: path });
+    }
+    await FileViewer.open(path, { showOpenWithDialog: true });
+  } catch (e) {
+    const axiosError = e?.error ?? e;
+    const msg =
+      axiosError?.code === 'ECONNABORTED'
+        ? 'Report generation is taking longer than expected. Please try again in a moment.'
+        : axiosError?.message ?? 'Failed to open advisory report';
+    Alert.alert('Advisory report', msg);
+  } finally {
+    setAdvisoryLoading(false);
+  }
+}, [deviceId, callId, dispatch, advisoryPath]);
 
 // ── FIX: send print command to the device — pure trigger, no payload ───
 // Previously this built a big printPayload (all nutrients + fertilizer
@@ -1343,6 +1257,7 @@ return (
         </View>
 
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={[s.scroll, { padding: PAD }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -1427,15 +1342,13 @@ return (
 
               <SectionHead
                 title="Macronutrients"
-                sub="pH · EC · OC · N · P · K"
+                sub="OC · N · P · K"
                 T={T}
               />
               <View style={s.grid}>
                 {mapped
                   .filter(m =>
                     [
-                      'ph',
-                      'ec',
                       'OC',
                       'N',
                       'P',
@@ -1516,13 +1429,13 @@ return (
 
               <SectionHead
                 title="Soil Chemistry"
-                sub="pH · EC · OC animated bars"
+                sub="OC animated bar"
                 T={T}
               />
-              {['ph', 'ec', 'OC'].map(k => {
+              {['OC'].map(k => {
                 const item = mapped.find(m => m.key === k);
                 const st = getStatus(k, item?.value, T.muted);
-                const maxV = k === 'ph' ? 14 : k === 'ec' ? 3 : 5;
+                const maxV = 5;
                 return (
                   <View
                     key={k}
@@ -1708,6 +1621,11 @@ return (
                 loading={pdfLoading}
                 T={T}
               />
+              <AdvisoryButton
+                onPress={handleViewAdvisory}
+                loading={advisoryLoading}
+                T={T}
+              />
             </>
           )}
 
@@ -1721,6 +1639,11 @@ return (
                 T={T}
               />
               <DownloadButton onPress={handleDownload} loading={pdfLoading} T={T} />
+              <AdvisoryButton
+                onPress={handleViewAdvisory}
+                loading={advisoryLoading}
+                T={T}
+              />
             </>
           )}
         </ScrollView>

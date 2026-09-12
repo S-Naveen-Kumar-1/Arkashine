@@ -55,7 +55,7 @@ export default function IntroScreen({ navigation }) {
         theme={theme}
       />
 
-      <ScrollView contentContainerStyle={s.scroll} bounces={false}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} bounces={false}>
         {/* HERO */}
         <View
           style={[
@@ -72,24 +72,24 @@ export default function IntroScreen({ navigation }) {
             <Text style={s.badgeText}>SOILENZ DEVICE</Text>
           </View>
 
-          <Icon name="leaf" size={40} color={T.primary} />
+          <Icon name="leaf" size={24} color={T.primary} />
 
           <Text
             style={[
-              Typography.h1,
-              { color: T.text, textAlign: 'center', marginTop: 10 },
+              Typography.h3,
+              { color: T.text, textAlign: 'center', marginTop: 4 },
             ]}
           >
-            Soil Testing{'\n'}Made Easy
+            Soil Testing Made Easy
           </Text>
 
           <Text
             style={[
-              Typography.body,
+              Typography.small,
               {
                 color: T.textSub,
                 textAlign: 'center',
-                marginTop: 8,
+                marginTop: 2,
                 paddingHorizontal: 10,
               },
             ]}
@@ -100,7 +100,7 @@ export default function IntroScreen({ navigation }) {
 
         {/* SECTION TITLE */}
         <Text
-          style={[Typography.h4, { color: T.text, marginBottom: Spacing.sm }]}
+          style={[Typography.h4, { color: T.text, marginBottom: Spacing.xs }]}
         >
           How it works
         </Text>
@@ -215,17 +215,17 @@ const s = StyleSheet.create({
   container: { flex: 1 },
 
   scroll: {
-    padding: 12,
-    paddingBottom: 20,
+    padding: 10,
+    paddingBottom: 12,
   },
 
   hero: {
     borderRadius: Radius.xl,
     borderWidth: 1,
-    paddingVertical: 14, // ↓ reduced
-    paddingHorizontal: 12, // ↓ reduced
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     alignItems: 'center',
-    marginBottom: 12, // ↓ reduced
+    marginBottom: 8,
   },
 
   heroEmoji: {
@@ -250,15 +250,15 @@ const s = StyleSheet.create({
     alignItems: 'center',
     borderRadius: Radius.lg,
     borderWidth: 1,
-    padding: 10, // ↓ reduced from 16
-    marginBottom: 8, // ↓ reduced
+    padding: 8,
+    marginBottom: 6,
     gap: 8,
   },
 
   stepNum: {
-    width: 34, // ↓ reduced
-    height: 34,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -277,9 +277,9 @@ const s = StyleSheet.create({
   specBox: {
     borderRadius: Radius.md,
     borderWidth: 1,
-    padding: 10, // ↓ reduced
-    marginTop: 6,
-    marginBottom: 10,
+    padding: 8,
+    marginTop: 2,
+    marginBottom: 8,
   },
 
   specTitle: {
@@ -302,7 +302,7 @@ const s = StyleSheet.create({
   },
 
   cta: {
-    marginTop: 4, // ↓ reduced
+    marginTop: 2,
     borderRadius: Radius.lg,
     shadowOpacity: 0.3,
     shadowRadius: 6,
@@ -312,6 +312,6 @@ const s = StyleSheet.create({
   hint: {
     fontSize: 11,
     textAlign: 'center',
-    marginTop: 6,
+    marginTop: 4,
   },
 });
