@@ -389,18 +389,10 @@ export function TimerScreen({ navigation, route }) {
             <View style={s.stepDivider} />
 
             {[
-              {
-                title: 'Start SoilLenz Test',
-                desc: 'The motor mixes soil with extractant solution for nutrient extraction',
-              },
-              {
-                title: 'Wait for Mixing to Complete',
-                desc: 'The motor runs for 60 seconds to ensure proper soil-extractant mixing',
-              },
-              {
-                title: 'Reconnect for the Full Profile',
-                desc: 'Once mixing finishes, reconnect to SoilLenz to pull the complete nutrient profile',
-              },
+              'Add 5 g soil sample to the beaker',
+              'Add 50 ml extractant solution',
+              'Place the beaker under the mixer',
+              'Ensure the EC probe is connected and ready',
             ].map((step, i) => (
               <View key={i} style={s.stepRow}>
                 <View style={[s.stepNumber, { backgroundColor: T.primaryGlow }]}>
@@ -409,12 +401,7 @@ export function TimerScreen({ navigation, route }) {
                   </Text>
                 </View>
                 <View style={s.stepContent}>
-                  <Text style={[s.stepTitle, { color: T.text }]}>
-                    {step.title}
-                  </Text>
-                  <Text style={[s.stepDescription, { color: T.muted }]}>
-                    {step.desc}
-                  </Text>
+                  <Text style={[s.stepTitle, { color: T.text }]}>{step}</Text>
                 </View>
               </View>
             ))}
@@ -711,10 +698,6 @@ const s = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 2,
-  },
-  stepDescription: {
-    fontSize: 12,
-    lineHeight: 18,
   },
 
   instrCard: {

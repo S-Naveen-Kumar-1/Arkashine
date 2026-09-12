@@ -27,6 +27,7 @@ const init = {
   motorStateFromBle: null,
   sensorStateFromBle: null,
   bleResultData: null,
+  bleResultError: null,
 
   createStatus: 'idle',
   createError: null,
@@ -91,7 +92,9 @@ export default function soilsaathiReducer(state = init, action) {
     case 'SOIL_SENSOR_STATE_FROM_BLE':
       return { ...state, sensorStateFromBle: action.payload.data };
     case 'SOIL_BLE_RESULT':
-      return { ...state, bleResultData: action.payload };
+      return { ...state, bleResultData: action.payload, bleResultError: null };
+    case 'SOIL_RESULT_ERROR':
+      return { ...state, bleResultError: action.payload };
 
     // ── CRUD ──────────────────────────────────────────────────────────────
     case SOIL_CREATE_REQUEST:

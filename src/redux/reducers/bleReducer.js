@@ -37,6 +37,7 @@ import {
   BLE_FINAL_RESULT,
   CAL_POINT_DONE,
   BLE_MIXING_COMPLETE,
+  BLE_PRINT_STATUS,
 } from '../../config/actionTypes';
 
 const MAX_LOGS = 300;
@@ -110,7 +111,11 @@ const init = {
 
   // Debug log ring buffer
   debugLogs: [],
-  mixingCompleted:null
+  mixingCompleted:null,
+
+  // Print status — ← {"SOILPRINT":"STARTED"|"DONE"|"ERROR"|"PRINTED_CONSOLE"}
+  // { status: 'printing'|'done'|'error', message? }
+  printStatus: null,
 };
 
 export default function bleReducer(state = init, action) {
@@ -136,6 +141,8 @@ export default function bleReducer(state = init, action) {
     }
        case BLE_MIXING_COMPLETE:
      return { ...state, mixingCompleted: action.payload };
+    case BLE_PRINT_STATUS:
+      return { ...state, printStatus: action.payload };
 
     case BLE_CONNECT_REQUEST:
       return {

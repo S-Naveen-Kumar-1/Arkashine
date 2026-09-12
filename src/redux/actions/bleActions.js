@@ -94,9 +94,16 @@ const _mock = {
 // them stuck on a spinner/countdown that may not reflect reality.
 const HANDSHAKE_ACK_TIMEOUT_MS = 10_000;
 const MOTOR_ACK_TIMEOUT_MS = 8_000;
+const SOIL_RESULT_TIMEOUT_MS = 10_000;
+// Firmware's motor pulse (_run_mixing_workflow) only runs for MOTORSPEED=200ms
+// and sends MIXING_COMPLETED right after — this timeout is generous slack for
+// that, NOT the app's separate ~60s soak-time UI wait (those are unrelated).
+const MIXING_ACK_TIMEOUT_MS = 5_000;
 let _handshakeTimer = null;
 let _phMotorAckTimer = null;
 let _soilMotorAckTimer = null;
+let _soilResultAckTimer = null;
+let _soilMixingAckTimer = null;
 
 function _clearHandshakeTimer() {
   if (_handshakeTimer) {
@@ -158,6 +165,51 @@ function _armSoilMotorAckTimer(dispatch) {
       duration: 4000,
     });
   }, MOTOR_ACK_TIMEOUT_MS);
+}
+
+function _clearSoilResultAckTimer() {
+  if (_soilResultAckTimer) {
+    clearTimeout(_soilResultAckTimer);
+    _soilResultAckTimer = null;
+  }
+}
+
+function _armSoilResultAckTimer(dispatch) {
+  _clearSoilResultAckTimer();
+  _soilResultAckTimer = setTimeout(() => {
+    _soilResultAckTimer = null;
+    dispatch({
+      type: 'SOIL_RESULT_ERROR',
+      payload: 'No result received from the device within the expected time.',
+    });
+    showMessage({
+      message: 'No result received from device',
+      description: 'The soil test result never arrived. Please try fetching again.',
+      type: 'danger',
+      duration: 4000,
+    });
+  }, SOIL_RESULT_TIMEOUT_MS);
+}
+
+function _clearSoilMixingAckTimer() {
+  if (_soilMixingAckTimer) {
+    clearTimeout(_soilMixingAckTimer);
+    _soilMixingAckTimer = null;
+  }
+}
+
+function _armSoilMixingAckTimer(dispatch) {
+  _clearSoilMixingAckTimer();
+  _soilMixingAckTimer = setTimeout(() => {
+    _soilMixingAckTimer = null;
+    dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'mixing_error' } });
+    showMessage({
+      message: 'Motor pulse not confirmed',
+      description: 'The device started but never confirmed the mix — the motor may not have run.',
+      type: 'warning',
+      duration: 4000,
+    });
+  }, MIXING_ACK_TIMEOUT_MS);
 }
 
 // ─── FIX: self-healing balanced-JSON scanner ───────────────────────────────
@@ -420,8 +472,10 @@ async function _mockSendJSON(payload, dispatch) {
     _mock.soilMotorRunning = true;
     _mock.soilMotorStartedAt = Date.now();
     _mockReply({ SOILTEST: 'STARTED' }, dispatch, 400);
+    _mockReply({ SOILTEST: 'MIXING_COMPLETED' }, dispatch, 600);
   } else if (payload.SOILTEST === 'STOP') {
     _mock.soilMotorRunning = false;
+    _mockReply({ SOILTEST: 'STOPPED' }, dispatch, 200);
   } else if (payload.CHECKSOILMOTORSTATUS !== undefined) {
     const running =
       _mock.soilMotorRunning &&
@@ -654,13 +708,25 @@ function parsePayload(jsonStr, dispatch) {
     dispatch(ac.printStatus({ status: 'done' }));
     return null;
   }
+  // Firmware sends the printed-to-console-only fallback (no physical
+  // printer attached) as its own status, distinct from DONE/ERROR.
+  if (parsed.SOILPRINT === 'PRINTED_CONSOLE') {
+    dispatch(
+      ac.log('PRINT', `← SOILPRINT PRINTED_CONSOLE: ${parsed.message || ''}`),
+    );
+    dispatch(
+      ac.printStatus({
+        status: 'done',
+        message: parsed.message || 'Printed to console only',
+      }),
+    );
+    return null;
+  }
   if (parsed.SOILPRINT === 'ERROR') {
-    dispatch(
-      ac.log('PRINT', `← SOILPRINT ERROR: ${parsed.MESSAGE || 'unknown'}`),
-    );
-    dispatch(
-      ac.printStatus({ status: 'error', message: parsed.MESSAGE || 'Print failed' }),
-    );
+    // Firmware's actual key is lowercase "message" (not "MESSAGE").
+    const errMsg = parsed.message || parsed.MESSAGE || 'unknown';
+    dispatch(ac.log('PRINT', `← SOILPRINT ERROR: ${errMsg}`));
+    dispatch(ac.printStatus({ status: 'error', message: errMsg }));
     return null;
   }
 
@@ -713,6 +779,12 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.ERROR) {
     dispatch(ac.log('ERROR', `← Device ERROR: ${parsed.ERROR}`));
     dispatch(ac.deviceError(parsed.ERROR));
+    // Covers {"FINALSOILRESULT":null,"ERROR":"No result yet"} — a definitive
+    // reply, so stop waiting instead of letting the ack timer also fire.
+    if ('FINALSOILRESULT' in parsed) {
+      _clearSoilResultAckTimer();
+      dispatch({ type: 'SOIL_RESULT_ERROR', payload: parsed.ERROR });
+    }
     return null;
   }
 
@@ -725,16 +797,24 @@ function parsePayload(jsonStr, dispatch) {
   // ─── Soil test messages ───────────────────────────────────────────────────
   if (parsed.SOILTEST === 'STARTED') {
     _clearSoilMotorAckTimer();
+    _armSoilMixingAckTimer(dispatch);
     dispatch(ac.motorStatus('running'));
     dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'running' } });
     showMessage({ message: 'Motor started ✅', type: 'success', duration: 1500 });
   }
-  if (parsed.SOILTEST === 'MIXING_COMPLETED')
+  if (parsed.SOILTEST === 'MIXING_COMPLETED') {
+    _clearSoilMixingAckTimer();
     dispatch({
       type: 'SOIL_MOTOR_STATE',
       payload: { data: 'mixing completed' },
     });
-
+  }
+  // ← real device ack for {"SOILTEST":"STOP"}, previously unhandled/ignored
+  if (parsed.SOILTEST === 'STOPPED') {
+    dispatch(ac.log('TEST', '← SOILTEST STOPPED'));
+    dispatch(ac.motorStatus('stopped'));
+    dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'stopped' } });
+  }
   if (parsed.SOILMOTORSTATUS === 'RUNNING')
     dispatch({
       type: 'SOIL_MOTOR_STATE_FROM_BLE',
@@ -886,6 +966,7 @@ function parsePayload(jsonStr, dispatch) {
   }
 
   if (parsed.FINALSOILRESULT && typeof parsed.FINALSOILRESULT === 'object') {
+    _clearSoilResultAckTimer();
     dispatch({
       type: 'SOIL_BLE_RESULT',
       payload: normalizeSoil(parsed.FINALSOILRESULT),
@@ -1038,6 +1119,21 @@ export const connectDevice = rawDevice => async dispatch => {
     conn.onDisconnected(() => {
       dispatch(ac.log('DISCONNECT', 'Device disconnected'));
       dispatch(ac.disconnect());
+      // Surface the drop immediately, whatever flow/screen is in progress
+      // (mixing, sensor read, print, calibration, …) — a stuck spinner
+      // waiting on a notification that will now never arrive is worse
+      // than an explicit "disconnected" message.
+      _clearHandshakeTimer();
+      _clearPhMotorAckTimer();
+      _clearSoilMotorAckTimer();
+      _clearSoilResultAckTimer();
+      _clearSoilMixingAckTimer();
+      showMessage({
+        message: 'Device disconnected',
+        description: 'Bluetooth connection lost. Attempting to reconnect…',
+        type: 'danger',
+        duration: 4000,
+      });
       _notifySub?.remove();
       _notifySub = null;
       _device = null;
@@ -1236,9 +1332,9 @@ export const cmdStopSoilTest = () => dispatch => {
   _userStoppedMotor = true;
   _prevMotorStatus = 'stopped';
   _clearSoilMotorAckTimer();
+  _clearSoilMixingAckTimer();
   dispatch(ac.motorStatus('stopped'));
   dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'Stopped' } });
-  dispatch({ type: 'SOIL_SENSOR_STATE_FROM_BLE', payload: { data: 'STOPPED' } });
   showMessage({ message: 'Stop command sent', type: 'info', duration: 1500 });
   return _sendJSON({ SOILTEST: 'STOP' }, dispatch);
 };
@@ -1248,8 +1344,13 @@ export const cmdStartSoilSensor = () => dispatch =>
   _sendJSON({ SOILSENSOR: 'READ' }, dispatch);
 export const cmdCheckSoilSensorStatus = () => dispatch =>
   _sendJSON({ CHECKSOILSENSORSTATUS: 'CHECKSOILSENSORSTATUS' }, dispatch);
-export const cmdGetSoilResult = () => dispatch =>
-  _sendJSON({ SOILRESULT: 'GET' }, dispatch);
+export const cmdGetSoilResult = () => async dispatch => {
+  dispatch({ type: 'SOIL_RESULT_ERROR', payload: null });
+  _armSoilResultAckTimer(dispatch);
+  const ok = await _sendJSON({ SOILRESULT: 'GET' }, dispatch);
+  if (!ok) _clearSoilResultAckTimer();
+  return ok;
+};
 
 // ─── FIX: PRINT SOIL RESULT — pure trigger, no payload ──────────────────────
 // Previously this sent the full report (all nutrients + fertilizer schedule

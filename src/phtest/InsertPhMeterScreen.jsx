@@ -378,20 +378,6 @@ export default function InsertPhMeterScreen({ navigation }) {
         {mixingCompleted && (
           <View style={s.completedActions}>
             <TouchableOpacity
-              style={[
-                s.reRunBtn,
-                { borderColor: T.primary, backgroundColor: T.primaryGlow },
-              ]}
-              activeOpacity={0.85}
-              onPress={handleStart}
-            >
-              <Icon name="restart" size={20} color={T.primary} />
-              <Text style={[s.reRunBtnText, { color: T.primary }]}>
-                Re-Run
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
               style={[s.resultBtn, { backgroundColor: T.primary }]}
               activeOpacity={0.85}
               onPress={getFinalResults}
@@ -522,17 +508,6 @@ const s = StyleSheet.create({
   },
   stopBtnText: { color: '#EF4444', fontSize: 15, fontWeight: '800' },
   completedActions: { width: '100%', gap: 12, marginTop: 10 },
-  reRunBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    width: '100%',
-    height: 52,
-    borderRadius: Radius.lg,
-    borderWidth: 1.5,
-  },
-  reRunBtnText: { fontSize: 15, fontWeight: '800' },
   resultBtn: {
     flexDirection: 'row',
     alignItems: 'center',

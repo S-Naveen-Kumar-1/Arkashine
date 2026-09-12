@@ -44,7 +44,7 @@ downloadSoilDetailPDF,
 downloadSoilRecommendationPDF,
 } from '../redux/actions/soilsaathiActions';
 // NEW: print command
-import { cmdPrintSoilResult } from '../redux/actions/bleActions';
+import { cmdPrintSoilResult, cmdGetSoilResult } from '../redux/actions/bleActions';
 import { clearActiveFarmer } from '../redux/actions/soilPartnerActions';
 import { notifyPdfDownloaded } from '../utils/downloadNotification';
 
@@ -886,6 +886,7 @@ const dispatch = useDispatch();
 const devices = useSelector(s => s.userDevices?.devices || []);
 const soilLenzDevice = devices.find(d => d.devise_type === 'soilsaathi');
 const soilData = useSelector(s => s.soilsaathi?.bleResultData);
+const soilResultError = useSelector(s => s.soilsaathi?.bleResultError);
 const deviceId = soilLenzDevice?.id;
 // Set when a soil partner starts this test from a farmer's detail page
 // (FarmerDetailScreen) — absent for the regular non-partner BLE flow.
@@ -1226,8 +1227,19 @@ return (
     {!hasData && phase === 'idle' && (
       <View style={s.noDataContainer}>
         <Text style={[s.noDataText, { color: T.textSub }]}>
-          No soil data available. Please go back and run the sensor test.
+          {soilResultError
+            ? `Could not fetch results: ${soilResultError}`
+            : 'No soil data available. Please go back and run the sensor test.'}
         </Text>
+        {soilResultError && (
+          <AppButton
+            label="Retry Fetch"
+            onPress={() => dispatch(cmdGetSoilResult())}
+            color={T.primary}
+            textColor="#fff"
+            style={{ marginTop: 16 }}
+          />
+        )}
         <AppButton
           label="Go to Sensor"
           onPress={() => navigation.navigate('SensorScreen')}
