@@ -44,6 +44,7 @@ import {
   fetchReadingDetail,
   clearSelectedReading,
   fetchDeviceFieldSchema,
+  fetchDeviceFieldThresholds,
 } from '../redux/actions/reportsActions';
 import {
   getSoilRecommendations,
@@ -111,8 +112,8 @@ const RANGES = {
   boron: { low: 0.5, high: 1.5, unit: 'ppm', max: 5 },
 };
 
-function levelFor(key, value) {
-  const r = RANGES[key];
+function levelFor(key, value, ranges = RANGES) {
+  const r = ranges[key];
   if (!r || value == null || value === 0)
     return {
       label: 'No data',
@@ -135,6 +136,12 @@ function levelFor(key, value) {
     bg: '#16A34A20',
     text: '#16A34A',
   };
+}
+
+function fmtRange(r) {
+  if (!r) return '';
+  const unit = r.unit ? (r.unit === '%' ? r.unit : ` ${r.unit}`) : '';
+  return `${r.low} - ${r.high}${unit}`;
 }
 
 function parseFertLine(line) {
@@ -1479,7 +1486,7 @@ function PlotsSection({ deviceId, readingId, reading, T, dispatch, navigation })
 
 // ─── TAB: Crop Recommendation ────────────────────────────────────────────────
 
-function CropRecommendationTabView({ reading, soilAIRecs, soilAIRecsLoading, soilAIRecsError, T }) {
+function CropRecommendationTabView({ reading, soilAIRecs, soilAIRecsLoading, soilAIRecsError, ranges, T }) {
   return (
     <View>
       <AICropCard
@@ -1497,12 +1504,12 @@ function CropRecommendationTabView({ reading, soilAIRecs, soilAIRecsLoading, soi
       >
         <View style={s.nutriTable}>
           {[
-            { label: 'Nitrogen (N)', val: reading?.nitrogen, range: '280 - 560 kg/ha' },
-            { label: 'Phosphorous (P)', val: reading?.phosphorous, range: '22 - 56 kg/ha' },
-            { label: 'Potassium (K)', val: reading?.potassium, range: '141 - 336 kg/ha' },
-            { label: 'pH', val: reading?.ph, range: '6.5 - 7.5' },
-            { label: 'EC', val: reading?.ec, range: '0 - 4 dS/m' },
-            { label: 'OC', val: reading?.oc ? `${reading.oc}%` : '0%', range: '0.5 - 0.75%' },
+            { label: 'Nitrogen (N)', val: reading?.nitrogen, range: fmtRange(ranges.nitrogen) },
+            { label: 'Phosphorous (P)', val: reading?.phosphorous, range: fmtRange(ranges.phosphorous) },
+            { label: 'Potassium (K)', val: reading?.potassium, range: fmtRange(ranges.potassium) },
+            { label: 'pH', val: reading?.ph, range: fmtRange(ranges.ph) },
+            { label: 'EC', val: reading?.ec, range: fmtRange(ranges.ec) },
+            { label: 'OC', val: reading?.oc ? `${reading.oc}%` : '0%', range: fmtRange(ranges.oc) },
           ].map((item, idx, arr) => (
             <View
               key={item.label}
@@ -2634,6 +2641,22 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
   const reduxSchema = schemaSlot?.schema ?? null;
   const schema = passedSchema ?? reduxSchema;
 
+  const thresholdsSlot = useSelector(s => s.reports.thresholds?.[deviceType]);
+  const serverThresholds = thresholdsSlot?.thresholds;
+  // Server {min,max} per field, falling back to the local RANGES table
+  // (low/high) for any field the server hasn't sent yet or doesn't cover.
+  const ranges = useMemo(() => {
+    if (!serverThresholds || Object.keys(serverThresholds).length === 0) {
+      return RANGES;
+    }
+    const merged = { ...RANGES };
+    for (const [key, t] of Object.entries(serverThresholds)) {
+      if (t?.min == null || t?.max == null) continue;
+      merged[key] = { ...merged[key], low: t.min, high: t.max };
+    }
+    return merged;
+  }, [serverThresholds]);
+
   // ── soilsaathi Redux state ─────────────────────────────────────────────────
   const soilState = useSelector(s => s.soilsaathi ?? {});
   const soilRecs = soilState.recommendations;
@@ -2680,6 +2703,9 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
     if (!schema && !schemaSlot?.loading) {
       dispatch(fetchDeviceFieldSchema(deviceType)).catch(() => {});
     }
+    if (!serverThresholds && !thresholdsSlot?.loading) {
+      dispatch(fetchDeviceFieldThresholds(deviceType)).catch(() => {});
+    }
     dispatch(getSoilRecommendations(deviceId, readingId)).catch(() => {});
     dispatch(getSoilAIRecommendations(deviceId, readingId)).catch(() => {});
     dispatch(getSoilFertilizerRecommendation(deviceId, readingId)).catch(() => {});
@@ -2687,7 +2713,16 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
     dispatch(getSoilYieldOptions(deviceId, readingId)).catch(() => {});
 
     return () => dispatch(clearSelectedReading());
-  }, [deviceId, readingId, deviceType, dispatch, schema, schemaSlot?.loading]);
+  }, [
+    deviceId,
+    readingId,
+    deviceType,
+    dispatch,
+    schema,
+    schemaSlot?.loading,
+    serverThresholds,
+    thresholdsSlot?.loading,
+  ]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -2695,6 +2730,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
       await Promise.all([
         dispatch(fetchReadingDetail(deviceId, readingId)).catch(() => {}),
         dispatch(fetchDeviceFieldSchema(deviceType)).catch(() => {}),
+        dispatch(fetchDeviceFieldThresholds(deviceType)).catch(() => {}),
         dispatch(getSoilRecommendations(deviceId, readingId)).catch(() => {}),
         dispatch(getSoilAIRecommendations(deviceId, readingId)).catch(() => {}),
         dispatch(
@@ -2815,17 +2851,24 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
               T={T}
             >
               {[
-                { label: 'Nitrogen (N)', val: reading.nitrogen, max: 560, color: '#16A34A' },
-                { label: 'Phosphorous (P)', val: reading.phosphorous, max: 56, color: '#1565C0' },
-                { label: 'Potassium (K)', val: reading.potassium, max: 336, color: '#E65100' },
-                { label: 'pH', val: reading.ph, max: 14, color: '#6A1B9A' },
-                { label: 'EC (dS/m)', val: reading.ec, max: 4, color: '#0277BD' },
-                { label: 'OC (%)', val: reading.oc, max: 2, color: '#558B2F' },
-              ].map((p, idx, arr) => (
+                { key: 'nitrogen', label: 'Nitrogen (N)', val: reading.nitrogen, max: 560, color: '#16A34A' },
+                { key: 'phosphorous', label: 'Phosphorous (P)', val: reading.phosphorous, max: 56, color: '#1565C0' },
+                { key: 'potassium', label: 'Potassium (K)', val: reading.potassium, max: 336, color: '#E65100' },
+                { key: 'ph', label: 'pH', val: reading.ph, max: 14, color: '#6A1B9A' },
+                { key: 'ec', label: 'EC (dS/m)', val: reading.ec, max: 4, color: '#0277BD' },
+                { key: 'oc', label: 'OC (%)', val: reading.oc, max: 2, color: '#558B2F' },
+              ].map((p, idx, arr) => {
+                const lvl = levelFor(p.key, p.val, ranges);
+                return (
                 <View key={p.label} style={s.nutrientProgressRow}>
                   <View style={s.npHdr}>
                     <Text style={[s.npLbl, { color: T.text }]}>{p.label}</Text>
-                    <Text style={[s.npVal, { color: p.color }]}>{p.val ?? 0}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={[s.npVal, { color: p.color }]}>{p.val ?? 0}</Text>
+                      <View style={{ marginLeft: 6, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, backgroundColor: lvl.bg }}>
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: lvl.text }}>{lvl.label}</Text>
+                      </View>
+                    </View>
                   </View>
                   <View style={[s.npTrack, { backgroundColor: T.border + '40' }]}>
                     <View
@@ -2839,7 +2882,8 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
                     />
                   </View>
                 </View>
-              ))}
+                );
+              })}
             </SectionCard>
 
             <SectionCard
@@ -2849,20 +2893,27 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
               T={T}
             >
               {[
-                { label: 'Electrical Conduction', val: reading.electrical_conduction, max: 4, color: '#546E7A' },
-                { label: 'Calcium (meq/100g)', val: reading.calcium, max: 5, color: '#00838F' },
-                { label: 'Magnesium (meq/100g)', val: reading.magnesium, max: 4, color: '#2E7D32' },
-                { label: 'Sulphur (ppm)', val: reading.sulphur, max: 30, color: '#F57F17' },
-                { label: 'Zinc (ppm)', val: reading.zinc, max: 3, color: '#6A1B9A' },
-                { label: 'Boron (ppm)', val: reading.boron, max: 3, color: '#1565C0' },
-                { label: 'Manganese (ppm)', val: reading.manganese, max: 12, color: '#BF360C' },
-                { label: 'Iron (ppm)', val: reading.iron, max: 15, color: '#4E342E' },
-                { label: 'Copper (ppm)', val: reading.copper, max: 3, color: '#E65100' },
-              ].map((p, idx, arr) => (
+                { key: 'ec', label: 'Electrical Conduction', val: reading.electrical_conduction, max: 4, color: '#546E7A' },
+                { key: 'calcium', label: 'Calcium (meq/100g)', val: reading.calcium, max: 5, color: '#00838F' },
+                { key: 'magnesium', label: 'Magnesium (meq/100g)', val: reading.magnesium, max: 4, color: '#2E7D32' },
+                { key: 'sulphur', label: 'Sulphur (ppm)', val: reading.sulphur, max: 30, color: '#F57F17' },
+                { key: 'zinc', label: 'Zinc (ppm)', val: reading.zinc, max: 3, color: '#6A1B9A' },
+                { key: 'boron', label: 'Boron (ppm)', val: reading.boron, max: 3, color: '#1565C0' },
+                { key: 'manganese', label: 'Manganese (ppm)', val: reading.manganese, max: 12, color: '#BF360C' },
+                { key: 'iron', label: 'Iron (ppm)', val: reading.iron, max: 15, color: '#4E342E' },
+                { key: 'copper', label: 'Copper (ppm)', val: reading.copper, max: 3, color: '#E65100' },
+              ].map((p, idx, arr) => {
+                const lvl = levelFor(p.key, p.val, ranges);
+                return (
                 <View key={p.label} style={s.nutrientProgressRow}>
                   <View style={s.npHdr}>
                     <Text style={[s.npLbl, { color: T.text }]}>{p.label}</Text>
-                    <Text style={[s.npVal, { color: p.color }]}>{p.val ?? 0}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={[s.npVal, { color: p.color }]}>{p.val ?? 0}</Text>
+                      <View style={{ marginLeft: 6, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, backgroundColor: lvl.bg }}>
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: lvl.text }}>{lvl.label}</Text>
+                      </View>
+                    </View>
                   </View>
                   <View style={[s.npTrack, { backgroundColor: T.border + '40' }]}>
                     <View
@@ -2876,7 +2927,8 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
                     />
                   </View>
                 </View>
-              ))}
+                );
+              })}
             </SectionCard>
 
             <PlotsSection
@@ -2912,6 +2964,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
             soilAIRecs={soilAIRecs}
             soilAIRecsLoading={soilAIRecsLoading}
             soilAIRecsError={soilAIRecsError}
+            ranges={ranges}
             T={T}
           />
         );

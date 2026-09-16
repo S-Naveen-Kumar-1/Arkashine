@@ -45,6 +45,7 @@ export default function FilterWaitScreen({ navigation }) {
   );
   const [settleReady, setSettleReady] = useState(false);
   const settleTimerRef = useRef(null);
+  const [starting, setStarting] = useState(false);
 
   useEffect(() => {
     timerRef.current = setInterval(() => {
@@ -89,10 +90,16 @@ export default function FilterWaitScreen({ navigation }) {
   }, [ready]);
 
   const handleContinue = async () => {
-    await dispatch({ type: 'TEST_RESET' });
-    await dispatch(cmdStopSoilTest());
-    await dispatch(cmdStartSoilSensor());
-    navigation.replace('SensorScreen');
+    if (starting) return;
+    setStarting(true);
+    try {
+      await dispatch({ type: 'TEST_RESET' });
+      await dispatch(cmdStopSoilTest());
+      await dispatch(cmdStartSoilSensor());
+      navigation.replace('SensorScreen');
+    } catch (e) {
+      setStarting(false);
+    }
   };
 
   const handleSkipWait = () => {
@@ -223,7 +230,8 @@ export default function FilterWaitScreen({ navigation }) {
               onPress={handleContinue}
               color={T.primary}
               textColor="#fff"
-              disabled={!settleReady}
+              disabled={!settleReady || starting}
+              loading={starting}
               style={{ marginTop: Spacing.lg, width: '100%' }}
             />
           </>

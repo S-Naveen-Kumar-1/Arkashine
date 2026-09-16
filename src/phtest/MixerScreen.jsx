@@ -25,6 +25,7 @@ import { TopBar, ProgressRing } from '../components/common';
 import useTheme from '../hooks/useTheme';
 
 import {
+  ac,
   cmdCheckMotorStatus,
   cmdGetEcResult,
   cmdStartPhTestMotorEc,
@@ -260,6 +261,10 @@ export default function MixerScreen({ navigation }) {
   // =====================================================
   const getPhMotorResults = async () => {
     await dispatch(cmdGetEcResult());
+    // Reset the shared mixingCompleted flag so InsertPhMeterScreen doesn't
+    // render its "pH Mixing Completed / Get Results" state on mount using
+    // the EC stage's leftover completion, before the pH stage has run.
+    dispatch(ac.mixingComplete(false));
     navigation.navigate('InsertPhMeterScreen');
   };
   return (

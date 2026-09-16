@@ -1,6 +1,6 @@
 // src/screens/test/SoilResultsScreen.js
 // src/screens/test/SoilResultsScreen.js
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
 View,
 Text,
@@ -47,6 +47,7 @@ downloadSoilRecommendationPDF,
 import { cmdPrintSoilResult, cmdGetSoilResult } from '../redux/actions/bleActions';
 import { clearActiveFarmer } from '../redux/actions/soilPartnerActions';
 import { notifyPdfDownloaded } from '../utils/downloadNotification';
+import { fetchDeviceFieldThresholds } from '../redux/actions/reportsActions';
 
 const { width: SW } = Dimensions.get('window');
 const PAD = Spacing.lg ?? 16;
@@ -63,16 +64,57 @@ purple: '#A78BFA',
 blue: '#60A5FA',
 };
 
-function getStatus(key, value, mutedColor) {
+// Maps the short BLE result codes (used by `nutrients` in utils/constants.js)
+// and any other spelling a caller might pass to the canonical field-threshold
+// key returned by GET /api/mobile/device-types/soilsaathi/field-thresholds/.
+const THRESHOLD_KEY_MAP = {
+OC: 'oc', oc: 'oc',
+N: 'nitrogen', n: 'nitrogen', nitrogen: 'nitrogen',
+P: 'phosphorous', p: 'phosphorous', phosphorous: 'phosphorous',
+K: 'potassium', k: 'potassium', potassium: 'potassium',
+Ca: 'calcium', ca: 'calcium', calcium: 'calcium',
+Mg: 'magnesium', mg: 'magnesium', magnesium: 'magnesium',
+S: 'sulphur', s: 'sulphur', sulphur: 'sulphur',
+Fe: 'iron', fe: 'iron', iron: 'iron',
+Mn: 'manganese', mn: 'manganese', manganese: 'manganese',
+Cu: 'copper', cu: 'copper', copper: 'copper',
+Zn: 'zinc', zn: 'zinc', zinc: 'zinc',
+B: 'boron', b: 'boron', boron: 'boron',
+ph: 'ph', ec: 'ec',
+};
+
+// Fallback {min,max} per field — used until the server thresholds
+// (GET /api/mobile/device-types/soilsaathi/field-thresholds/) load, or for
+// any field the server doesn't cover.
+const FALLBACK_THRESHOLDS = {
+nitrogen: { min: 280, max: 560 },
+phosphorous: { min: 22, max: 56 },
+potassium: { min: 141, max: 336 },
+calcium: { min: 1.5, max: 5 },
+magnesium: { min: 1, max: 3 },
+sulphur: { min: 10, max: 20 },
+zinc: { min: 0.6, max: 1.5 },
+manganese: { min: 5, max: 20 },
+iron: { min: 6.5, max: 15 },
+copper: { min: 0.6, max: 2 },
+boron: { min: 0.5, max: 1.5 },
+ph: { min: 6.5, max: 7.3 },
+ec: { min: 0.8, max: 1.6 },
+oc: { min: 0.5, max: 0.75 },
+};
+
+function getStatus(key, value, mutedColor, ranges = FALLBACK_THRESHOLDS) {
 if (value == null) return { label: 'N/A', color: mutedColor };
-if (key === 'ph') {
-  if (value < 6) return { label: 'Acidic', color: STATUS_COLORS.red };
-  if (value <= 7.5) return { label: 'Optimal', color: STATUS_COLORS.green };
-  return { label: 'Alkaline', color: STATUS_COLORS.yellow };
-}
-if (key === 'ec') {
-  if (value < 0.5) return { label: 'Low', color: STATUS_COLORS.red };
-  if (value <= 1.5) return { label: 'Normal', color: STATUS_COLORS.green };
+const canonicalKey = THRESHOLD_KEY_MAP[key] ?? key;
+const r = ranges[canonicalKey];
+if (r) {
+  if (canonicalKey === 'ph') {
+    if (value < r.min) return { label: 'Acidic', color: STATUS_COLORS.red };
+    if (value <= r.max) return { label: 'Optimal', color: STATUS_COLORS.green };
+    return { label: 'Alkaline', color: STATUS_COLORS.yellow };
+  }
+  if (value < r.min) return { label: 'Low', color: STATUS_COLORS.red };
+  if (value <= r.max) return { label: 'Normal', color: STATUS_COLORS.green };
   return { label: 'High', color: STATUS_COLORS.yellow };
 }
 if (value < 20) return { label: 'Low', color: STATUS_COLORS.red };
@@ -301,7 +343,7 @@ copper: 'Cu',
 boron: 'B',
 };
 
-function MicroBarChart({ mapped, T }) {
+function MicroBarChart({ mapped, T, ranges }) {
 const micros = mapped.filter(m => MICRO_KEYS.includes(m.key));
 const maxVal = Math.max(
   ...micros.map(m => (m.value != null ? Number(m.value) : 0)),
@@ -311,7 +353,7 @@ const maxVal = Math.max(
 return (
   <View style={{ gap: 14 }}>
     {micros.map(m => {
-      const st = getStatus(m.key, m.value, T.muted);
+      const st = getStatus(m.key, m.value, T.muted, ranges);
       const pct = m.value != null ? Math.min(Number(m.value) / maxVal, 1) : 0;
       return (
         <View
@@ -357,8 +399,8 @@ badgeTxt: { fontSize: 9, fontWeight: '800' },
 // ─────────────────────────────────────────────────────────────────────────────
 // NUTRIENT CARD  — same layout as original, adds bar + slide-in animation
 // ─────────────────────────────────────────────────────────────────────────────
-function NutrientCard({ item, idx, T }) {
-const st = getStatus(item.key, item.value, T.muted);
+function NutrientCard({ item, idx, T, ranges }) {
+const st = getStatus(item.key, item.value, T.muted, ranges);
 const anim = useRef(new Animated.Value(0)).current;
 
 useEffect(() => {
@@ -576,12 +618,12 @@ line: { fontSize: 12, lineHeight: 20 },
 // ─────────────────────────────────────────────────────────────────────────────
 // NPK PILLS
 // ─────────────────────────────────────────────────────────────────────────────
-function NPKPills({ npk, T }) {
+function NPKPills({ npk, T, ranges }) {
 if (!npk) return null;
 return (
   <View style={npks.row}>
     {Object.entries(npk).map(([k, v]) => {
-      const st = getStatus(k, v, T.muted);
+      const st = getStatus(k, v, T.muted, ranges);
       return (
         <View
           key={k}
@@ -899,6 +941,24 @@ const activeFarmerId = useSelector(s => s.soilPartner?.activeFarmerId);
 const { connected } = useSelector(s => s.ble);
 const printStatus = useSelector(s => s.ble?.printStatus);
 
+// Nutrient {min,max} thresholds from
+// GET /api/mobile/device-types/soilsaathi/field-thresholds/, falling back
+// to FALLBACK_THRESHOLDS for any field it hasn't returned yet.
+const thresholdsSlot = useSelector(s => s.reports?.thresholds?.soilsaathi);
+const serverThresholds = thresholdsSlot?.thresholds;
+const ranges = useMemo(() => {
+  if (!serverThresholds || Object.keys(serverThresholds).length === 0) {
+    return FALLBACK_THRESHOLDS;
+  }
+  return { ...FALLBACK_THRESHOLDS, ...serverThresholds };
+}, [serverThresholds]);
+
+useEffect(() => {
+  if (!serverThresholds && !thresholdsSlot?.loading) {
+    dispatch(fetchDeviceFieldThresholds('soilsaathi')).catch(() => {});
+  }
+}, [dispatch, serverThresholds, thresholdsSlot?.loading]);
+
 console.log('[SoilResults] deviceId:', deviceId);
 console.log('[SoilResults] soilData:', soilData);
 
@@ -931,7 +991,7 @@ console.log('[SoilResults] Mapped nutrients:', mapped.map(m => ({ key: m.key, va
 // ── health score ─────────────────────────────────────────────────────────
 const scored = mapped.filter(m => m.value != null);
 const optimal = scored.filter(m => {
-  const { label } = getStatus(m.key, m.value, T.muted);
+  const { label } = getStatus(m.key, m.value, T.muted, ranges);
   return label === 'Optimal' || label === 'Normal';
 }).length;
 const healthPct =
@@ -1368,7 +1428,7 @@ return (
                     ].includes(m.key),
                   )
                   .map((item, i) => (
-                    <NutrientCard key={item.key} item={item} idx={i} T={T} />
+                    <NutrientCard key={item.key} item={item} idx={i} T={T} ranges={ranges} />
                   ))}
               </View>
 
@@ -1383,7 +1443,7 @@ return (
                     ['Ca', 'Mg', 'S'].includes(m.key),
                   )
                   .map((item, i) => (
-                    <NutrientCard key={item.key} item={item} idx={i} T={T} />
+                    <NutrientCard key={item.key} item={item} idx={i} T={T} ranges={ranges} />
                   ))}
               </View>
 
@@ -1400,7 +1460,7 @@ return (
                     ),
                   )
                   .map((item, i) => (
-                    <NutrientCard key={item.key} item={item} idx={i} T={T} />
+                    <NutrientCard key={item.key} item={item} idx={i} T={T} ranges={ranges} />
                   ))}
               </View>
             </>
@@ -1436,7 +1496,7 @@ return (
                   { backgroundColor: T.card, borderColor: T.border ?? '#1C2733' },
                 ]}
               >
-                <MicroBarChart mapped={mapped} T={T} />
+                <MicroBarChart mapped={mapped} T={T} ranges={ranges} />
               </View>
 
               <SectionHead
@@ -1446,7 +1506,7 @@ return (
               />
               {['OC'].map(k => {
                 const item = mapped.find(m => m.key === k);
-                const st = getStatus(k, item?.value, T.muted);
+                const st = getStatus(k, item?.value, T.muted, ranges);
                 const maxV = 5;
                 return (
                   <View
@@ -1539,7 +1599,7 @@ return (
                         <Text style={[s.subHead, { color: T.textSub }]}>
                           Soil Nutrient Levels
                         </Text>
-                        <NPKPills npk={recs.npk} T={T} />
+                        <NPKPills npk={recs.npk} T={T} ranges={ranges} />
                       </>
                     )}
                     <Text style={[s.subHead, { color: T.textSub }]}>

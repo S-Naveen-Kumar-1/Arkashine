@@ -265,7 +265,7 @@ export function buildSoilPayload(results, meta = {}) {
     ph: r.ph ?? 0,
     ec: r.ec ?? 0,
     electrical_conduction: r.ec ?? 0,
-    oc: r.oc ?? 0,
+    oc: r.OC ?? 0,
 
     nitrogen: r.N ?? 0,
     phosphorous: r.P ?? 0,

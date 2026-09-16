@@ -7,6 +7,7 @@ const {
   REPORTS_FETCH_READINGS_REQUEST,
   REPORTS_FETCH_READING_REQUEST,
   FETCH_DEVICE_FIELD_SCHEMA,
+  FETCH_DEVICE_FIELD_THRESHOLDS,
   REPORTS_CLEAR_READING,
   REPORTS_RESET,
 } = REPORTS_ACTION_TYPES;
@@ -63,6 +64,23 @@ export function fetchDeviceFieldSchema(type_key) {
     payload: {
       request: {
         url: `/api/mobile/device-types/${type_key}/field-schema/`,
+        method: 'GET',
+      },
+    },
+  };
+}
+
+// GET /api/mobile/device-types/{type_key}/field-thresholds/
+// {min,max} "normal" range per field, used to classify a reading as
+// Low / Medium / Sufficient. Only soilsaathi has entries; other valid
+// type_keys return an empty thresholds object.
+export function fetchDeviceFieldThresholds(type_key) {
+  return {
+    type: FETCH_DEVICE_FIELD_THRESHOLDS,
+    meta: { type_key },
+    payload: {
+      request: {
+        url: `/api/mobile/device-types/${type_key}/field-thresholds/`,
         method: 'GET',
       },
     },

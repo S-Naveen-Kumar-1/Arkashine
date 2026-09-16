@@ -26,6 +26,12 @@ const FETCH_DEVICE_FIELD_SCHEMA = 'FETCH_DEVICE_FIELD_SCHEMA';
 const FETCH_DEVICE_FIELD_SCHEMA_SUCCESS = 'FETCH_DEVICE_FIELD_SCHEMA_SUCCESS';
 const FETCH_DEVICE_FIELD_SCHEMA_FAIL = 'FETCH_DEVICE_FIELD_SCHEMA_FAIL';
 
+// NEW: {min,max} nutrient thresholds per device type_key
+const FETCH_DEVICE_FIELD_THRESHOLDS = 'FETCH_DEVICE_FIELD_THRESHOLDS';
+const FETCH_DEVICE_FIELD_THRESHOLDS_SUCCESS =
+  'FETCH_DEVICE_FIELD_THRESHOLDS_SUCCESS';
+const FETCH_DEVICE_FIELD_THRESHOLDS_FAIL = 'FETCH_DEVICE_FIELD_THRESHOLDS_FAIL';
+
 const REPORTS_CLEAR_READING = 'REPORTS_CLEAR_READING';
 const REPORTS_RESET = 'REPORTS_RESET';
 
@@ -34,6 +40,7 @@ export const REPORTS_ACTION_TYPES = {
   REPORTS_FETCH_READINGS_REQUEST,
   REPORTS_FETCH_READING_REQUEST,
   FETCH_DEVICE_FIELD_SCHEMA,
+  FETCH_DEVICE_FIELD_THRESHOLDS,
   REPORTS_CLEAR_READING,
   REPORTS_RESET,
 };
@@ -56,6 +63,10 @@ const init = {
   // e.g. for soilsaathi: { nitrogen: 'Nitrogen (kg/ha)', ph: 'pH', ... }
   // e.g. for ph_bottle:  { field1: 'pH Value', field2: 'pH Voltage (mV)', ... }
   schemas: {},
+
+  // Field thresholds keyed by type_key: { [type_key]: { thresholds, loading, error } }
+  // thresholds shape: { fieldKey: { min, max }, ... } (only soilsaathi has entries)
+  thresholds: {},
 };
 
 function getDeviceId(action) {
@@ -210,6 +221,55 @@ export default function reportsReducer(state = init, action) {
             ...prev,
             loading: false,
             error: action.error?.message ?? 'Failed to load schema',
+          },
+        },
+      };
+    }
+
+    // ── Field thresholds ─────────────────────────────────────────────────────
+    // Fired immediately when fetchDeviceFieldThresholds is dispatched
+    case FETCH_DEVICE_FIELD_THRESHOLDS: {
+      const type_key = action.meta?.type_key;
+      if (!type_key) return state;
+      const prev = state.thresholds[type_key] || {};
+      return {
+        ...state,
+        thresholds: {
+          ...state.thresholds,
+          [type_key]: { ...prev, loading: true, error: null },
+        },
+      };
+    }
+
+    case FETCH_DEVICE_FIELD_THRESHOLDS_SUCCESS: {
+      const type_key = getTypeKey(action);
+      if (!type_key) return state;
+      const d = action.payload.data ?? action.payload;
+      return {
+        ...state,
+        thresholds: {
+          ...state.thresholds,
+          [type_key]: {
+            loading: false,
+            error: null,
+            thresholds: d.thresholds ?? {},
+          },
+        },
+      };
+    }
+
+    case FETCH_DEVICE_FIELD_THRESHOLDS_FAIL: {
+      const type_key = getTypeKey(action);
+      if (!type_key) return state;
+      const prev = state.thresholds[type_key] || {};
+      return {
+        ...state,
+        thresholds: {
+          ...state.thresholds,
+          [type_key]: {
+            ...prev,
+            loading: false,
+            error: action.error?.message ?? 'Failed to load thresholds',
           },
         },
       };

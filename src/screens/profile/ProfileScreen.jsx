@@ -1028,7 +1028,7 @@ export default function ProfileScreen({ navigation }) {
           <View style={{ flex: 1, marginLeft: 14 }}>
             <Text style={[s.appName, { color: T.text }]}>SOIL PARTNER</Text>
             <Text style={[s.appVer, { color: T.muted }]}>
-              Version 1.0.9 · Powered by ArkaShine
+              Version 1.1.0 · Powered by ArkaShine
             </Text>
           </View>
         </View>
