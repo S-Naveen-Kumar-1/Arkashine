@@ -47,7 +47,8 @@ downloadSoilRecommendationPDF,
 import { cmdPrintSoilResult, cmdGetSoilResult } from '../redux/actions/bleActions';
 import { clearActiveFarmer } from '../redux/actions/soilPartnerActions';
 import { notifyPdfDownloaded } from '../utils/downloadNotification';
-import { fetchDeviceFieldThresholds } from '../redux/actions/reportsActions';
+import { fetchDeviceFieldThresholds, fetchReportDevices } from '../redux/actions/reportsActions';
+import { getUserDevices } from '../redux/actions';
 
 const { width: SW } = Dimensions.get('window');
 const PAD = Spacing.lg ?? 16;
@@ -925,14 +926,67 @@ export function SoilResultsScreen({ navigation, route }) {
 const theme = useTheme();
 const T = theme.colors;
 const dispatch = useDispatch();
-const devices = useSelector(s => s.userDevices?.devices || []);
-const soilLenzDevice = devices.find(d => d.devise_type === 'soilsaathi');
+const userDevices = useSelector(s => s.userDevices?.devices || []);
+const reportDevices = useSelector(s => s.reports?.devices || []);
+
+const allDevices = useMemo(() => {
+  const combined = [];
+  if (Array.isArray(userDevices)) combined.push(...userDevices);
+  if (Array.isArray(reportDevices)) combined.push(...reportDevices);
+  return combined;
+}, [userDevices, reportDevices]);
+
+const soilLenzDevice = useMemo(() => {
+  const normalize = str =>
+    str
+      ?.toLowerCase()
+      ?.replace(/[\s_]+/g, '')
+      ?.trim();
+
+  return allDevices.find(d => {
+    const t1 = normalize(d?.devise_type);
+    const t2 = normalize(d?.device_type);
+    return (
+      t1 === 'soilsaathi' ||
+      t2 === 'soilsaathi' ||
+      t1 === 'soillenz' ||
+      t2 === 'soillenz'
+    );
+  });
+}, [allDevices]);
+
 const soilData = useSelector(s => s.soilsaathi?.bleResultData);
 const soilResultError = useSelector(s => s.soilsaathi?.bleResultError);
-const deviceId = soilLenzDevice?.id;
+const deviceId =
+  route?.params?.deviceId ||
+  route?.params?.device?.id ||
+  soilLenzDevice?.id;
+
+// Auto-fetch devices if missing from Redux state
+useEffect(() => {
+  if (!deviceId && allDevices.length === 0) {
+    console.log('[SoilResults] No devices in store, fetching...');
+    dispatch(fetchReportDevices('soilsaathi')).catch(() => {});
+    dispatch(getUserDevices()).catch(() => {});
+  }
+}, [deviceId, allDevices.length, dispatch]);
 // Set when a soil partner starts this test from a farmer's detail page
 // (FarmerDetailScreen) — absent for the regular non-partner BLE flow.
 const activeFarmerId = useSelector(s => s.soilPartner?.activeFarmerId);
+const activeFarmerName = useSelector(s => s.soilPartner?.activeFarmerName);
+const activeFarmerPhone = useSelector(s => s.soilPartner?.activeFarmerPhone);
+
+const farmerInfoRef = useRef({
+  id: route?.params?.farmerId || null,
+  name: route?.params?.farmerName || null,
+  phone: route?.params?.farmerPhone || null,
+});
+
+useEffect(() => {
+  if (activeFarmerId) farmerInfoRef.current.id = activeFarmerId;
+  if (activeFarmerName) farmerInfoRef.current.name = activeFarmerName;
+  if (activeFarmerPhone) farmerInfoRef.current.phone = activeFarmerPhone;
+}, [activeFarmerId, activeFarmerName, activeFarmerPhone]);
 
 // BLE connection + print status (printStatus comes from the
 // BLE_PRINT_STATUS action dispatched in bleActions.js — 'printing' |
@@ -959,7 +1013,7 @@ useEffect(() => {
   }
 }, [dispatch, serverThresholds, thresholdsSlot?.loading]);
 
-console.log('[SoilResults] deviceId:', deviceId);
+console.log('[SoilResults] deviceId:', deviceId, 'found device:', soilLenzDevice?.name || soilLenzDevice?.device_name);
 console.log('[SoilResults] soilData:', soilData);
 
 const [phase, setPhase] = useState('idle');
@@ -1039,7 +1093,7 @@ const saveReading = useCallback(async () => {
     setHasAttemptedSave(true);
     setPhase('saving');
 
-    console.log('[SoilResults] Saving reading with data:', soilData);
+    console.log('[SoilResults] Saving reading for deviceId:', deviceId, 'with data:', soilData);
 
     const payload = buildSoilPayload(soilData, {
       areaName: route?.params?.areaName ?? 'Test Area',
@@ -1049,19 +1103,33 @@ const saveReading = useCallback(async () => {
       farmerId: activeFarmerId,
     });
 
+    console.log('[SoilResults] Dispatching createSoilReading with payload:', JSON.stringify(payload));
+
     const result = await dispatch(createSoilReading(deviceId, payload));
     const created = result?.payload?.data ?? result?.data;
     const id = created?.id ?? created?.call_id;
 
-    if (!id) throw new Error('No id returned from create');
+    if (!id) {
+      console.warn('[SoilResults] No ID returned in create response:', result);
+      throw new Error('No id returned from create');
+    }
 
-    console.log('[SoilResults] Reading saved with ID:', id);
+    console.log('[SoilResults] Reading saved successfully with ID:', id);
     setCallId(id);
     setPhase('fetching');
     if (activeFarmerId) dispatch(clearActiveFarmer());
     fetchBothRecs(id);
   } catch (e) {
-    console.warn('[SoilResults] saveReading error:', e);
+    const serverError =
+      e?.response?.data ||
+      e?.error?.response?.data ||
+      e?.payload?.response?.data ||
+      e?.data;
+    console.warn(
+      '[SoilResults] saveReading failed:',
+      e?.message || e,
+      serverError ? `Server error response: ${JSON.stringify(serverError)}` : '',
+    );
     setPhase('error');
     // Do NOT reset hasAttemptedSave here — that was the bug. Leaving it
     // `true` stops the effect below from immediately re-firing this
@@ -1255,8 +1323,17 @@ const handlePrint = useCallback(() => {
   }
 
   setPrintRequesting(true);
-  dispatch(cmdPrintSoilResult());
-}, [connected, dispatch]);
+
+  const metadata = {
+    farmerName: farmerInfoRef.current.name || activeFarmerName,
+    farmerPhone: farmerInfoRef.current.phone || activeFarmerPhone,
+    ph: soilData?.ph ?? soilData?.pH ?? route?.params?.ph,
+    ec: soilData?.ec ?? soilData?.EC ?? route?.params?.ec,
+  };
+
+  console.log('[SoilResults] Triggering print with metadata:', metadata);
+  dispatch(cmdPrintSoilResult(metadata));
+}, [connected, dispatch, activeFarmerName, activeFarmerPhone, soilData, route?.params]);
 
 const printing =
   printRequesting || printStatus?.status === 'printing';

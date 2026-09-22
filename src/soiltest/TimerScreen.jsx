@@ -254,9 +254,17 @@ export function TimerScreen({ navigation, route }) {
   // DeviceScanScreen starts clean and does a fresh scan for nearby
   // devices instead of showing the just-used device as still connected.
   // ───────────────────────────────────────────────────────────────────
-  const handleGoConnect = () => {
-    dispatch(disconnectDevice());
-    navigation.navigate('BLEScanScreen', { rescan: true });
+  const handleGoConnect = async () => {
+    await dispatch(disconnectDevice());
+    navigation.navigate('BLEScanScreen', {
+      rescan: true,
+      item: {
+        id: 3,
+        name: 'SOILENZ',
+        shortName: 'SOILENZ',
+        device_type: 'soilsaathi',
+      },
+    });
   };
 
   // =====================================================
@@ -336,10 +344,14 @@ export function TimerScreen({ navigation, route }) {
           <Text style={[s.deviceStatus, { color: T.textSub }]}>
             {`Device status: ${soilSathiData.motorStateFromBle}`}
           </Text>
+        ) : motorStatus && motorStatus !== 'idle' ? (
+          <Text style={[s.deviceStatus, { color: T.textSub }]}>
+            {`Device status: ${motorStatus}`}
+          </Text>
         ) : (
           started && (
             <Text style={[s.deviceStatus, { color: T.textSub }]}>
-              No response from device
+              Waiting for device status…
             </Text>
           )
         )}

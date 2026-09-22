@@ -53,6 +53,7 @@ let _reconnectTimer = null,
   _dataCount = 0;
 
 let _chunkBuffer = '';
+let _isUserDisconnecting = false;
 
 // ─── FIX: mixing-completion tracking (module scope — survives remounts) ───
 // _prevMotorStatus: last MOTORSTATUS we saw, so we can detect a
@@ -330,6 +331,8 @@ export const initBLE = () => dispatch => {
 const SCAN_TIMEOUT_MS = 15_000;
 
 export const startScan = () => async dispatch => {
+  clearTimeout(_reconnectTimer);
+  _reconnectTimer = null;
   const granted = await requestBLEPermissions();
   if (!granted) {
     dispatch(ac.log('SCAN', 'Permissions denied'));
@@ -625,9 +628,15 @@ function _handleMotorStatusTransition(newStatus, dispatch) {
     }
   }
 
-  // Starting a new run clears any previous completion flag.
+  // Starting a new run clears any previous completion flag and active ack timers.
   if (newStatus === 'running') {
+    _clearPhMotorAckTimer();
+    _clearSoilMotorAckTimer();
     dispatch(ac.mixingComplete(false));
+  }
+  if (newStatus === 'stopped') {
+    _clearPhMotorAckTimer();
+    _clearSoilMotorAckTimer();
   }
 
   _userStoppedMotor = false;
@@ -670,6 +679,7 @@ function parsePayload(jsonStr, dispatch) {
   ) {
     dispatch(ac.log('TEST', `← PHTEST ${parsed.PHTEST}`));
     _clearPhMotorAckTimer();
+    _clearSoilMotorAckTimer();
     dispatch(ac.testStarted());
     showMessage({ message: 'Motor started ✅', type: 'success', duration: 1500 });
     return null;
@@ -678,6 +688,7 @@ function parsePayload(jsonStr, dispatch) {
   if (parsed.PHTEST === 'STOPPED') {
     dispatch(ac.log('TEST', '← PHTEST STOPPED'));
     _clearPhMotorAckTimer();
+    _clearSoilMotorAckTimer();
     dispatch(ac.testStopped());
     _handleMotorStatusTransition('stopped', dispatch);
     dispatch(ac.motorStatus('stopped'));
@@ -689,6 +700,14 @@ function parsePayload(jsonStr, dispatch) {
     dispatch(ac.log('MOTOR', `← MOTORSTATUS: ${s}`));
     _handleMotorStatusTransition(s, dispatch);
     dispatch(ac.motorStatus(s));
+    if (s === 'running') {
+      _clearPhMotorAckTimer();
+      _clearSoilMotorAckTimer();
+    }
+    dispatch({
+      type: 'SOIL_MOTOR_STATE_FROM_BLE',
+      payload: { data: s },
+    });
     return null;
   }
 
@@ -815,21 +834,28 @@ function parsePayload(jsonStr, dispatch) {
     dispatch(ac.motorStatus('stopped'));
     dispatch({ type: 'SOIL_MOTOR_STATE', payload: { data: 'stopped' } });
   }
-  if (parsed.SOILMOTORSTATUS === 'RUNNING')
+  if (parsed.SOILMOTORSTATUS === 'RUNNING') {
+    _clearSoilMotorAckTimer();
+    dispatch(ac.motorStatus('running'));
     dispatch({
       type: 'SOIL_MOTOR_STATE_FROM_BLE',
       payload: { data: 'running' },
     });
+  }
   if (parsed.SOILMOTORSTATUS === 'NOT_STARTED')
     dispatch({
       type: 'SOIL_MOTOR_STATE_FROM_BLE',
       payload: { data: 'not_started' },
     });
-  if (parsed.SOILMOTORSTATUS === 'STOPPED')
+  if (parsed.SOILMOTORSTATUS === 'STOPPED') {
+    _clearSoilMotorAckTimer();
+    _clearSoilMixingAckTimer();
+    dispatch(ac.motorStatus('stopped'));
     dispatch({
       type: 'SOIL_MOTOR_STATE_FROM_BLE',
       payload: { data: 'stopped' },
     });
+  }
 
   if (parsed.SOILSENSORSTATUS === 'READING')
     dispatch({
@@ -1073,11 +1099,36 @@ function startNotifications(device, cfg, dispatch) {
 }
 
 export const connectDevice = rawDevice => async dispatch => {
-  dispatch(ac.connectRequest(rawDevice.id));
-  dispatch(ac.log('CONNECT', `→ ${rawDevice.name || rawDevice.id}`));
+  clearTimeout(_reconnectTimer);
+  _reconnectTimer = null;
   clearTimeout(_scanTimer);
   bleManager.stopDeviceScan();
   dispatch(ac.scanStop());
+
+  // If another device is currently connected, cleanly disconnect it first
+  if (_device) {
+    if (_device.id === rawDevice.id) {
+      dispatch(
+        ac.log('CONNECT', `Already connected to ${rawDevice.name || rawDevice.id}`),
+      );
+      return;
+    }
+    dispatch(
+      ac.log('CONNECT', `Switching device from ${_device.id} to ${rawDevice.id}`),
+    );
+    _isUserDisconnecting = true;
+    _notifySub?.remove();
+    _notifySub = null;
+    try {
+      await _device.cancelConnection();
+    } catch (_) {}
+    _device = null;
+    _config = null;
+  }
+
+  _isUserDisconnecting = false;
+  dispatch(ac.connectRequest(rawDevice.id));
+  dispatch(ac.log('CONNECT', `→ ${rawDevice.name || rawDevice.id}`));
   try {
     const conn = await bleManager.connectToDevice(rawDevice.id, {
       timeout: 8_000,
@@ -1117,29 +1168,43 @@ export const connectDevice = rawDevice => async dispatch => {
     _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
 
     conn.onDisconnected(() => {
-      dispatch(ac.log('DISCONNECT', 'Device disconnected'));
-      dispatch(ac.disconnect());
-      // Surface the drop immediately, whatever flow/screen is in progress
-      // (mixing, sensor read, print, calibration, …) — a stuck spinner
-      // waiting on a notification that will now never arrive is worse
-      // than an explicit "disconnected" message.
+      // If this disconnect event belongs to an old/stale device that was replaced, ignore it
+      if (_device && _device.id !== conn.id) {
+        dispatch(ac.log('DISCONNECT', `Stale disconnect from ${conn.id} ignored`));
+        return;
+      }
+
+      dispatch(ac.log('DISCONNECT', `Device ${conn.id} disconnected`));
       _clearHandshakeTimer();
       _clearPhMotorAckTimer();
       _clearSoilMotorAckTimer();
       _clearSoilResultAckTimer();
       _clearSoilMixingAckTimer();
+      _notifySub?.remove();
+      _notifySub = null;
+      _device = null;
+      _config = null;
+      _chunkBuffer = '';
+      dispatch(ac.disconnect());
+
+      // If the user intentionally disconnected or switched devices, do not auto-reconnect
+      if (_isUserDisconnecting) {
+        dispatch(
+          ac.log('DISCONNECT', 'Clean user-initiated disconnect completed'),
+        );
+        return;
+      }
+
       showMessage({
         message: 'Device disconnected',
         description: 'Bluetooth connection lost. Attempting to reconnect…',
         type: 'danger',
         duration: 4000,
       });
-      _notifySub?.remove();
-      _notifySub = null;
-      _device = null;
-      _config = null;
-      _chunkBuffer = '';
+
+      clearTimeout(_reconnectTimer);
       _reconnectTimer = setTimeout(async () => {
+        if (_isUserDisconnecting || _device) return;
         try {
           dispatch(ac.log('RECONNECT', 'Attempting…'));
           const r = await bleManager.connectToDevice(conn.id, {
@@ -1175,18 +1240,34 @@ export const connectDevice = rawDevice => async dispatch => {
   }
 };
 
-export const disconnectDevice = () => dispatch => {
+export const disconnectDevice = () => async dispatch => {
   dispatch(ac.log('DISCONNECT', 'User initiated'));
+  _isUserDisconnecting = true;
   clearTimeout(_reconnectTimer);
+  _reconnectTimer = null;
   clearTimeout(_scanTimer);
+  _clearHandshakeTimer();
+  _clearPhMotorAckTimer();
+  _clearSoilMotorAckTimer();
+  _clearSoilResultAckTimer();
+  _clearSoilMixingAckTimer();
   _notifySub?.remove();
   _notifySub = null;
   _chunkBuffer = '';
-  _device?.cancelConnection();
+  if (_device) {
+    try {
+      await _device.cancelConnection();
+    } catch (e) {
+      console.warn('[BLE] cancelConnection error:', e);
+    }
+  }
   _device = null;
   _config = null;
   _mockMode = false;
   dispatch(ac.disconnect());
+  setTimeout(() => {
+    _isUserDisconnecting = false;
+  }, 600);
 };
 
 // ─── Simulated device (dev-only) ───────────────────────────────────────────
@@ -1364,8 +1445,14 @@ export const cmdGetSoilResult = () => async dispatch => {
 // Fix: the Raspberry Pi already has this exact reading's data in memory
 // (same globals its own on-screen "PRINT RECEIPT" button uses), so this is
 // now just a trigger. See _run_ble_soil_print_workflow() in main_ble.py.
-export const cmdPrintSoilResult = () => dispatch =>
-  _sendJSON({ SOILPRINT: 'START' }, dispatch);
+export const cmdPrintSoilResult = (metadata = {}) => dispatch => {
+  const payload = { SOILPRINT: 'START' };
+  if (metadata.farmerName) payload.farmer_name = String(metadata.farmerName).trim();
+  if (metadata.farmerPhone) payload.farmer_phone = String(metadata.farmerPhone).trim();
+  if (metadata.ph != null && !isNaN(Number(metadata.ph))) payload.ph = Number(metadata.ph);
+  if (metadata.ec != null && !isNaN(Number(metadata.ec))) payload.ec = Number(metadata.ec);
+  return _sendJSON(payload, dispatch);
+};
 
 // ─── Soil calibration commands ─────────────────────────────────────────────────
 // FIX: resetBleParserBuffer() before every START — nothing from a previous

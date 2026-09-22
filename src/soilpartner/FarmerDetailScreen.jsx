@@ -1628,7 +1628,7 @@ export default function FarmerDetailScreen({ navigation, route }) {
           <TouchableOpacity
             style={[s.startTestBtn, { backgroundColor: PRIMARY }]}
             onPress={() => {
-              dispatch(setActiveFarmer(farmerId, farmer?.name));
+              dispatch(setActiveFarmer(farmerId, farmer?.name, farmer?.phone));
               navigation.navigate('ProductsListingScreen');
             }}
           >

@@ -24,7 +24,7 @@ import {
   cmdGetSoilResult,
 } from '../redux/actions/bleActions';
 
-export function SensorScreen({ navigation }) {
+export function SensorScreen({ navigation, route }) {
   const { connected, device } = useSelector(s => s.ble);
   const soilSathiData = useSelector(s => s.soilsaathi);
   const theme = useTheme();
@@ -188,7 +188,7 @@ export function SensorScreen({ navigation }) {
     console.log('[SensorScreen] Fetching results...');
     await dispatch(cmdGetSoilResult());
     // Navigate to results screen
-    navigation.replace('SoilResultsScreen');
+    navigation.replace('SoilResultsScreen', route?.params);
   };
 
   // Check if results are available

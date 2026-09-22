@@ -63,11 +63,20 @@ export default function DeviceScanScreen({ route, navigation }) {
   useEffect(() => {
     if (!forceRescan) return;
 
-    if (connected) {
-      dispatch(disconnectDevice());
-    }
-    dispatch(stopScan());
-    dispatch(startScan());
+    let active = true;
+    (async () => {
+      if (connected) {
+        await dispatch(disconnectDevice());
+      }
+      dispatch(stopScan());
+      setTimeout(() => {
+        if (active) dispatch(startScan());
+      }, 250);
+    })();
+
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forceRescan]);
 
@@ -90,9 +99,9 @@ export default function DeviceScanScreen({ route, navigation }) {
   }, [scanning, dispatch]);
 
   const handleConnect = useCallback(
-    device => {
+    async device => {
       if (connected && connectedDevice?.id === device.id) {
-        dispatch(disconnectDevice());
+        await dispatch(disconnectDevice());
       } else {
         dispatch(connectDevice(device));
       }
