@@ -1098,6 +1098,87 @@ function startNotifications(device, cfg, dispatch) {
   dispatch(ac.log('NOTIFY', 'Subscribed ✅'));
 }
 
+// Registers the disconnect handler on `conn` and, on a successful
+// auto-reconnect, re-registers itself on the new connection object.
+// Without re-arming here, only the *first* disconnect after connectDevice()
+// is ever observed — a second drop leaves Redux stuck on "connected" with
+// no further reconnect attempt.
+function _armDisconnectHandler(conn, dispatch) {
+  conn.onDisconnected(() => {
+    // If this disconnect event belongs to an old/stale device that was replaced, ignore it
+    if (_device && _device.id !== conn.id) {
+      dispatch(ac.log('DISCONNECT', `Stale disconnect from ${conn.id} ignored`));
+      return;
+    }
+
+    dispatch(ac.log('DISCONNECT', `Device ${conn.id} disconnected`));
+    _clearHandshakeTimer();
+    _clearPhMotorAckTimer();
+    _clearSoilMotorAckTimer();
+    _clearSoilResultAckTimer();
+    _clearSoilMixingAckTimer();
+    _notifySub?.remove();
+    _notifySub = null;
+    _device = null;
+    _config = null;
+    _chunkBuffer = '';
+    dispatch(ac.disconnect());
+
+    // If the user intentionally disconnected or switched devices, do not auto-reconnect
+    if (_isUserDisconnecting) {
+      dispatch(
+        ac.log('DISCONNECT', 'Clean user-initiated disconnect completed'),
+      );
+      return;
+    }
+
+    showMessage({
+      message: 'Device disconnected',
+      description: 'Bluetooth connection lost. Attempting to reconnect…',
+      type: 'danger',
+      duration: 4000,
+    });
+
+    clearTimeout(_reconnectTimer);
+    _reconnectTimer = setTimeout(async () => {
+      if (_isUserDisconnecting || _device) return;
+      try {
+        dispatch(ac.log('RECONNECT', 'Attempting…'));
+        const r = await bleManager.connectToDevice(conn.id, {
+          timeout: 6_000,
+        });
+        await r.discoverAllServicesAndCharacteristics();
+
+        try {
+          const mtu = await r.requestMTU(512);
+          dispatch(ac.log('RECONNECT', `MTU negotiated: ${mtu}`));
+        } catch (mtuErr) {
+          dispatch(ac.log('RECONNECT', `MTU request non-fatal: ${mtuErr.message}`));
+        }
+
+        const newCfg = {
+          serviceUUID: FIRMWARE_SERVICE_UUID,
+          notifyUUID: FIRMWARE_DATA_UUID,
+          writeUUID: FIRMWARE_DATA_UUID,
+        };
+        _device = r;
+        _config = newCfg;
+        dispatch(ac.configResolved(newCfg));
+        dispatch(ac.connectSuccess({ id: r.id, name: r.name }));
+        startNotifications(r, newCfg, dispatch);
+        dispatch(ac.handshakeStart());
+        _armHandshakeTimer(dispatch);
+        _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
+        dispatch(ac.log('RECONNECT', 'Success ✅'));
+
+        _armDisconnectHandler(r, dispatch);
+      } catch (e) {
+        dispatch(ac.log('RECONNECT', `Failed: ${e.message}`));
+      }
+    }, 2_000);
+  });
+}
+
 export const connectDevice = rawDevice => async dispatch => {
   clearTimeout(_reconnectTimer);
   _reconnectTimer = null;
@@ -1136,12 +1217,17 @@ export const connectDevice = rawDevice => async dispatch => {
     dispatch(ac.log('CONNECT', 'Connected — discovering services…'));
     await conn.discoverAllServicesAndCharacteristics();
 
-    // Request MTU non-blocking so it doesn't add delay on Android
-    conn.requestMTU(512).then(mtu => {
+    // Await MTU negotiation before touching notify/write — Android's GATT
+    // stack serializes operations per-connection, so firing MTU, notify
+    // subscribe, and the handshake write concurrently causes them to fail
+    // against each other (notify-change failures, write failures) on some
+    // devices (e.g. SoiLENZ) even though it happened to work on others.
+    try {
+      const mtu = await conn.requestMTU(512);
       dispatch(ac.log('CONNECT', `MTU negotiated: ${mtu}`));
-    }).catch(mtuErr => {
+    } catch (mtuErr) {
       dispatch(ac.log('CONNECT', `MTU request non-fatal: ${mtuErr.message}`));
-    });
+    }
 
     const cfg = {
       serviceUUID: FIRMWARE_SERVICE_UUID,
@@ -1167,72 +1253,7 @@ export const connectDevice = rawDevice => async dispatch => {
     _armHandshakeTimer(dispatch);
     _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
 
-    conn.onDisconnected(() => {
-      // If this disconnect event belongs to an old/stale device that was replaced, ignore it
-      if (_device && _device.id !== conn.id) {
-        dispatch(ac.log('DISCONNECT', `Stale disconnect from ${conn.id} ignored`));
-        return;
-      }
-
-      dispatch(ac.log('DISCONNECT', `Device ${conn.id} disconnected`));
-      _clearHandshakeTimer();
-      _clearPhMotorAckTimer();
-      _clearSoilMotorAckTimer();
-      _clearSoilResultAckTimer();
-      _clearSoilMixingAckTimer();
-      _notifySub?.remove();
-      _notifySub = null;
-      _device = null;
-      _config = null;
-      _chunkBuffer = '';
-      dispatch(ac.disconnect());
-
-      // If the user intentionally disconnected or switched devices, do not auto-reconnect
-      if (_isUserDisconnecting) {
-        dispatch(
-          ac.log('DISCONNECT', 'Clean user-initiated disconnect completed'),
-        );
-        return;
-      }
-
-      showMessage({
-        message: 'Device disconnected',
-        description: 'Bluetooth connection lost. Attempting to reconnect…',
-        type: 'danger',
-        duration: 4000,
-      });
-
-      clearTimeout(_reconnectTimer);
-      _reconnectTimer = setTimeout(async () => {
-        if (_isUserDisconnecting || _device) return;
-        try {
-          dispatch(ac.log('RECONNECT', 'Attempting…'));
-          const r = await bleManager.connectToDevice(conn.id, {
-            timeout: 6_000,
-          });
-          await r.discoverAllServicesAndCharacteristics();
-
-          r.requestMTU(512).catch(() => {});
-
-          const newCfg = {
-            serviceUUID: FIRMWARE_SERVICE_UUID,
-            notifyUUID: FIRMWARE_DATA_UUID,
-            writeUUID: FIRMWARE_DATA_UUID,
-          };
-          _device = r;
-          _config = newCfg;
-          dispatch(ac.configResolved(newCfg));
-          dispatch(ac.connectSuccess({ id: r.id, name: r.name }));
-          startNotifications(r, newCfg, dispatch);
-          dispatch(ac.handshakeStart());
-          _armHandshakeTimer(dispatch);
-          _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
-          dispatch(ac.log('RECONNECT', 'Success ✅'));
-        } catch (e) {
-          dispatch(ac.log('RECONNECT', `Failed: ${e.message}`));
-        }
-      }, 2_000);
-    });
+    _armDisconnectHandler(conn, dispatch);
   } catch (e) {
     dispatch(ac.log('CONNECT', `Error: ${e.message}`));
     dispatch(ac.connectFailed(e.message));

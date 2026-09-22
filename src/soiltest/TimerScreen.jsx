@@ -27,6 +27,7 @@ import {
   StyleSheet,
   StatusBar,
   TouchableOpacity,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -164,6 +165,20 @@ export function TimerScreen({ navigation, route }) {
     };
   }, []);
 
+  // Stop the physical motor before leaving mid-run — covers both the
+  // TopBar back arrow and Android's hardware back button, which otherwise
+  // bypasses onBack entirely and leaves the motor running on the device.
+  useEffect(() => {
+    const onHardwareBack = () => {
+      if (started) {
+        dispatch(cmdStopSoilTest());
+      }
+      return false; // let normal back navigation proceed
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => sub.remove();
+  }, [started, dispatch]);
+
   // =====================================================
   // START — manual entry (Start button), soil-sensor-only test
   // =====================================================
@@ -284,7 +299,12 @@ export function TimerScreen({ navigation, route }) {
 
       <TopBar
         title="Soil Test Timer"
-        onBack={() => navigation.goBack()}
+        onBack={() => {
+          if (started) {
+            dispatch(cmdStopSoilTest());
+          }
+          navigation.goBack();
+        }}
         theme={theme}
       />
 

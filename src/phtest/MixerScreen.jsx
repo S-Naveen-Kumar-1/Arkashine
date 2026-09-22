@@ -10,6 +10,7 @@ import {
   StyleSheet,
   StatusBar,
   TouchableOpacity,
+  BackHandler,
 } from 'react-native';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -170,6 +171,34 @@ export default function MixerScreen({ navigation }) {
     };
   }, []);
 
+  // Stop the physical motor before leaving mid-mix — covers unmounts for
+  // any reason (swipe-back, programmatic navigation) that would otherwise
+  // leave the beaker mixing on the device with no control left to stop it.
+  const motorStatusRef = useRef(motorStatus);
+  useEffect(() => {
+    motorStatusRef.current = motorStatus;
+  }, [motorStatus]);
+  useEffect(() => {
+    return () => {
+      if (motorStatusRef.current === 'running') {
+        dispatch(cmdStopPhTestMotor());
+      }
+    };
+  }, [dispatch]);
+
+  // Android hardware back bypasses the TopBar's onBack entirely, so it
+  // needs its own listener to stop the motor before the screen pops.
+  useEffect(() => {
+    const onHardwareBack = () => {
+      if (motorStatus === 'running') {
+        dispatch(cmdStopPhTestMotor());
+      }
+      return false; // let normal back navigation proceed
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => sub.remove();
+  }, [motorStatus, dispatch]);
+
   // =====================================================
   // START
   // =====================================================
@@ -273,7 +302,12 @@ export default function MixerScreen({ navigation }) {
 
       <TopBar
         title="EC Mixing"
-        onBack={() => navigation.goBack()}
+        onBack={() => {
+          if (motorStatus === 'running') {
+            dispatch(cmdStopPhTestMotor());
+          }
+          navigation.goBack();
+        }}
         theme={theme}
       />
 

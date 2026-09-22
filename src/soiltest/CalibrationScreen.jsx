@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -166,12 +167,25 @@ export default function CalibrationScreen({ navigation }) {
   const [matrixModalVisible, setMatrixModalVisible] = useState(false);
 
   const pollRef = useRef(null);
+  const runningRef = useRef(false);
+  useEffect(() => {
+    runningRef.current = running;
+  }, [running]);
 
   // ─── Init: fetch device table + hydrate from AsyncStorage (survives restarts) ─
   useEffect(() => {
     dispatch(cmdGetSoilCalibrationData());
     hydrateFromStorage();
-    return () => clearInterval(pollRef.current);
+    return () => {
+      clearInterval(pollRef.current);
+      // Covers unmounts other than the back-arrow/hardware-back paths
+      // above (e.g. swipe-back, programmatic navigation) so the physical
+      // calibration doesn't keep running on the device unattended.
+      if (runningRef.current) {
+        dispatch(cmdStopSoilCalibration());
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const hydrateFromStorage = async () => {
@@ -446,6 +460,22 @@ export default function CalibrationScreen({ navigation }) {
     setStepStatus('idle');
     dispatch(cmdGetSoilCalibrationData());
   };
+
+  // Mirrors the TopBar back-arrow behavior (onBack below) for Android's
+  // hardware back button, which otherwise bypasses onBack entirely and
+  // leaves the calibration running on the device.
+  useEffect(() => {
+    const onHardwareBack = () => {
+      if (running) {
+        handleCancel();
+        return true; // stay on screen, same as the back-arrow while running
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
 
   // ─── Result modal actions ──────────────────────────────────────────────
   const closeResultModal = () => {

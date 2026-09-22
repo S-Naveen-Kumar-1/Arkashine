@@ -9,6 +9,7 @@ import {
   StatusBar,
   TouchableOpacity,
 } from 'react-native';
+import { useDispatch } from 'react-redux';
 import { Radius, Spacing, Typography } from '../theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -19,6 +20,18 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 export default function CalibrationMenuScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
+  const dispatch = useDispatch();
+
+  // Clear last run's captured voltages before starting a fresh calibration
+  // here — otherwise a leftover voltage from a previous calibration is
+  // still sitting in calibrationPoints[type][point], and the new screen's
+  // lock effect fires on it instantly instead of waiting for the device's
+  // fresh reading. (Same reset CalibrationSummaryScreen's "Redo Calibration"
+  // already uses.)
+  const startFreshCalibration = (screen, params) => {
+    dispatch({ type: 'CAL_POINT_RESET' });
+    navigation.replace(screen, params);
+  };
   const OPTIONS = [
     {
       id: 'ph',
@@ -63,7 +76,7 @@ export default function CalibrationMenuScreen({ navigation }) {
           <TouchableOpacity
             key={opt.id}
             style={[s.card, { backgroundColor: T.card, borderColor: T.border }]}
-            onPress={() => navigation.replace(opt.screen)}
+            onPress={() => startFreshCalibration(opt.screen)}
             activeOpacity={0.8}
           >
             {/* Left accent bar */}
@@ -110,7 +123,7 @@ export default function CalibrationMenuScreen({ navigation }) {
             { backgroundColor: T.primaryGlow, borderColor: T.primary },
           ]}
           onPress={() =>
-            navigation.replace('PHCalibrationScreen', { fullFlow: true })
+            startFreshCalibration('PHCalibrationScreen', { fullFlow: true })
           }
           activeOpacity={0.8}
         >

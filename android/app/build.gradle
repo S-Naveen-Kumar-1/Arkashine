@@ -5,6 +5,7 @@ apply plugin: "com.facebook.react"
 
 react {
 
+    nodeExecutableAndArgs = ["/home/gps/.nvm/versions/node/v22.23.2/bin/node"]
     autolinkLibrariesWithApp()
 }
 
