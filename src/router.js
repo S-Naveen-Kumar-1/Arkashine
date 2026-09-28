@@ -27,6 +27,7 @@ import Phecresultscreen from './phtest/Phecresultscreen';
 import BLEScanScreen from './screens/ble/DeviceScanScreen';
 import ReportsScreen from './reports/ReportsScreen';
 import DeviceReadingsScreen from './reports/DeviceReadingsScreen';
+import LinkReadingPickerScreen from './reports/LinkReadingPickerScreen';
 import ReadingDetailScreen from './reports/ReadingDetailScreen';
 import SoilPartnerTabs from './components/SoilPartnerTabs';
 import AddFarmerScreen from './soilpartner/AddFarmerScreen';
@@ -254,6 +255,11 @@ export const AppStack = () => {
             headerShown: false,
             // gestureEnabled: false,
           }}
+        />
+        <Stack.Screen
+          name="LinkReadingPickerScreen"
+          component={LinkReadingPickerScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="ReadingDetailScreen"

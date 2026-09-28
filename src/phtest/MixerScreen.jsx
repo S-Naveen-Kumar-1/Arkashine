@@ -32,6 +32,7 @@ import {
   cmdStartPhTestMotorEc,
   cmdStopPhTestMotor,
 } from '../redux/actions/bleActions';
+import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 const MOTOR_DURATION = 60;
 
@@ -310,6 +311,7 @@ export default function MixerScreen({ navigation }) {
         }}
         theme={theme}
       />
+      <ActiveFarmerBanner />
 
       <ScrollView
         style={{ flex: 1 }}

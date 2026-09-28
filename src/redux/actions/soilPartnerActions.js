@@ -221,10 +221,14 @@ export function resetFarmerApiCalls() {
 // ─── 13. Active farmer for in-progress test flow ──────────────────────────────
 // Set when a partner starts a test (pH / Soil Lenz) for a farmer so the BLE
 // flow's final save call can send farmer_id.
-export function setActiveFarmer(farmerId, farmerName = null, farmerPhone = null) {
+// source: 'farmer_page' — chosen via "Start Test for <farmer>" (cleared when
+//           the partner leaves that farmer's page);
+//         'test_flow'   — chosen on the test flow's own farmer picker
+//           (cleared when the partner is back on the product list).
+export function setActiveFarmer(farmerId, farmerName = null, farmerPhone = null, source = 'farmer_page') {
   return {
     type: 'SP_SET_ACTIVE_FARMER',
-    payload: { farmerId, farmerName, farmerPhone },
+    payload: { farmerId, farmerName, farmerPhone, source },
   };
 }
 

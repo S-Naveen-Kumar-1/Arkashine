@@ -16,6 +16,7 @@ import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import ConnectionFailedModal from '../components/ConnectionFailedModal';
+import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 export default function CalibrationGateScreen({ navigation }) {
   const theme = useTheme();
@@ -40,6 +41,7 @@ export default function CalibrationGateScreen({ navigation }) {
         onBack={() => navigation.goBack()}
         theme={theme}
       />
+      <ActiveFarmerBanner />
 
       <View style={s.body}>
         {/* ── Device status ───────────────────────── */}

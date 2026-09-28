@@ -23,6 +23,7 @@ import {
   cmdCheckSoilSensorStatus,
   cmdGetSoilResult,
 } from '../redux/actions/bleActions';
+import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 export function SensorScreen({ navigation, route }) {
   const { connected, device } = useSelector(s => s.ble);
@@ -288,6 +289,7 @@ export function SensorScreen({ navigation, route }) {
         onBack={() => navigation.goBack()}
         theme={theme}
       />
+      <ActiveFarmerBanner />
 
       <ScrollView
         style={{ flex: 1 }}

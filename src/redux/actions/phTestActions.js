@@ -61,6 +61,23 @@ export function linkSoilLens(deviceId, callId, soilLensId, confirm = false) {
   };
 }
 
+// SoiLENZ readings this PHBottle reading can link to, across every SoiLENZ
+// device the user owns (unlinked ones + the current link, flagged
+// `is_current`). Response also carries `devices` (with `available_count`)
+// for a device filter; pass filterDeviceId to narrow to one device.
+export function fetchSoilLensLinkCandidates(deviceId, callId, { filterDeviceId, page = 1 } = {}) {
+  return {
+    type: 'PH_SOIL_LENS_CANDIDATES_REQUEST',
+    payload: {
+      request: {
+        method: 'GET',
+        url: `/api/mobile/devices/${deviceId}/ph-bottle/${callId}/link-soil-lens/`,
+        params: { page, ...(filterDeviceId ? { device_id: filterDeviceId } : {}) },
+      },
+    },
+  };
+}
+
 export function unlinkSoilLens(deviceId, callId) {
   return {
     type: 'UNLINK_SOIL_LENS_REQUEST',

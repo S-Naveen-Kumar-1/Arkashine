@@ -35,7 +35,7 @@ import useTheme from '../hooks/useTheme';
 import { Radius, Spacing } from '../theme';
 import { cmdGetFinalResult } from '../redux/actions/bleActions';
 import { createPHBottleReading } from '../redux/actions/phTestActions';
-import { clearActiveFarmer } from '../redux/actions/soilPartnerActions';
+import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const toNum = v => {
@@ -390,6 +390,9 @@ export default function PHECResultScreen({ navigation }) {
   const [fetchError, setFetchError] = useState(null);
 
   const hasSavedRef = useRef(false);
+  // Bumped by Retry so the save effect re-runs even when the device returns
+  // the same values it did before a failed save.
+  const [saveAttempt, setSaveAttempt] = useState(0);
   const data = finalPhResult;
   const ph = toNum(data?.ph ?? data?.pH);
   // EC now comes from the stage-1 (EC-only) mix, cached in state.phtest.ecResult
@@ -435,12 +438,15 @@ export default function PHECResultScreen({ navigation }) {
     )
       .then(() => {
         console.log('PH Reading Saved');
-        if (activeFarmerId) dispatch(clearActiveFarmer());
+        // The active farmer is NOT cleared here any more — it lasts while the
+        // farmer's page is open (FarmerDetailScreen clears it on leave), so a
+        // Soil Lens test run right after this one gets the same farmer.
       })
       .catch(err => {
         console.log('SAVE ERROR', err);
+        hasSavedRef.current = false; // let Retry save this test
       });
-  }, [phBottleDeviceId, ph, ec, phVoltage, ecVoltage, dispatch, activeFarmerId]);
+  }, [phBottleDeviceId, ph, ec, phVoltage, ecVoltage, dispatch, activeFarmerId, saveAttempt]);
 
   const handleRetry = useCallback(async () => {
     if (fetching || !connected) return;
@@ -448,29 +454,19 @@ export default function PHECResultScreen({ navigation }) {
     setFetching(true);
 
     try {
-      const res = await dispatch(cmdGetFinalResult());
-
-      await dispatch(
-        createPHBottleReading({
-          device_id: phBottleDeviceId,
-
-          field1: ph,
-          field2: phVoltage,
-
-          field3: ec,
-          field4: ecVoltage,
-
-          tag: 'PH Test',
-          farmer_id: activeFarmerId,
-        }),
-      );
-      if (activeFarmerId) dispatch(clearActiveFarmer());
+      // Only re-request the result from the device. The value arrives
+      // asynchronously via BLE into state.phtest, and the save effect above
+      // stores it — saving here used this callback's stale ph/ec (the
+      // values from before the re-fetch) and, when the reading had already
+      // been saved, created a duplicate reading on every tap.
+      await dispatch(cmdGetFinalResult());
+      setSaveAttempt(n => n + 1);
     } catch (e) {
       console.log(e);
     } finally {
       setFetching(false);
     }
-  }, [fetching, connected, activeFarmerId, dispatch]);
+  }, [fetching, connected, dispatch]);
 
   // Single CTA: jump straight to TimerScreen. TimerScreen shows the
   // "next steps" info and kicks off the motor sequence on its own, then
@@ -487,6 +483,7 @@ export default function PHECResultScreen({ navigation }) {
         onBack={() => navigation.goBack()}
         theme={theme}
       />
+      <ActiveFarmerBanner canChange={false} />
 
       <ScrollView
         contentContainerStyle={s.scroll}

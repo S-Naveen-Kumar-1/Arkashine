@@ -26,6 +26,7 @@ import {
   disconnectDevice,
   retryHandshake,
 } from '../../redux/actions/bleActions';
+import ActiveFarmerBanner from '../../components/ActiveFarmerBanner';
 
 export default function DeviceScanScreen({ route, navigation }) {
   const item = route?.params?.item;
@@ -127,6 +128,7 @@ export default function DeviceScanScreen({ route, navigation }) {
         onBack={() => navigation.goBack()}
         theme={theme}
       />
+      <ActiveFarmerBanner allowSelect />
 
       <View style={s.body}>
         {/* ── Bluetooth off warning ──────────────────────── */}

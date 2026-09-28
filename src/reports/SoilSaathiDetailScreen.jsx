@@ -1251,7 +1251,8 @@ function PhBottleLinkBlock({ reading, T, deviceId, readingId, dispatch, navigati
   const handlePickAndLink = () => {
     openReadingPicker({
       navigation,
-      dispatch,
+      deviceId,
+      readingId,
       deviceType: 'ph_bottle',
       onPick: phBottleReading => doLink(phBottleReading, false),
     });
@@ -1330,6 +1331,13 @@ function PhBottleLinkBlock({ reading, T, deviceId, readingId, dispatch, navigati
       T={T}
     >
       <InfoRow icon="pound" label="Reading ID" value={`#${linked.id}`} T={T} />
+      {linked.device ? (
+        <>
+          <InfoRow icon="devices" label="Device Name" value={linked.device.name || '—'} T={T} />
+          <InfoRow icon="identifier" label="Device ID" value={linked.device.devise_id || '—'} T={T} />
+          <InfoRow icon="barcode" label="Serial No" value={linked.device.serial_no || '—'} T={T} />
+        </>
+      ) : null}
       <InfoRow icon="flask-outline" label="pH" value={linked.ph} T={T} />
       <InfoRow icon="water-outline" label="EC" value={linked.ec} T={T} />
       {linked.tag ? <InfoRow icon="tag-outline" label="Tag" value={linked.tag} T={T} /> : null}
@@ -1347,7 +1355,7 @@ function PhBottleLinkBlock({ reading, T, deviceId, readingId, dispatch, navigati
               readingId: linked.id,
               deviceId: linked.device_id,
               deviceType: 'ph_bottle',
-              deviceName: 'PHBottle',
+              deviceName: linked.device?.name || 'PHBottle',
             })
           }
           style={{
@@ -2697,15 +2705,11 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
   const [showFullChartModal, setShowFullChartModal] = useState(false);
   const [showFertDosesModal, setShowFertDosesModal] = useState(false);
 
-  // Fetch initial data gracefully
+  // Fetch initial data gracefully. Keyed on the reading only — schema /
+  // thresholds used to be in this dependency list, so the moment either
+  // finished loading this re-ran: cleared the reading and re-fired every
+  // recommendation request (AI included) a second time.
   useEffect(() => {
-    dispatch(fetchReadingDetail(deviceId, readingId)).catch(() => {});
-    if (!schema && !schemaSlot?.loading) {
-      dispatch(fetchDeviceFieldSchema(deviceType)).catch(() => {});
-    }
-    if (!serverThresholds && !thresholdsSlot?.loading) {
-      dispatch(fetchDeviceFieldThresholds(deviceType)).catch(() => {});
-    }
     dispatch(getSoilRecommendations(deviceId, readingId)).catch(() => {});
     dispatch(getSoilAIRecommendations(deviceId, readingId)).catch(() => {});
     dispatch(getSoilFertilizerRecommendation(deviceId, readingId)).catch(() => {});
@@ -2713,16 +2717,31 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
     dispatch(getSoilYieldOptions(deviceId, readingId)).catch(() => {});
 
     return () => dispatch(clearSelectedReading());
-  }, [
-    deviceId,
-    readingId,
-    deviceType,
-    dispatch,
-    schema,
-    schemaSlot?.loading,
-    serverThresholds,
-    thresholdsSlot?.loading,
-  ]);
+  }, [deviceId, readingId, dispatch]);
+
+  // Per-device-type schema + thresholds — fetched once per visit if not
+  // already cached (the ref stops a failed request from retrying in a loop,
+  // since a failure flips `loading` back to false with still no data).
+  const metaRequested = useRef(false);
+  useEffect(() => {
+    if (metaRequested.current) return;
+    metaRequested.current = true;
+    if (!schema && !schemaSlot?.loading) {
+      dispatch(fetchDeviceFieldSchema(deviceType)).catch(() => {});
+    }
+    if (!serverThresholds && !thresholdsSlot?.loading) {
+      dispatch(fetchDeviceFieldThresholds(deviceType)).catch(() => {});
+    }
+  }, [deviceType, dispatch, schema, schemaSlot?.loading, serverThresholds, thresholdsSlot?.loading]);
+
+  // The reading itself refetches on every focus (mount included): its PHBottle
+  // link, pH/EC and farmer can change from the PHBottle side while this
+  // screen sits in the stack.
+  useFocusEffect(
+    useCallback(() => {
+      dispatch(fetchReadingDetail(deviceId, readingId)).catch(() => {});
+    }, [deviceId, readingId, dispatch]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);

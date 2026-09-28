@@ -25,6 +25,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
@@ -44,6 +45,7 @@ import {
   resetDeleteImage,
   resetFarmerApiCalls,
   setActiveFarmer,
+  clearActiveFarmer,
 } from '../redux/actions/soilPartnerActions';
 import { showMessage } from 'react-native-flash-message';
 
@@ -1178,12 +1180,32 @@ export default function FarmerDetailScreen({ navigation, route }) {
   const deleteHandled = useRef(false);
   const editHandled = useRef(false);
 
-  useEffect(() => {
-    if (farmerId) {
-      dispatch(fetchFarmerDetail(farmerId));
-      dispatch(fetchFarmerApiCalls(farmerId));
-    }
-  }, [farmerId]);
+  // Refetch every time the screen comes back into focus — readings get
+  // created / linked on other screens (test flow, SoiLENZ <-> PHBottle link),
+  // and a mount-only fetch left this list stale until pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      if (farmerId) {
+        dispatch(fetchFarmerDetail(farmerId));
+        dispatch(fetchFarmerApiCalls(farmerId));
+      }
+    }, [farmerId, dispatch]),
+  );
+
+  // "Start Test for <farmer>" sets the active farmer; it now lasts while this
+  // farmer's page is in the stack (so a pH test AND a Soil Lens test run
+  // back-to-back both get this farmer), and is cleared when the partner
+  // actually leaves the page (back / home) — so it never leaks onto an
+  // unrelated later test. A RESET is deliberately ignored: the test flow
+  // resets the stack to DeviceScanScreen when the BLE connection drops, and
+  // the reconnected test must still be saved against this farmer.
+  useEffect(
+    () =>
+      navigation.addListener('beforeRemove', e => {
+        if (e.data?.action?.type !== 'RESET') dispatch(clearActiveFarmer());
+      }),
+    [navigation, dispatch],
+  );
 
   const onRefresh = async () => {
     if (!farmerId) return;
@@ -1628,13 +1650,13 @@ export default function FarmerDetailScreen({ navigation, route }) {
           <TouchableOpacity
             style={[s.startTestBtn, { backgroundColor: PRIMARY }]}
             onPress={() => {
-              dispatch(setActiveFarmer(farmerId, farmer?.name, farmer?.phone));
+              dispatch(setActiveFarmer(farmerId, farmer?.farmer_name ?? farmer?.name, farmer?.phone));
               navigation.navigate('ProductsListingScreen');
             }}
           >
             <Icon name="bluetooth-connect" size={16} color="#fff" />
             <Text style={s.startTestTxt}>
-              Start Test for {farmer?.name ?? 'Farmer'}
+              Start Test for {farmer?.farmer_name ?? farmer?.name ?? 'Farmer'}
             </Text>
           </TouchableOpacity>
         </Section>

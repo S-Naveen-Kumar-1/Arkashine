@@ -18,7 +18,9 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import useTheme from '../../hooks/useTheme';
 import { Typography, Spacing, Radius, Shadow } from '../../theme';
 import LinearGradient from 'react-native-linear-gradient';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import { useFocusEffect } from '@react-navigation/native';
+import { clearActiveFarmer } from '../../redux/actions/soilPartnerActions';
 import {
   PRODUCTS,
   CATEGORIES,
@@ -58,6 +60,18 @@ export function ProductsListingScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
   const devices = useSelector(s => s.userDevices?.devices || []);
+  const dispatch = useDispatch();
+  const activeFarmerSource = useSelector(s => s.soilPartner?.activeFarmerSource);
+
+  // A farmer picked inside the test flow (ActiveFarmerBanner on BLEScanScreen)
+  // belongs to that one test run — once the partner is back on this list the
+  // run is over, so clear it. A farmer set by "Start Test for <farmer>" on the
+  // farmer's page is left alone (that page clears it when the partner leaves).
+  useFocusEffect(
+    useCallback(() => {
+      if (activeFarmerSource === 'test_flow') dispatch(clearActiveFarmer());
+    }, [activeFarmerSource, dispatch]),
+  );
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingProductId, setLoadingProductId] = useState(null);

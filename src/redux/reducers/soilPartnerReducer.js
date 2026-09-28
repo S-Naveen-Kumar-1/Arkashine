@@ -56,6 +56,7 @@ const init = {
   activeFarmerId: null,
   activeFarmerName: null,
   activeFarmerPhone: null,
+  activeFarmerSource: null, // 'farmer_page' | 'test_flow' — see setActiveFarmer
 
   // Payments
   payments: [],
@@ -83,6 +84,7 @@ export default function soilPartnerReducer(state = init, action) {
         activeFarmerId: action.payload?.farmerId ?? null,
         activeFarmerName: action.payload?.farmerName ?? null,
         activeFarmerPhone: action.payload?.farmerPhone ?? null,
+        activeFarmerSource: action.payload?.source ?? 'farmer_page',
       };
 
     case 'SP_CLEAR_ACTIVE_FARMER':
@@ -91,6 +93,7 @@ export default function soilPartnerReducer(state = init, action) {
         activeFarmerId: null,
         activeFarmerName: null,
         activeFarmerPhone: null,
+        activeFarmerSource: null,
       };
 
     // ── Fetch farmers list ────────────────────────────────────────────────

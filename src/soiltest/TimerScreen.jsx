@@ -43,6 +43,7 @@ import {
   cmdStartSoilTest,
   disconnectDevice,
 } from '../redux/actions/bleActions';
+import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 const MOTOR_DURATION = 60;
 
@@ -307,6 +308,7 @@ export function TimerScreen({ navigation, route }) {
         }}
         theme={theme}
       />
+      <ActiveFarmerBanner />
 
       <ScrollView
         style={{ flex: 1 }}

@@ -15,6 +15,7 @@ import { AppButton, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import { Spacing, Radius, Typography, Shadow } from '../theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 export default function PourScreen({ navigation }) {
   const dispatch = useDispatch();
@@ -86,6 +87,7 @@ export default function PourScreen({ navigation }) {
         onBack={() => navigation.goBack()}
         theme={theme}
       />
+      <ActiveFarmerBanner />
 
       <View style={s.wrapper}>
         {/* 💧 DEVICE VISUAL */}

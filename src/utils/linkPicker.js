@@ -1,64 +1,27 @@
 // src/utils/linkPicker.js
 //
 // Shared "pick a reading to link" flow used by the SoiLENZ <-> PHBottle
-// linking UI (either direction): finds the user's device(s) of the target
-// type, then opens DeviceReadingsScreen in pick mode (search by tag/crop,
-// tap a row to choose) instead of navigating to that reading's detail page.
+// linking UI (either direction). Opens LinkReadingPickerScreen, which lists
+// linkable readings from ALL of the user's devices of the target type (with a
+// device filter when there's more than one) and leaves out readings already
+// linked to something else.
 
-import { Alert } from 'react-native';
-import { fetchReportDevices } from '../redux/actions/reportsActions';
-
-const DEVICE_LABELS = {
-  soilsaathi: 'SoiLENZ',
-  ph_bottle: 'PHBottle',
+const SIDE_BY_DEVICE_TYPE = {
+  ph_bottle: 'ph_bottle',   // a SoiLENZ reading picking a PHBottle reading
+  soilsaathi: 'soil_lens',  // a PHBottle reading picking a SoiLENZ reading
 };
 
-export async function openReadingPicker({
+export function openReadingPicker({
   navigation,
-  dispatch,
   deviceType,
+  deviceId,
+  readingId,
   onPick,
 }) {
-  const label = DEVICE_LABELS[deviceType] ?? deviceType;
-
-  const openFor = device => {
-    navigation.navigate('DeviceReadingsScreen', {
-      deviceId: device.id,
-      deviceName: device.name,
-      deviceType: device.devise_type,
-      device,
-      pickMode: true,
-      onPick,
-    });
-  };
-
-  try {
-    const res = await dispatch(fetchReportDevices(deviceType));
-    const candidates = res?.payload?.data?.results ?? [];
-
-    if (candidates.length === 0) {
-      Alert.alert(
-        `No ${label} device found`,
-        `You don't have a ${label} device registered on your account.`,
-      );
-      return;
-    }
-    if (candidates.length === 1) {
-      openFor(candidates[0]);
-      return;
-    }
-    Alert.alert(
-      `Choose ${label} device`,
-      'You have more than one — pick which device to browse.',
-      [
-        ...candidates.map(device => ({
-          text: device.name || `Device #${device.id}`,
-          onPress: () => openFor(device),
-        })),
-        { text: 'Cancel', style: 'cancel' },
-      ],
-    );
-  } catch (e) {
-    Alert.alert('Error', `Could not load your ${label} devices. Please try again.`);
-  }
+  navigation.navigate('LinkReadingPickerScreen', {
+    side: SIDE_BY_DEVICE_TYPE[deviceType] ?? deviceType,
+    deviceId,
+    readingId,
+    onPick,
+  });
 }

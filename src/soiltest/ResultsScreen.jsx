@@ -45,10 +45,10 @@ downloadSoilRecommendationPDF,
 } from '../redux/actions/soilsaathiActions';
 // NEW: print command
 import { cmdPrintSoilResult, cmdGetSoilResult } from '../redux/actions/bleActions';
-import { clearActiveFarmer } from '../redux/actions/soilPartnerActions';
 import { notifyPdfDownloaded } from '../utils/downloadNotification';
 import { fetchDeviceFieldThresholds, fetchReportDevices } from '../redux/actions/reportsActions';
 import { getUserDevices } from '../redux/actions';
+import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 const { width: SW } = Dimensions.get('window');
 const PAD = Spacing.lg ?? 16;
@@ -1117,7 +1117,8 @@ const saveReading = useCallback(async () => {
     console.log('[SoilResults] Reading saved successfully with ID:', id);
     setCallId(id);
     setPhase('fetching');
-    if (activeFarmerId) dispatch(clearActiveFarmer());
+    // Active farmer is kept (cleared when the farmer's page is left) so a pH
+    // test run right after this one gets the same farmer.
     fetchBothRecs(id);
   } catch (e) {
     const serverError =
@@ -1354,6 +1355,7 @@ return (
       onBack={() => navigation.goBack()}
       theme={theme}
     />
+    <ActiveFarmerBanner canChange={false} />
 
     {/* onRetry points at retrySave (which just clears hasAttemptedSave).
         The effect above is what actually re-invokes saveReading, exactly

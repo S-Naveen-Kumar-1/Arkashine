@@ -5,7 +5,8 @@
 //
 // Tabs: Overview | All Fields
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -90,12 +91,19 @@ export default function PhBottleDetailScreen({ navigation, route }) {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    dispatch(fetchReadingDetail(deviceId, readingId));
     if (!schema && !schemaSlot?.loading) {
       dispatch(fetchDeviceFieldSchema(deviceType));
     }
     return () => dispatch(clearSelectedReading());
   }, [deviceId, readingId, deviceType, dispatch]);
+
+  // Refetch on every focus, not just mount: the link (and so the farmer) can
+  // be changed from the SoiLENZ side while this screen sits in the stack.
+  useFocusEffect(
+    useCallback(() => {
+      dispatch(fetchReadingDetail(deviceId, readingId));
+    }, [deviceId, readingId, dispatch]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -496,7 +504,8 @@ function SoilLensLinkBlock({ reading, T, meta, deviceId, readingId, dispatch, na
   const handlePickAndLink = () => {
     openReadingPicker({
       navigation,
-      dispatch,
+      deviceId,
+      readingId,
       deviceType: 'soilsaathi',
       onPick: soilLensReading => doLink(soilLensReading, false),
     });
@@ -565,6 +574,13 @@ function SoilLensLinkBlock({ reading, T, meta, deviceId, readingId, dispatch, na
   return (
     <SectionCard title="Linked Soil Lens Reading" icon="leaf-circle-outline" color="#16A34A" T={T}>
       <InfoRow icon="pound" label="Reading ID" value={`#${linked.id}`} T={T} />
+      {linked.device ? (
+        <>
+          <InfoRow icon="devices" label="Device Name" value={linked.device.name || '—'} T={T} />
+          <InfoRow icon="identifier" label="Device ID" value={linked.device.devise_id || '—'} T={T} />
+          <InfoRow icon="barcode" label="Serial No" value={linked.device.serial_no || '—'} T={T} />
+        </>
+      ) : null}
       <InfoRow icon="flask-outline" label="pH" value={linked.ph} T={T} />
       <InfoRow icon="water-outline" label="EC" value={linked.ec} T={T} />
       {linked.tag ? <InfoRow icon="tag-outline" label="Tag" value={linked.tag} T={T} /> : null}
@@ -582,7 +598,7 @@ function SoilLensLinkBlock({ reading, T, meta, deviceId, readingId, dispatch, na
               readingId: linked.id,
               deviceId: linked.device_id,
               deviceType: 'soilsaathi',
-              deviceName: 'SoiLENZ',
+              deviceName: linked.device?.name || 'SoiLENZ',
             })
           }
           style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: T.border }}

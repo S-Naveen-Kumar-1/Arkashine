@@ -1,6 +1,7 @@
 // src/screens/soilpartner/FarmersListScreen.jsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -352,9 +353,12 @@ export default function FarmersListScreen({ navigation }) {
   const [search, setSearch] = useState('');
   const [activeStatus, setActiveStatus] = useState('all');
 
-  useEffect(() => {
-    dispatch(fetchFarmers());
-  }, [dispatch]);
+  // Refetch on focus so status changes made on a farmer's page show up here.
+  useFocusEffect(
+    useCallback(() => {
+      dispatch(fetchFarmers());
+    }, [dispatch]),
+  );
 
   const filtered = farmers.filter(f => {
     const q = search.trim().toLowerCase();

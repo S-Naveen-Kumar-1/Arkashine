@@ -27,6 +27,7 @@ import {
   cmdStartSoilSensor,
   cmdStopSoilTest,
 } from '../redux/actions/bleActions';
+import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 const FILTER_WAIT_SECONDS = 5 * 60;
 const SETTLE_WAIT_SECONDS = 60;
@@ -136,6 +137,7 @@ export default function FilterWaitScreen({ navigation }) {
         onBack={() => navigation.goBack()}
         theme={theme}
       />
+      <ActiveFarmerBanner />
 
       <View style={s.body}>
         {!ready ? (
