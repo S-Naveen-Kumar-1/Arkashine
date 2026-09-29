@@ -35,14 +35,14 @@ const STEPS = [
   },
 ];
 
-export default function IntroScreen({ navigation }) {
+export default function IntroScreen({ navigation, route }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
 
   const handleStart = () => {
     dispatch(testReset());
-    navigation.replace('PourScreen');
+    navigation.replace('PourScreen', route?.params);
   };
 
   return (

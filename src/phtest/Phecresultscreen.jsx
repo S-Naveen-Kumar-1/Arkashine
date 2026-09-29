@@ -35,6 +35,7 @@ import useTheme from '../hooks/useTheme';
 import { Radius, Spacing } from '../theme';
 import { cmdGetFinalResult } from '../redux/actions/bleActions';
 import { createPHBottleReading } from '../redux/actions/phTestActions';
+import { getUserDevices } from '../redux/actions';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -368,15 +369,20 @@ function VoltageRow({ label, value, T }) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function PHECResultScreen({ navigation }) {
+export default function PHECResultScreen({ navigation, route }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
   const devices = useSelector(s => s.userDevices?.devices || []);
 
-  const phBottleDevice = devices.find(d => d.devise_type === 'ph_bottle');
+  const phBottleDevice = devices.find(
+    d => d.devise_type === 'ph_bottle' || d.device_type === 'ph_bottle',
+  );
 
-  const phBottleDeviceId = phBottleDevice?.id;
+  const phBottleDeviceId =
+    route?.params?.deviceId ||
+    route?.params?.device?.id ||
+    phBottleDevice?.id;
 
   console.log(phBottleDeviceId, 'PH Bottle Device ID');
 
@@ -385,6 +391,8 @@ export default function PHECResultScreen({ navigation }) {
   // Set when a soil partner starts this test from a farmer's detail page
   // (FarmerDetailScreen) — absent for the regular non-partner BLE flow.
   const activeFarmerId = useSelector(s => s.soilPartner?.activeFarmerId);
+  const activeFarmerName = useSelector(s => s.soilPartner?.activeFarmerName);
+  const activeFarmerPhone = useSelector(s => s.soilPartner?.activeFarmerPhone);
 
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState(null);
@@ -410,12 +418,25 @@ export default function PHECResultScreen({ navigation }) {
   const ecStatus = getEcStatus(ec);
   const recs = getRecommendations(ph, ec);
 
+  // Auto-fetch devices if missing from Redux state
+  useEffect(() => {
+    if (!phBottleDeviceId && devices.length === 0) {
+      dispatch(getUserDevices()).catch(() => {});
+    }
+  }, [phBottleDeviceId, devices.length, dispatch]);
+
+  // Request final result if connected and not yet loaded
+  useEffect(() => {
+    if (!finalPhResult && connected) {
+      dispatch(cmdGetFinalResult()).catch(() => {});
+    }
+  }, [finalPhResult, connected, dispatch]);
+
   useEffect(() => {
     if (
       hasSavedRef.current ||
       !phBottleDeviceId ||
-      ph === null ||
-      ec === null
+      ph === null
     ) {
       return;
     }
@@ -429,11 +450,11 @@ export default function PHECResultScreen({ navigation }) {
         field1: ph,
         field2: phVoltage,
 
-        field3: ec,
-        field4: ecVoltage,
+        field3: ec ?? 0,
+        field4: ecVoltage ?? 0,
 
         tag: 'PH Test',
-        farmer_id: activeFarmerId,
+        farmer_id: activeFarmerId || route?.params?.farmerId,
       }),
     )
       .then(() => {
@@ -446,23 +467,32 @@ export default function PHECResultScreen({ navigation }) {
         console.log('SAVE ERROR', err);
         hasSavedRef.current = false; // let Retry save this test
       });
-  }, [phBottleDeviceId, ph, ec, phVoltage, ecVoltage, dispatch, activeFarmerId, saveAttempt]);
+  }, [
+    phBottleDeviceId,
+    ph,
+    ec,
+    phVoltage,
+    ecVoltage,
+    dispatch,
+    activeFarmerId,
+    route?.params?.farmerId,
+    saveAttempt,
+    finalPhResult?.timestamp,
+  ]);
 
   const handleRetry = useCallback(async () => {
     if (fetching || !connected) return;
 
     setFetching(true);
+    setFetchError(null);
 
     try {
-      // Only re-request the result from the device. The value arrives
-      // asynchronously via BLE into state.phtest, and the save effect above
-      // stores it — saving here used this callback's stale ph/ec (the
-      // values from before the re-fetch) and, when the reading had already
-      // been saved, created a duplicate reading on every tap.
+      hasSavedRef.current = false;
       await dispatch(cmdGetFinalResult());
       setSaveAttempt(n => n + 1);
     } catch (e) {
-      console.log(e);
+      console.log('Fetch error:', e);
+      setFetchError('Failed to fetch results. Check device connection.');
     } finally {
       setFetching(false);
     }
@@ -472,8 +502,29 @@ export default function PHECResultScreen({ navigation }) {
   // "next steps" info and kicks off the motor sequence on its own, then
   // routes to BLEScanScreen once the motor stops.
   const handleContinueToSoilTest = useCallback(() => {
-    navigation.navigate('TimerScreen', { autoStart: true });
-  }, [navigation]);
+    navigation.navigate('TimerScreen', {
+      autoStart: true,
+      ph,
+      ec,
+      phVoltage,
+      ecVoltage,
+      farmerId: activeFarmerId || route?.params?.farmerId,
+      farmerName: activeFarmerName || route?.params?.farmerName,
+      farmerPhone: activeFarmerPhone || route?.params?.farmerPhone,
+      latitude: route?.params?.latitude,
+      longitude: route?.params?.longitude,
+    });
+  }, [
+    navigation,
+    ph,
+    ec,
+    phVoltage,
+    ecVoltage,
+    activeFarmerId,
+    activeFarmerName,
+    activeFarmerPhone,
+    route?.params,
+  ]);
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
@@ -578,7 +629,7 @@ export default function PHECResultScreen({ navigation }) {
             <MetricCard
               icon="ph"
               title="Soil pH"
-              value={ph !== null ? ph.toFixed(6) : null}
+              value={ph !== null ? ph.toFixed(2) : null}
               status={phStatus}
               T={T}
             >
@@ -589,7 +640,7 @@ export default function PHECResultScreen({ navigation }) {
             <MetricCard
               icon="lightning-bolt"
               title="EC / Conductivity"
-              value={ec !== null ? ec.toFixed(6) : null}
+              value={ec !== null ? ec.toFixed(2) : null}
               unit="dS/m"
               status={ecStatus}
               T={T}

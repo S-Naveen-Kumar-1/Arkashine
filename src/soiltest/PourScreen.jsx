@@ -17,7 +17,7 @@ import { Spacing, Radius, Typography, Shadow } from '../theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
-export default function PourScreen({ navigation }) {
+export default function PourScreen({ navigation, route }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
@@ -63,14 +63,14 @@ export default function PourScreen({ navigation }) {
   }, []);
 
   const startCalibrate = async () => {
-    navigation.replace('SoilCalibrationScreen');
+    navigation.replace('SoilCalibrationScreen', route?.params);
   };
 
   const startSoilTest = () => {
     // The actual start sequence (TEST_RESET / stop / start sensor) now
     // happens after the filter-wait step, once the user has removed the
     // filter paper — see FilterWaitScreen.
-    navigation.replace('FilterWaitScreen');
+    navigation.replace('FilterWaitScreen', route?.params);
   };
 
   const dropY = dropAnim.interpolate({

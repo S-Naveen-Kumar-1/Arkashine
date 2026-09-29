@@ -273,6 +273,7 @@ export function TimerScreen({ navigation, route }) {
   const handleGoConnect = async () => {
     await dispatch(disconnectDevice());
     navigation.navigate('BLEScanScreen', {
+      ...(route?.params || {}),
       rescan: true,
       item: {
         id: 3,
@@ -424,7 +425,7 @@ export function TimerScreen({ navigation, route }) {
 
             {[
               'Add 5 g soil sample to the beaker',
-              'Add 50 ml extractant solution',
+              'Add 40 ml extractant solution',
               'Place the beaker under the mixer',
               'Ensure the EC probe is connected and ready',
             ].map((step, i) => (

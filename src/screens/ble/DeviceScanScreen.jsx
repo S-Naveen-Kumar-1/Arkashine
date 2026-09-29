@@ -113,9 +113,9 @@ export default function DeviceScanScreen({ route, navigation }) {
   // Navigate after connecting — handshake fires automatically in bleActions
   const handleProceed = useCallback(() => {
     if (item?.name === 'Ph Bottle')
-      navigation.navigate('CalibrationGateScreen');
-    else navigation.navigate('SoilTestIntroScreen');
-  }, [item, navigation]);
+      navigation.navigate('CalibrationGateScreen', route?.params);
+    else navigation.navigate('SoilTestIntroScreen', route?.params);
+  }, [item, navigation, route?.params]);
 
   const btOff =
     bleAdapterState !== 'PoweredOn' && bleAdapterState !== 'Unknown';

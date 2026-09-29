@@ -44,7 +44,7 @@ import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 const MOTOR_DURATION = 60;
 
-export default function InsertPhMeterScreen({ navigation }) {
+export default function InsertPhMeterScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors;
   const dispatch = useDispatch();
@@ -199,7 +199,7 @@ export default function InsertPhMeterScreen({ navigation }) {
 
   const getFinalResults = async () => {
     await dispatch(cmdGetFinalResult());
-    navigation.navigate('PHECResultScreen');
+    navigation.navigate('PHECResultScreen', route?.params);
   };
 
   const progress = MOTOR_DURATION - motorTimeLeft;

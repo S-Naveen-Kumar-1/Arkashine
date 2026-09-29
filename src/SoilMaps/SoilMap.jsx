@@ -15,6 +15,7 @@ import {
   ScrollView,
   Animated,
   Dimensions,
+  Modal,
 } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 import { WebView } from 'react-native-webview';
@@ -274,6 +275,11 @@ const MAP_HTML = `<!DOCTYPE html>
   .loc-dot{position:absolute;top:2px;left:2px;width:16px;height:16px;background:#3B82F6;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(59,130,246,0.8)}
   .loc-ring{position:absolute;top:-3px;left:-3px;width:26px;height:26px;border-radius:50%;border:2px solid rgba(59,130,246,0.5);animation:locRing 2s ease-out infinite}
   @keyframes locRing{0%{transform:scale(.5);opacity:1}100%{transform:scale(1.5);opacity:0}}
+  .ref-pin-wrap{position:relative;width:40px;height:40px}
+  .ref-pin{position:absolute;top:10px;left:10px;width:20px;height:20px;background:#06B6D4;border-radius:50%;border:3px solid #FFFFFF;box-shadow:0 0 14px rgba(6,182,212,0.95);z-index:2}
+  .ref-pulse{position:absolute;top:0;left:0;width:40px;height:40px;border-radius:50%;border:2px solid #06B6D4;animation:refPulse 1.8s ease-out infinite}
+  .ref-lbl{position:absolute;top:-16px;left:-18px;width:76px;text-align:center;background:rgba(6,182,212,0.95);color:#0A1628;font-size:9px;font-weight:900;border-radius:6px;padding:2px 4px;letter-spacing:0.5px;text-transform:uppercase;pointer-events:none}
+  @keyframes refPulse{0%{transform:scale(.5);opacity:1}100%{transform:scale(1.5);opacity:0}}
 </style>
 </head>
 <body>
@@ -311,6 +317,7 @@ var map=L.map('map',{
   // nutrient overlay
   var nutrientPolygon=null, currentColor='#22C55E';
   var readingMarker=null;
+  var refMarker=null;
 
   map.setView([22.5,82.0],4);
 
@@ -473,6 +480,29 @@ var map=L.map('map',{
         if(readingMarker){map.removeLayer(readingMarker);readingMarker=null;}
         readingMarker=L.circleMarker([d.lat,d.lng],{radius:8,color:'#F97316',weight:3,fillColor:'#F97316',fillOpacity:0.5}).addTo(map);
         readingMarker.bindTooltip('Reading location',{permanent:false,direction:'top'});
+        break;
+      case 'SET_REFERENCE_POINT':
+        if(refMarker){map.removeLayer(refMarker);refMarker=null;}
+        if(d.lat && d.lng){
+          var refIcon=L.divIcon({
+            className:'',
+            html:'<div class="ref-pin-wrap"><div class="ref-pulse"></div><div class="ref-pin"></div><div class="ref-lbl">REFERENCE</div></div>',
+            iconSize:[40,40],
+            iconAnchor:[20,20]
+          });
+          refMarker=L.marker([d.lat,d.lng],{icon:refIcon,zIndexOffset:4500,draggable:true}).addTo(map);
+          refMarker.bindTooltip('Reference Point: '+d.lat.toFixed(5)+', '+d.lng.toFixed(5),{permanent:false,direction:'top'});
+          refMarker.on('dragend', function(ev){
+            var pos=ev.target.getLatLng();
+            window.ReactNativeWebView.postMessage(JSON.stringify({type:'REFERENCE_MOVED',lat:pos.lat,lng:pos.lng}));
+          });
+          if(d.flyTo){
+            map.flyTo([d.lat,d.lng],17,{animate:true,duration:1.8});
+          }
+        }
+        break;
+      case 'CLEAR_REFERENCE_POINT':
+        if(refMarker){map.removeLayer(refMarker);refMarker=null;}
         break;
     }
   }
@@ -975,6 +1005,591 @@ const rs = StyleSheet.create({
   },
 });
 
+// ── Square & 4-Point Coordinates Modal ─────────────────────────────────────────
+function SquarePlotModal({
+  visible,
+  onClose,
+  referencePoint,
+  onSetReference,
+  onApplySquare,
+  onApplyFourPoints,
+}) {
+  const [tab, setTab] = useState('center');
+  const [centerLat, setCenterLat] = useState(
+    referencePoint ? String(referencePoint.lat) : '',
+  );
+  const [centerLng, setCenterLng] = useState(
+    referencePoint ? String(referencePoint.lng) : '',
+  );
+  const [sideMeters, setSideMeters] = useState('50');
+
+  const [p1Lat, setP1Lat] = useState('');
+  const [p1Lng, setP1Lng] = useState('');
+  const [p2Lat, setP2Lat] = useState('');
+  const [p2Lng, setP2Lng] = useState('');
+  const [p3Lat, setP3Lat] = useState('');
+  const [p3Lng, setP3Lng] = useState('');
+  const [p4Lat, setP4Lat] = useState('');
+  const [p4Lng, setP4Lng] = useState('');
+
+  useEffect(() => {
+    if (referencePoint) {
+      setCenterLat(String(referencePoint.lat));
+      setCenterLng(String(referencePoint.lng));
+    }
+  }, [referencePoint]);
+
+  const handleUseCurrentLocation = () => {
+    onSetReference();
+  };
+
+  const handleGenerateFromCenter = () => {
+    const lat = parseFloat(centerLat);
+    const lng = parseFloat(centerLng);
+    const side = parseFloat(sideMeters);
+    if (
+      isNaN(lat) ||
+      isNaN(lng) ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      Alert.alert(
+        'Invalid Center',
+        'Please enter valid Latitude (-90 to 90) and Longitude (-180 to 180).',
+      );
+      return;
+    }
+    if (isNaN(side) || side <= 0) {
+      Alert.alert(
+        'Invalid Size',
+        'Please enter a valid side length in meters (e.g. 50).',
+      );
+      return;
+    }
+    onApplySquare(lat, lng, side);
+    onClose();
+  };
+
+  const handleFillCornersFromCenter = () => {
+    const lat = parseFloat(centerLat);
+    const lng = parseFloat(centerLng);
+    const side = parseFloat(sideMeters) || 50;
+    if (isNaN(lat) || isNaN(lng)) {
+      Alert.alert(
+        'Missing Center',
+        'Please set center latitude and longitude first.',
+      );
+      return;
+    }
+    const halfSide = side / 2;
+    const dLat = halfSide / 111320;
+    const dLng = halfSide / (111320 * Math.cos((lat * Math.PI) / 180));
+    setP1Lat((lat - dLat).toFixed(6));
+    setP1Lng((lng - dLng).toFixed(6));
+    setP2Lat((lat + dLat).toFixed(6));
+    setP2Lng((lng - dLng).toFixed(6));
+    setP3Lat((lat + dLat).toFixed(6));
+    setP3Lng((lng + dLng).toFixed(6));
+    setP4Lat((lat - dLat).toFixed(6));
+    setP4Lng((lng + dLng).toFixed(6));
+  };
+
+  const handleApplyFourPoints = () => {
+    const pts = [
+      { lat: parseFloat(p1Lat), lng: parseFloat(p1Lng) },
+      { lat: parseFloat(p2Lat), lng: parseFloat(p2Lng) },
+      { lat: parseFloat(p3Lat), lng: parseFloat(p3Lng) },
+      { lat: parseFloat(p4Lat), lng: parseFloat(p4Lng) },
+    ];
+    for (let i = 0; i < 4; i++) {
+      if (
+        isNaN(pts[i].lat) ||
+        isNaN(pts[i].lng) ||
+        pts[i].lat < -90 ||
+        pts[i].lat > 90 ||
+        pts[i].lng < -180 ||
+        pts[i].lng > 180
+      ) {
+        Alert.alert(
+          'Invalid Coordinate',
+          `Point ${i + 1} has invalid latitude or longitude.`,
+        );
+        return;
+      }
+    }
+    onApplyFourPoints(pts);
+    onClose();
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={sm.overlay}>
+        <View style={sm.card}>
+          <View style={sm.header}>
+            <View>
+              <Text style={sm.title}>Square Plot & 4 Coordinates</Text>
+              <Text style={sm.sub}>
+                Create boundary using reference point or 4 coordinates
+              </Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={sm.closeBtn}>
+              <Text style={sm.closeTxt}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={sm.tabRow}>
+            <TouchableOpacity
+              style={[sm.tabBtn, tab === 'center' && sm.tabBtnActive]}
+              onPress={() => setTab('center')}
+            >
+              <Text style={[sm.tabTxt, tab === 'center' && sm.tabTxtActive]}>
+                📍 Reference / Uber Style
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[sm.tabBtn, tab === 'points' && sm.tabBtnActive]}
+              onPress={() => setTab('points')}
+            >
+              <Text style={[sm.tabTxt, tab === 'points' && sm.tabTxtActive]}>
+                📐 4 Lat / Long Points
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={sm.scrollBody}
+          >
+            {tab === 'center' ? (
+              <View style={sm.tabContent}>
+                <Text style={sm.desc}>
+                  Like Uber, set your current location as the reference point
+                  pin, choose plot size, and automatically form a square or draw
+                  manually around it.
+                </Text>
+
+                <TouchableOpacity
+                  style={sm.gpsBtn}
+                  onPress={handleUseCurrentLocation}
+                >
+                  <Text style={sm.gpsIco}>◎</Text>
+                  <Text style={sm.gpsTxt}>
+                    Use Current GPS Location as Reference
+                  </Text>
+                </TouchableOpacity>
+
+                <View style={sm.rowInputs}>
+                  <View style={sm.inputCol}>
+                    <Text style={sm.inputLabel}>Center Latitude</Text>
+                    <TextInput
+                      style={sm.input}
+                      placeholder="e.g. 13.0827"
+                      placeholderTextColor={C.placeholder}
+                      value={centerLat}
+                      onChangeText={setCenterLat}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                  <View style={sm.inputCol}>
+                    <Text style={sm.inputLabel}>Center Longitude</Text>
+                    <TextInput
+                      style={sm.input}
+                      placeholder="e.g. 80.2707"
+                      placeholderTextColor={C.placeholder}
+                      value={centerLng}
+                      onChangeText={setCenterLng}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                </View>
+
+                <Text style={sm.inputLabel}>
+                  Square Dimension (Side length in meters)
+                </Text>
+                <View style={sm.presetRow}>
+                  {['25', '50', '100', '200'].map(m => (
+                    <TouchableOpacity
+                      key={m}
+                      style={[
+                        sm.presetBtn,
+                        sideMeters === m && sm.presetBtnActive,
+                      ]}
+                      onPress={() => setSideMeters(m)}
+                    >
+                      <Text
+                        style={[
+                          sm.presetTxt,
+                          sideMeters === m && sm.presetTxtActive,
+                        ]}
+                      >
+                        {m}m{' '}
+                        {m === '25'
+                          ? '(0.15 ac)'
+                          : m === '50'
+                          ? '(0.6 ac)'
+                          : m === '100'
+                          ? '(2.5 ac)'
+                          : '(10 ac)'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TextInput
+                  style={[sm.input, { marginTop: 8 }]}
+                  placeholder="Or enter custom side in meters"
+                  placeholderTextColor={C.placeholder}
+                  value={sideMeters}
+                  onChangeText={setSideMeters}
+                  keyboardType="numeric"
+                />
+
+                <TouchableOpacity
+                  style={sm.primaryBtn}
+                  onPress={handleGenerateFromCenter}
+                >
+                  <Text style={sm.primaryBtnTxt}>
+                    ✓ Generate Square Plot ({sideMeters || 50}m)
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={sm.secondaryBtn}
+                  onPress={() => {
+                    const lat = parseFloat(centerLat);
+                    const lng = parseFloat(centerLng);
+                    if (!isNaN(lat) && !isNaN(lng)) {
+                      onSetReference(lat, lng);
+                      onClose();
+                    } else {
+                      Alert.alert(
+                        'Invalid Coordinate',
+                        'Enter valid Lat and Lng first.',
+                      );
+                    }
+                  }}
+                >
+                  <Text style={sm.secondaryBtnTxt}>
+                    📍 Place Reference Pin & Draw Manually
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={sm.tabContent}>
+                <Text style={sm.desc}>
+                  Enter the 4 latitude and longitude coordinates for the corners
+                  of your plot to form a square / rectangle.
+                </Text>
+
+                <TouchableOpacity
+                  style={sm.ghostBtn}
+                  onPress={handleFillCornersFromCenter}
+                >
+                  <Text style={sm.ghostBtnTxt}>
+                    ⚡ Auto-fill 4 Corners from Reference / Center
+                  </Text>
+                </TouchableOpacity>
+
+                {[
+                  {
+                    id: '1',
+                    title: 'Point 1 (SW Corner)',
+                    lat: p1Lat,
+                    setLat: setP1Lat,
+                    lng: p1Lng,
+                    setLng: setP1Lng,
+                  },
+                  {
+                    id: '2',
+                    title: 'Point 2 (NW Corner)',
+                    lat: p2Lat,
+                    setLat: setP2Lat,
+                    lng: p2Lng,
+                    setLng: setP2Lng,
+                  },
+                  {
+                    id: '3',
+                    title: 'Point 3 (NE Corner)',
+                    lat: p3Lat,
+                    setLat: setP3Lat,
+                    lng: p3Lng,
+                    setLng: setP3Lng,
+                  },
+                  {
+                    id: '4',
+                    title: 'Point 4 (SE Corner)',
+                    lat: p4Lat,
+                    setLat: setP4Lat,
+                    lng: p4Lng,
+                    setLng: setP4Lng,
+                  },
+                ].map(pt => (
+                  <View key={pt.id} style={sm.pointCard}>
+                    <Text style={sm.pointTitle}>{pt.title}</Text>
+                    <View style={sm.rowInputs}>
+                      <View style={sm.inputCol}>
+                        <Text style={sm.miniLabel}>Latitude</Text>
+                        <TextInput
+                          style={sm.input}
+                          placeholder="Latitude"
+                          placeholderTextColor={C.placeholder}
+                          value={pt.lat}
+                          onChangeText={pt.setLat}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={sm.inputCol}>
+                        <Text style={sm.miniLabel}>Longitude</Text>
+                        <TextInput
+                          style={sm.input}
+                          placeholder="Longitude"
+                          placeholderTextColor={C.placeholder}
+                          value={pt.lng}
+                          onChangeText={pt.setLng}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                  </View>
+                ))}
+
+                <TouchableOpacity
+                  style={sm.primaryBtn}
+                  onPress={handleApplyFourPoints}
+                >
+                  <Text style={sm.primaryBtnTxt}>
+                    ✓ Form Square Boundary from 4 Points
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const sm = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'flex-end',
+  },
+  card: {
+    backgroundColor: C.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: SCREEN_H * 0.88,
+    borderWidth: 1,
+    borderColor: C.borderLight,
+    paddingTop: 16,
+    paddingBottom: 28,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  title: {
+    color: C.white,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  sub: {
+    color: C.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.cardAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeTxt: {
+    color: C.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  tabRow: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    backgroundColor: C.bgAlt,
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 12,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 9,
+    alignItems: 'center',
+  },
+  tabBtnActive: {
+    backgroundColor: C.card,
+  },
+  tabTxt: {
+    color: C.muted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  tabTxtActive: {
+    color: C.primary,
+  },
+  scrollBody: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  tabContent: {
+    gap: 12,
+  },
+  desc: {
+    color: C.text,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  gpsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#06B6D422',
+    borderWidth: 1.5,
+    borderColor: '#06B6D4',
+    borderRadius: 12,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  gpsIco: {
+    color: '#06B6D4',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  gpsTxt: {
+    color: '#06B6D4',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  rowInputs: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  inputCol: {
+    flex: 1,
+  },
+  inputLabel: {
+    color: C.text,
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  miniLabel: {
+    color: C.muted,
+    fontSize: 10,
+    fontWeight: '700',
+    marginBottom: 2,
+    textTransform: 'uppercase',
+  },
+  input: {
+    backgroundColor: C.bgAlt,
+    borderWidth: 1,
+    borderColor: C.borderLight,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: C.white,
+    fontSize: 14,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  presetBtn: {
+    flex: 1,
+    backgroundColor: C.bgAlt,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  presetBtnActive: {
+    borderColor: C.primary,
+    backgroundColor: '#22C55E22',
+  },
+  presetTxt: {
+    color: C.muted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  presetTxtActive: {
+    color: C.primary,
+    fontWeight: '700',
+  },
+  primaryBtn: {
+    backgroundColor: C.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  primaryBtnTxt: {
+    color: C.bg,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  secondaryBtn: {
+    backgroundColor: C.cardAlt,
+    borderWidth: 1,
+    borderColor: '#06B6D488',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  secondaryBtnTxt: {
+    color: '#06B6D4',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  ghostBtn: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: C.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  ghostBtnTxt: {
+    color: C.primary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  pointCard: {
+    backgroundColor: C.bgAlt,
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 6,
+  },
+  pointTitle: {
+    color: C.white,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+});
+
 // ── Main Component ────────────────────────────────────────────────────────────
 export function MapScreen({ navigation, route }) {
   const webViewRef = useRef(null);
@@ -1006,6 +1621,14 @@ export function MapScreen({ navigation, route }) {
   const [mapLoading, setMapLoading] = useState(true);
   const [existingPlot, setExistingPlot] = useState(null);
   const [savingPlot, setSavingPlot] = useState(false);
+
+  // Reference Point (Uber-like pin) & 4-points / Square Modal
+  const [squareModalVisible, setSquareModalVisible] = useState(false);
+  const [referencePoint, setReferencePoint] = useState(
+    readingLat && readingLon
+      ? { lat: parseFloat(readingLat), lng: parseFloat(readingLon) }
+      : null,
+  );
 
   useEffect(() => {
     fetchLocation();
@@ -1177,6 +1800,8 @@ export function MapScreen({ navigation, route }) {
     } else if (data.type === 'DRAW_COMPLETE') {
       setPoints(data.points || []);
       setIsClosed(true);
+    } else if (data.type === 'REFERENCE_MOVED') {
+      setReferencePoint({ lat: data.lat, lng: data.lng });
     }
   };
 
@@ -1242,6 +1867,70 @@ export function MapScreen({ navigation, route }) {
   };
 
   // ── Controls ──────────────────────────────────────────────────────────────
+  const applySquareAround = (centerLat, centerLng, sideMeters = 50) => {
+    const halfSide = sideMeters / 2;
+    const dLat = halfSide / 111320;
+    const dLng = halfSide / (111320 * Math.cos((centerLat * Math.PI) / 180));
+    const corners = [
+      [centerLat - dLat, centerLng - dLng],
+      [centerLat + dLat, centerLng - dLng],
+      [centerLat + dLat, centerLng + dLng],
+      [centerLat - dLat, centerLng + dLng],
+    ];
+    webViewRef.current?.postMessage(
+      JSON.stringify({ type: 'LOAD_POLYGON', points: corners }),
+    );
+    setPoints(
+      corners.map(([lat, lng]) => ({ latitude: lat, longitude: lng })),
+    );
+    setIsClosed(true);
+  };
+
+  const applyFourPoints = pts => {
+    const corners = pts.map(p => [p.lat, p.lng]);
+    webViewRef.current?.postMessage(
+      JSON.stringify({ type: 'LOAD_POLYGON', points: corners }),
+    );
+    setPoints(pts.map(p => ({ latitude: p.lat, longitude: p.lng })));
+    setIsClosed(true);
+  };
+
+  const setReferenceToLocation = (lat, lng, fly = true) => {
+    const targetLat =
+      lat ??
+      cachedLoc.current?.lat ??
+      (readingLat ? parseFloat(readingLat) : null);
+    const targetLng =
+      lng ??
+      cachedLoc.current?.lng ??
+      (readingLon ? parseFloat(readingLon) : null);
+    if (!targetLat || !targetLng) {
+      Alert.alert(
+        'Location unavailable',
+        'Please enable GPS or select a location.',
+      );
+      fetchLocation();
+      return;
+    }
+    const ref = { lat: targetLat, lng: targetLng };
+    setReferencePoint(ref);
+    webViewRef.current?.postMessage(
+      JSON.stringify({
+        type: 'SET_REFERENCE_POINT',
+        lat: targetLat,
+        lng: targetLng,
+        flyTo: fly,
+      }),
+    );
+  };
+
+  const clearReferencePoint = () => {
+    setReferencePoint(null);
+    webViewRef.current?.postMessage(
+      JSON.stringify({ type: 'CLEAR_REFERENCE_POINT' }),
+    );
+  };
+
   const undoLast = () => {
     if (!points.length) return;
     setPoints(p => p.slice(0, -1));
@@ -1478,22 +2167,80 @@ export function MapScreen({ navigation, route }) {
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
-          {/* <View style={s.infoRow}>
-            <View style={s.infoCard}>
-              <Text style={s.infoN}>Points: {points.length}</Text>
-              <Text style={[s.infoStatus, { color: statusColor }]}>
-                {statusText}
-              </Text>
-            </View>
             <TouchableOpacity
-              style={[s.locBtn, { borderColor: locBorder }]}
-              onPress={fetchLocation}
+              style={[s.modeBtn, squareModalVisible && s.modeBtnActive]}
+              onPress={() => setSquareModalVisible(true)}
               activeOpacity={0.75}
             >
-              <Text style={[s.locIco, { color: locBorder }]}>{locIcoChar}</Text>
+              <Text style={s.modeIco}>📐</Text>
+              <Text style={[s.modeLbl, squareModalVisible && s.modeLblActive]}>
+                4-Pts / Box
+              </Text>
             </TouchableOpacity>
-          </View> */}
+            <TouchableOpacity
+              style={[s.modeBtn, !!referencePoint && s.modeBtnRefActive]}
+              onPress={() => {
+                if (!referencePoint) {
+                  setReferenceToLocation(null, null, true);
+                } else {
+                  setSquareModalVisible(true);
+                }
+              }}
+              activeOpacity={0.75}
+            >
+              <Text style={s.modeIco}>📍</Text>
+              <Text style={[s.modeLbl, !!referencePoint && s.modeLblRefActive]}>
+                {referencePoint ? 'Ref Pin' : 'Set Ref'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Reference point floating anchor card */}
+          {referencePoint && (
+            <View style={s.refBanner}>
+              <View style={s.refBannerLeft}>
+                <Text style={s.refBannerTitle}>📍 REFERENCE ANCHOR</Text>
+                <Text style={s.refBannerCoords}>
+                  {referencePoint.lat.toFixed(5)}, {referencePoint.lng.toFixed(5)}
+                </Text>
+              </View>
+              <View style={s.refBannerBtns}>
+                <TouchableOpacity
+                  style={s.refMiniBtn}
+                  onPress={() =>
+                    applySquareAround(
+                      referencePoint.lat,
+                      referencePoint.lng,
+                      50,
+                    )
+                  }
+                >
+                  <Text style={s.refMiniBtnTxt}>50m Box</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.refMiniBtn}
+                  onPress={() =>
+                    applySquareAround(
+                      referencePoint.lat,
+                      referencePoint.lng,
+                      100,
+                    )
+                  }
+                >
+                  <Text style={s.refMiniBtnTxt}>100m Box</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    s.refMiniBtn,
+                    { backgroundColor: '#EF444422', borderColor: '#EF4444' },
+                  ]}
+                  onPress={clearReferencePoint}
+                >
+                  <Text style={[s.refMiniBtnTxt, { color: '#EF4444' }]}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </>
       )}
       {/* Current Location FAB */}
@@ -1592,6 +2339,16 @@ export function MapScreen({ navigation, route }) {
           onProceed={() => navigation?.navigate('ProductsListingScreen')} // ← add this
         />
       )}
+
+      {/* 4-Points / Square Modal */}
+      <SquarePlotModal
+        visible={squareModalVisible}
+        onClose={() => setSquareModalVisible(false)}
+        referencePoint={referencePoint}
+        onSetReference={(lat, lng) => setReferenceToLocation(lat, lng, true)}
+        onApplySquare={(lat, lng, side) => applySquareAround(lat, lng, side)}
+        onApplyFourPoints={pts => applyFourPoints(pts)}
+      />
     </SafeAreaView>
   );
 }
@@ -1741,9 +2498,64 @@ const s = StyleSheet.create({
     elevation: 8,
   },
   modeBtnActive: { borderColor: C.primary, backgroundColor: C.bgAlt },
+  modeBtnRefActive: { borderColor: '#06B6D4', backgroundColor: '#06B6D422' },
   modeIco: { fontSize: 16 },
   modeLbl: { color: C.muted, fontSize: 13, fontWeight: '700' },
   modeLblActive: { color: C.primary },
+  modeLblRefActive: { color: '#06B6D4' },
+
+  // Reference banner
+  refBanner: {
+    position: 'absolute',
+    top: 182,
+    left: SP.md,
+    right: SP.md,
+    backgroundColor: 'rgba(19, 32, 56, 0.95)',
+    borderRadius: R.lg,
+    borderWidth: 1.5,
+    borderColor: '#06B6D4',
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 89,
+    shadowColor: '#06B6D4',
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  refBannerLeft: {
+    flex: 1,
+  },
+  refBannerTitle: {
+    color: '#06B6D4',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  refBannerCoords: {
+    color: C.white,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  refBannerBtns: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  refMiniBtn: {
+    backgroundColor: '#06B6D422',
+    borderWidth: 1,
+    borderColor: '#06B6D4',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  refMiniBtnTxt: {
+    color: '#06B6D4',
+    fontSize: 11,
+    fontWeight: '700',
+  },
 
   // Info row
   infoRow: {

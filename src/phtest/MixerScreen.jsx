@@ -36,7 +36,7 @@ import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
 const MOTOR_DURATION = 60;
 
-export default function MixerScreen({ navigation }) {
+export default function MixerScreen({ navigation, route }) {
   const theme = useTheme();
 
   const T = theme.colors;
@@ -295,7 +295,7 @@ export default function MixerScreen({ navigation }) {
     // render its "pH Mixing Completed / Get Results" state on mount using
     // the EC stage's leftover completion, before the pH stage has run.
     dispatch(ac.mixingComplete(false));
-    navigation.navigate('InsertPhMeterScreen');
+    navigation.navigate('InsertPhMeterScreen', route?.params);
   };
   return (
     <SafeAreaView style={[s.container, { backgroundColor: T.bg }]}>
@@ -437,7 +437,7 @@ export default function MixerScreen({ navigation }) {
 
             {[
               'Add 5 g soil sample to the beaker',
-              'Add 50 ml extractant solution',
+              'Add 50 ml Distilled water(DW)',
               'Place the beaker under the mixer',
               'Ensure the EC probe is connected and ready',
             ].map((t, i) => (
@@ -666,7 +666,7 @@ export default function MixerScreen({ navigation }) {
               ? 'Waiting for the device to confirm it has started…'
               : mixingCompleted
                 ? 'EC mixing completed successfully.'
-                : 'Motor mixes the soil-extractant solution to measure EC'}
+                : 'Motor mixes the soil and Distilled water(DW) to measure EC'}
         </Text>
 
       </ScrollView>

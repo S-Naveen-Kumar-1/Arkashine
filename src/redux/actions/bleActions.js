@@ -1468,10 +1468,39 @@ export const cmdGetSoilResult = () => async dispatch => {
 // now just a trigger. See _run_ble_soil_print_workflow() in main_ble.py.
 export const cmdPrintSoilResult = (metadata = {}) => dispatch => {
   const payload = { SOILPRINT: 'START' };
-  if (metadata.farmerName) payload.farmer_name = String(metadata.farmerName).trim();
-  if (metadata.farmerPhone) payload.farmer_phone = String(metadata.farmerPhone).trim();
-  if (metadata.ph != null && !isNaN(Number(metadata.ph))) payload.ph = Number(metadata.ph);
-  if (metadata.ec != null && !isNaN(Number(metadata.ec))) payload.ec = Number(metadata.ec);
+  const farmerName = metadata.farmerName || metadata.farmer_name;
+  if (farmerName) {
+    const fn = String(farmerName).trim();
+    payload.farmer_name = fn;
+    payload.farmerName = fn;
+  }
+  const farmerPhone = metadata.farmerPhone || metadata.farmer_phone || metadata.phone;
+  if (farmerPhone) {
+    const fp = String(farmerPhone).trim();
+    payload.farmer_phone = fp;
+    payload.farmerPhone = fp;
+    payload.phone = fp;
+  }
+  const ph = metadata.ph ?? metadata.pH;
+  if (ph != null && !isNaN(Number(ph))) {
+    payload.ph = Number(ph);
+    payload.pH = Number(ph);
+  }
+  const ec = metadata.ec ?? metadata.EC;
+  if (ec != null && !isNaN(Number(ec))) {
+    payload.ec = Number(ec);
+    payload.EC = Number(ec);
+  }
+  const lat = metadata.lat ?? metadata.latitude;
+  if (lat != null && !isNaN(Number(lat))) {
+    payload.lat = Number(lat);
+    payload.latitude = Number(lat);
+  }
+  const long = metadata.long ?? metadata.longitude ?? metadata.lng;
+  if (long != null && !isNaN(Number(long))) {
+    payload.long = Number(long);
+    payload.longitude = Number(long);
+  }
   return _sendJSON(payload, dispatch);
 };
 

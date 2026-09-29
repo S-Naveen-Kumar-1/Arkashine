@@ -32,7 +32,7 @@ import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 const FILTER_WAIT_SECONDS = 5 * 60;
 const SETTLE_WAIT_SECONDS = 60;
 
-export default function FilterWaitScreen({ navigation }) {
+export default function FilterWaitScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors;
   const dispatch = useDispatch();
@@ -97,7 +97,7 @@ export default function FilterWaitScreen({ navigation }) {
       await dispatch({ type: 'TEST_RESET' });
       await dispatch(cmdStopSoilTest());
       await dispatch(cmdStartSoilSensor());
-      navigation.replace('SensorScreen');
+      navigation.replace('SensorScreen', route?.params);
     } catch (e) {
       setStarting(false);
     }

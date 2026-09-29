@@ -18,7 +18,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import ConnectionFailedModal from '../components/ConnectionFailedModal';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
 
-export default function CalibrationGateScreen({ navigation }) {
+export default function CalibrationGateScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors;
 
@@ -128,7 +128,7 @@ export default function CalibrationGateScreen({ navigation }) {
         {/* ── PRIMARY: START TEST ────────────────── */}
         <TouchableOpacity
           style={[s.btnPrimary, { backgroundColor: T.primary }]}
-          onPress={() => navigation.replace('MixerScreen')}
+          onPress={() => navigation.replace('MixerScreen', route?.params)}
           activeOpacity={0.85}
         >
           <Icon name="play-circle" size={20} color="#fff" />
@@ -140,7 +140,7 @@ export default function CalibrationGateScreen({ navigation }) {
         {/* ── SECONDARY: CALIBRATE ───────────────── */}
         <TouchableOpacity
           style={[s.btnOutline, { borderColor: T.primary }]}
-          onPress={() => navigation.replace('CalibrationMenuScreen')}
+          onPress={() => navigation.replace('CalibrationMenuScreen', route?.params)}
           activeOpacity={0.75}
         >
           <Text style={[s.btnOutlineText, { color: T.primary }]}>

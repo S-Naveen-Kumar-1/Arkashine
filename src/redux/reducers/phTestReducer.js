@@ -58,6 +58,7 @@ export default function phTestReducer(state = init, action) {
         results: null,
         savedAt: null,
         ecResult: null,
+        finalPhResult: null,
       };
 
     case TEST_MOTOR_START:

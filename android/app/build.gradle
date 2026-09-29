@@ -4,8 +4,10 @@ apply plugin: "com.facebook.react"
 
 
 react {
-
-    nodeExecutableAndArgs = ["/home/gps/.nvm/versions/node/v22.23.2/bin/node"]
+    /* Custom node binary can be passed via NODE_BINARY env var or left to system PATH */
+    if (System.getenv("NODE_BINARY") != null) {
+        nodeExecutableAndArgs = [System.getenv("NODE_BINARY")]
+    }
     autolinkLibrariesWithApp()
 }
 
