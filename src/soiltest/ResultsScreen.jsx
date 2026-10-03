@@ -42,7 +42,10 @@ import {
   buildSoilPayload,
   downloadSoilDetailPDF,
   downloadSoilRecommendationPDF,
+  linkPhBottle,
 } from '../redux/actions/soilsaathiActions';
+import { openReadingPicker } from '../utils/linkPicker';
+import { showMessage } from 'react-native-flash-message';
 // NEW: print command
 import { cmdPrintSoilResult, cmdGetSoilResult } from '../redux/actions/bleActions';
 import { notifyPdfDownloaded } from '../utils/downloadNotification';
@@ -1055,6 +1058,39 @@ const pr = StyleSheet.create({
   label: { fontSize: 14, fontWeight: '800', letterSpacing: 0.2 },
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LINK PH BOTTLE BUTTON
+// Links this saved SoiLENZ reading to a PHBottle reading (syncs its pH/EC on
+// the server) — same flow as the Farmer tab on the reading detail screen.
+// ─────────────────────────────────────────────────────────────────────────────
+function LinkPhBottleButton({ onPress, loading, linked, T }) {
+  const color = '#2563EB';
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      style={[
+        pr.btn,
+        { borderColor: color, opacity: loading ? 0.5 : 1 },
+      ]}
+      disabled={loading}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color={color} style={{ marginRight: 8 }} />
+      ) : (
+        <Text style={[pr.icon, { color }]}>🔗</Text>
+      )}
+      <Text style={[pr.label, { color }]} numberOfLines={1}>
+        {loading
+          ? 'Linking…'
+          : linked
+          ? `pH Bottle linked (pH ${linked.ph ?? '—'} / EC ${linked.ec ?? '—'})`
+          : 'Link pH Bottle Reading'}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 // How long to wait for a SOILPRINT response before giving up and resetting
 // the button. Covers a Pi that never received the trigger at all (e.g. out
 // of range) so the spinner can never hang forever again.
@@ -1186,6 +1222,8 @@ export function SoilResultsScreen({ navigation, route }) {
   const [tab, setTab] = useState('nutrients');
   const [pdfLoading, setPdfLoading] = useState(false);
   const [advisoryLoading, setAdvisoryLoading] = useState(false);
+  const [linkedPhBottle, setLinkedPhBottle] = useState(null);
+  const [linkingPh, setLinkingPh] = useState(false);
   const [advisoryPath, setAdvisoryPath] = useState(null);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   // local "request sent, waiting for STARTED/DONE/ERROR" flag — covers the
@@ -1447,6 +1485,64 @@ export function SoilResultsScreen({ navigation, route }) {
     }
   }, [deviceId, callId, dispatch]);
 
+  // ── Link a PHBottle reading to this SoiLENZ reading ───────────────────
+  const doLinkPhBottle = useCallback(
+    async (phBottleReading, confirm = false) => {
+      setLinkingPh(true);
+      try {
+        await dispatch(
+          linkPhBottle(deviceId, callId, phBottleReading.id, confirm),
+        );
+        setLinkedPhBottle(phBottleReading);
+        // Advisory PDF must be regenerated with the linked pH/EC.
+        setAdvisoryPath(null);
+        showMessage({ message: 'Linked to PHBottle reading', type: 'success' });
+      } catch (e) {
+        const data = e?.error?.response?.data ?? e?.response?.data;
+        if (data?.warning) {
+          Alert.alert(
+            data.warning,
+            `Current pH ${data.current?.ph ?? '—'} / EC ${data.current?.ec ?? '—'} → ` +
+              `New pH ${data.incoming?.ph ?? '—'} / EC ${data.incoming?.ec ?? '—'}.\n\n${data.detail ?? ''}`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Overwrite',
+                style: 'destructive',
+                onPress: () => doLinkPhBottle(phBottleReading, true),
+              },
+            ],
+          );
+        } else {
+          Alert.alert(
+            'Link failed',
+            data?.detail || 'Could not link this PHBottle reading.',
+          );
+        }
+      } finally {
+        setLinkingPh(false);
+      }
+    },
+    [deviceId, callId, dispatch],
+  );
+
+  const handleLinkPhBottle = useCallback(() => {
+    if (!deviceId || !callId) {
+      Alert.alert(
+        'Not ready',
+        'The reading needs to finish saving before a pH Bottle reading can be linked.',
+      );
+      return;
+    }
+    openReadingPicker({
+      navigation,
+      deviceId,
+      readingId: callId,
+      deviceType: 'ph_bottle',
+      onPick: r => doLinkPhBottle(r, false),
+    });
+  }, [deviceId, callId, navigation, doLinkPhBottle]);
+
   // ── Advisory report (6-page AI PDF) download — same endpoint/flow as the
   // "View Report" button on the SoiLENZ reading detail screen, so users can
   // get the full advisory right after a BLE test instead of navigating to
@@ -1516,6 +1612,7 @@ export function SoilResultsScreen({ navigation, route }) {
     setPrintRequesting(true);
 
     const resolvedPh =
+      linkedPhBottle?.ph ??
       soilData?.ph ??
       soilData?.pH ??
       route?.params?.ph ??
@@ -1523,6 +1620,7 @@ export function SoilResultsScreen({ navigation, route }) {
       phtestState?.finalPhResult?.pH ??
       bleSensorData?.ph;
     const resolvedEc =
+      linkedPhBottle?.ec ??
       soilData?.ec ??
       soilData?.EC ??
       route?.params?.ec ??
@@ -1554,14 +1652,10 @@ export function SoilResultsScreen({ navigation, route }) {
       null;
 
     const metadata = {
-      farmerName: resolvedFarmerName,
-      farmerPhone: resolvedFarmerPhone,
       farmer_name: resolvedFarmerName,
       farmer_phone: resolvedFarmerPhone,
       ph: resolvedPh,
       ec: resolvedEc,
-      lat: resolvedLat,
-      long: resolvedLong,
       latitude: resolvedLat,
       longitude: resolvedLong,
     };
@@ -1578,6 +1672,7 @@ export function SoilResultsScreen({ navigation, route }) {
     route?.params,
     phtestState,
     bleSensorData,
+    linkedPhBottle,
   ]);
 
   const printing =
@@ -2011,6 +2106,12 @@ export function SoilResultsScreen({ navigation, route }) {
                   disabled={!connected}
                   T={T}
                 />
+                <LinkPhBottleButton
+                  onPress={handleLinkPhBottle}
+                  loading={linkingPh}
+                  linked={linkedPhBottle}
+                  T={T}
+                />
                 <DownloadButton
                   onPress={handleDownload}
                   loading={pdfLoading}
@@ -2031,6 +2132,12 @@ export function SoilResultsScreen({ navigation, route }) {
                   onPress={handlePrint}
                   loading={printing}
                   disabled={!connected}
+                  T={T}
+                />
+                <LinkPhBottleButton
+                  onPress={handleLinkPhBottle}
+                  loading={linkingPh}
+                  linked={linkedPhBottle}
                   T={T}
                 />
                 <DownloadButton onPress={handleDownload} loading={pdfLoading} T={T} />

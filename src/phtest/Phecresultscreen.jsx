@@ -1,6 +1,6 @@
 // src/screens/phtest/PHECResultScreen.jsx
 // Production-ready result screen.
-// • Shows pH, EC/TDS, temperature, voltages
+// • Shows pH, EC/TDS, voltages
 // • Color-coded range indicators
 // • Contextual recommendations
 // • Retry / re-fetch
@@ -407,11 +407,9 @@ export default function PHECResultScreen({ navigation, route }) {
   // — fall back to whatever's on the final-result payload for older single-stage
   // firmware that still returns EC alongside pH.
   const ec = toNum(ecResult?.ec) ?? toNum(data?.ec ?? data?.EC ?? data?.TDS);
-  const temp = toNum(data?.temperature);
   const phVoltage = toNum(data?.voltage ?? data?.phVoltage ?? data?.pHVoltage);
   const ecVoltage =
     toNum(ecResult?.ecVoltage) ?? toNum(data?.ecVoltage ?? data?.ECVoltage);
-  const tempFallback = data?.temperatureFallback ?? false;
 
   const hasData = ph !== null || ec !== null;
   const phStatus = getPhStatus(ph);
@@ -646,42 +644,6 @@ export default function PHECResultScreen({ navigation, route }) {
               T={T}
             />
 
-            {/* Temperature Card */}
-            <MetricCard
-              icon="thermometer"
-              title="Temperature"
-              value={temp !== null ? temp.toFixed(1) : null}
-              unit="°C"
-              T={T}
-            >
-              {tempFallback && (
-                <View
-                  style={[
-                    s.fallbackBadge,
-                    {
-                      backgroundColor: '#F59E0B22',
-                      borderColor: '#F59E0B',
-                    },
-                  ]}
-                >
-                  <Icon
-                    name="information-outline"
-                    size={12}
-                    color="#F59E0B"
-                  />
-                  <Text
-                    style={{
-                      color: '#F59E0B',
-                      fontSize: 11,
-                      fontWeight: '700',
-                    }}
-                  >
-                    Fallback temp used (sensor unavailable)
-                  </Text>
-                </View>
-              )}
-            </MetricCard>
-
             {/* Voltage Technical Card */}
             <View
               style={[
@@ -819,17 +781,6 @@ const s = StyleSheet.create({
   },
   retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
 
-  fallbackBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginTop: 6,
-    alignSelf: 'flex-start',
-  },
 
   voltCard: {
     borderRadius: Radius.lg,

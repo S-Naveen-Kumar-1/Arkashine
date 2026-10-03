@@ -36,7 +36,6 @@ import { Radius, Spacing } from '../theme';
 import { TopBar, ProgressRing } from '../components/common';
 import useTheme from '../hooks/useTheme';
 import {
-  cmdCheckSoilMotorStatus,
   cmdStartSoilSensor,
   cmdStopSoilTest,
   cmdStartPhTestMotor,
@@ -78,7 +77,6 @@ export function TimerScreen({ navigation, route }) {
   // REFS
   // =====================================================
   const timerRef = useRef(null);
-  const statusIntervalRef = useRef(null);
   const awaitingTimeoutRef = useRef(null);
 
   // Sync local `started` with the ack-driven redux motorStatus — only the
@@ -96,24 +94,6 @@ export function TimerScreen({ navigation, route }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [motorStatus]);
-
-  // =====================================================
-  // POLL SOIL MOTOR STATUS (only while running, like Mixer)
-  // =====================================================
-  useEffect(() => {
-    if (started && !completed) {
-      if (!statusIntervalRef.current) {
-        statusIntervalRef.current = setInterval(() => {
-          dispatch(cmdCheckSoilMotorStatus());
-        }, 3000);
-      }
-    } else if (statusIntervalRef.current) {
-      clearInterval(statusIntervalRef.current);
-      statusIntervalRef.current = null;
-    }
-
-    return () => {};
-  }, [started, completed, dispatch]);
 
   // =====================================================
   // COUNTDOWN TIMER — drives completion locally, same as before
@@ -147,10 +127,6 @@ export function TimerScreen({ navigation, route }) {
         clearInterval(timerRef.current);
         timerRef.current = null;
       }
-      if (statusIntervalRef.current) {
-        clearInterval(statusIntervalRef.current);
-        statusIntervalRef.current = null;
-      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeLeft, started, completed]);
@@ -161,7 +137,6 @@ export function TimerScreen({ navigation, route }) {
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
       if (awaitingTimeoutRef.current) clearTimeout(awaitingTimeoutRef.current);
     };
   }, []);
@@ -253,10 +228,6 @@ export function TimerScreen({ navigation, route }) {
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
-      }
-      if (statusIntervalRef.current) {
-        clearInterval(statusIntervalRef.current);
-        statusIntervalRef.current = null;
       }
       if (awaitingTimeoutRef.current) {
         clearTimeout(awaitingTimeoutRef.current);

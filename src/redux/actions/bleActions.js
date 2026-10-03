@@ -1470,35 +1470,26 @@ export const cmdPrintSoilResult = (metadata = {}) => dispatch => {
   const payload = { SOILPRINT: 'START' };
   const farmerName = metadata.farmerName || metadata.farmer_name;
   if (farmerName) {
-    const fn = String(farmerName).trim();
-    payload.farmer_name = fn;
-    payload.farmerName = fn;
+    payload.farmer_name = String(farmerName).trim();
   }
   const farmerPhone = metadata.farmerPhone || metadata.farmer_phone || metadata.phone;
   if (farmerPhone) {
-    const fp = String(farmerPhone).trim();
-    payload.farmer_phone = fp;
-    payload.farmerPhone = fp;
-    payload.phone = fp;
+    payload.farmer_phone = String(farmerPhone).trim();
   }
   const ph = metadata.ph ?? metadata.pH;
   if (ph != null && !isNaN(Number(ph))) {
     payload.ph = Number(ph);
-    payload.pH = Number(ph);
   }
   const ec = metadata.ec ?? metadata.EC;
   if (ec != null && !isNaN(Number(ec))) {
     payload.ec = Number(ec);
-    payload.EC = Number(ec);
   }
   const lat = metadata.lat ?? metadata.latitude;
   if (lat != null && !isNaN(Number(lat))) {
-    payload.lat = Number(lat);
     payload.latitude = Number(lat);
   }
   const long = metadata.long ?? metadata.longitude ?? metadata.lng;
   if (long != null && !isNaN(Number(long))) {
-    payload.long = Number(long);
     payload.longitude = Number(long);
   }
   return _sendJSON(payload, dispatch);
