@@ -5,6 +5,7 @@ import { thunk } from 'redux-thunk';
 import axios from 'axios';
 import axiosMiddleware from 'redux-axios-middleware';
 import { BASE_URL } from '../ApiConfig';
+import { startApiLog, finishApiLog } from '../utils/apiLog';
 
 
 import authReducer from './reducers/authReducer';
@@ -36,6 +37,37 @@ export const client = axios.create({
   baseURL: BASE_URL,
   timeout: 15000,
 });
+
+// ─── API call log (debug panel → API tab) ────────────────────────────────────
+// Registered before the auth interceptors below, so a 401 and its retry
+// after a token refresh both show up as separate calls.
+client.interceptors.request.use(config => {
+  config._apiLogId = startApiLog(config);
+  return config;
+});
+client.interceptors.response.use(
+  response => {
+    finishApiLog(response.config?._apiLogId, {
+      status: response.status,
+      data: response.data,
+    });
+    return response;
+  },
+  error => {
+    const cfg = error?.config;
+    if (cfg?._apiLogId) {
+      finishApiLog(cfg._apiLogId, {
+        status: error?.response?.status,
+        data: error?.response?.data,
+        error:
+          error?.code === 'ECONNABORTED'
+            ? `Timed out after ${cfg.timeout} ms`
+            : error?.message,
+      });
+    }
+    return Promise.reject(error);
+  },
+);
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 export const store = legacy_createStore(

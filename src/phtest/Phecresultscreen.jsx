@@ -423,11 +423,15 @@ export default function PHECResultScreen({ navigation, route }) {
     }
   }, [phBottleDeviceId, devices.length, dispatch]);
 
-  // Request final result if connected and not yet loaded
+  // Request final result if connected and not yet loaded. InsertPhMeterScreen
+  // already sent FINAL_RESULT right before navigating here, so give that
+  // reply a moment to arrive instead of immediately sending a duplicate.
   useEffect(() => {
-    if (!finalPhResult && connected) {
+    if (finalPhResult || !connected) return undefined;
+    const t = setTimeout(() => {
       dispatch(cmdGetFinalResult()).catch(() => {});
-    }
+    }, 3000);
+    return () => clearTimeout(t);
   }, [finalPhResult, connected, dispatch]);
 
   useEffect(() => {

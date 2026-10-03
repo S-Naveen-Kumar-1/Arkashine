@@ -1017,7 +1017,16 @@ function startNotifications(device, cfg, dispatch) {
     cfg.notifyUUID,
     async (err, char) => {
       if (err) {
-        dispatch(ac.log('NOTIFY', `Error: ${err.message}`));
+        // Disconnecting on purpose cancels this subscription, and ble-plx
+        // reports that as "Operation was cancelled" — expected, not a fault.
+        dispatch(
+          ac.log(
+            'NOTIFY',
+            _isUserDisconnecting
+              ? 'Listening stopped (disconnect)'
+              : `Error: ${err.message}`,
+          ),
+        );
         return;
       }
       if (!char?.value) return;

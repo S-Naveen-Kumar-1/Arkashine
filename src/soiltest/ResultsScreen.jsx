@@ -1578,7 +1578,8 @@ export function SoilResultsScreen({ navigation, route }) {
     } catch (e) {
       const axiosError = e?.error ?? e;
       const msg =
-        axiosError?.code === 'ECONNABORTED'
+        axiosError?.code === 'ECONNABORTED' ||
+        axiosError?.response?.status === 503
           ? 'Report generation is taking longer than expected. Please try again in a moment.'
           : axiosError?.message ?? 'Failed to open advisory report';
       Alert.alert('Advisory report', msg);

@@ -325,11 +325,15 @@ export function predictSoil({ lat, lon, polygon = [] }) {
 // per-request instead of raising the timeout for every API call.
 const PDF_REQUEST_TIMEOUT_MS = 90000;
 
-export function downloadSoilRecommendationPDF(
-  deviceId,
-  callId,
-  token,
-) {
+// Advisory PDF: the server builds it in the background and answers 503
+// {"status":"generating"} (within ~15s) until it's ready, so ask again every
+// few seconds instead of holding one request open past the server's worker
+// timeout (which is what produced the 502s). Overall budget: 3 minutes.
+const ADVISORY_PDF_TIMEOUT_MS = 60000;      // one request
+const ADVISORY_PDF_TOTAL_MS = 180000;       // all retries together
+const ADVISORY_PDF_RETRY_DELAY_MS = 4000;
+
+function requestSoilRecommendationPDF(deviceId, callId) {
   return {
     type: SOIL_PDF_REQUEST,
     payload: {
@@ -337,7 +341,7 @@ export function downloadSoilRecommendationPDF(
         method: 'GET',
         url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/recommendation-pdf/`,
         responseType: 'arraybuffer',
-        timeout: PDF_REQUEST_TIMEOUT_MS,
+        timeout: ADVISORY_PDF_TIMEOUT_MS,
 
         headers: {
           Accept: '*/*',
@@ -346,6 +350,22 @@ export function downloadSoilRecommendationPDF(
     },
   };
 }
+
+export const downloadSoilRecommendationPDF =
+  (deviceId, callId) => async dispatch => {
+    const giveUpAt = Date.now() + ADVISORY_PDF_TOTAL_MS;
+    for (;;) {
+      try {
+        return await dispatch(requestSoilRecommendationPDF(deviceId, callId));
+      } catch (e) {
+        const stillGenerating = (e?.error ?? e)?.response?.status === 503;
+        if (!stillGenerating || Date.now() + ADVISORY_PDF_RETRY_DELAY_MS > giveUpAt) {
+          throw e;
+        }
+        await new Promise(r => setTimeout(r, ADVISORY_PDF_RETRY_DELAY_MS));
+      }
+    }
+  };
 export function downloadSoilDetailPDF(
   deviceId,
   callId,

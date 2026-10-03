@@ -6,7 +6,7 @@
 //   • Sensor data history
 //   • Clear log button
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,11 @@ import { useSelector, useDispatch } from 'react-redux';
 import Share from 'react-native-share';
 import { clearDebugLog } from '../redux/actions/bleActions';
 import { store } from '../redux/store';
+import {
+  getApiLog,
+  subscribeApiLog,
+  clearApiLog,
+} from '../utils/apiLog';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 
@@ -61,6 +66,7 @@ const TABS = [
   { id: 'log', label: 'Log', icon: '📋' },
   { id: 'device', label: 'Device', icon: '📡' },
   { id: 'data', label: 'Data', icon: '⚡' },
+  { id: 'api', label: 'API', icon: '🌐' },
 ];
 
 // ─── Log Row ──────────────────────────────────────────────────────────────────
@@ -178,6 +184,95 @@ function DeviceTab({ ble }) {
   );
 }
 
+// ─── API Tab ──────────────────────────────────────────────────────────────────
+// HTTP calls made through the shared axios client (src/utils/apiLog.js).
+function useApiLog() {
+  const [entries, setEntries] = useState(getApiLog);
+  useEffect(() => subscribeApiLog(setEntries), []);
+  return entries;
+}
+
+function statusColor(e) {
+  if (e.status === null) return '#fbbf24'; // pending
+  if (e.status >= 200 && e.status < 300) return '#4ade80';
+  if (e.status >= 400 && e.status < 500) return '#fb923c';
+  return '#f87171'; // 5xx or no response (0)
+}
+
+function ApiRow({ item }) {
+  const [open, setOpen] = useState(false);
+  const color = statusColor(item);
+  const time = new Date(item.startedAt).toLocaleTimeString();
+  const status =
+    item.status === null ? '…' : item.status === 0 ? 'ERR' : String(item.status);
+  return (
+    <TouchableOpacity
+      activeOpacity={0.7}
+      onPress={() => setOpen(o => !o)}
+      style={ar.row}
+    >
+      <View style={ar.head}>
+        <Text style={lr.time}>{time}</Text>
+        <Text style={[ar.method]}>{item.method}</Text>
+        <View style={[lr.tagBadge, { borderColor: color + '60' }]}>
+          <Text style={[lr.tag, { color }]}>{status}</Text>
+        </View>
+        <Text style={ar.ms}>
+          {item.ms === null ? 'pending' : `${(item.ms / 1000).toFixed(1)}s`}
+        </Text>
+      </View>
+      <Text style={ar.url} selectable>
+        {item.url}
+      </Text>
+      {item.error ? <Text style={ar.err}>{item.error}</Text> : null}
+      {open && (
+        <View style={dt.uuidBox}>
+          {item.params ? (
+            <>
+              <Text style={dt.uuidHeader}>Params</Text>
+              <Text style={dt.rawText} selectable>{item.params}</Text>
+            </>
+          ) : null}
+          <Text style={dt.uuidHeader}>Request</Text>
+          <Text style={dt.rawText} selectable>{item.request || '—'}</Text>
+          <Text style={[dt.uuidHeader, { marginTop: 8 }]}>Response</Text>
+          <Text style={dt.rawText} selectable>{item.response || '—'}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function ApiTab({ entries }) {
+  return (
+    <>
+      <View style={p.logActions}>
+        <Text style={p.logHint}>
+          Latest first · {entries.length} calls · tap a call for details
+        </Text>
+        <TouchableOpacity onPress={clearApiLog} style={p.clearBtn}>
+          <Text style={p.clearBtnText}>🗑 Clear</Text>
+        </TouchableOpacity>
+      </View>
+      {entries.length === 0 ? (
+        <View style={p.emptyState}>
+          <Text style={p.emptyText}>No API calls yet</Text>
+          <Text style={p.emptyHint}>Server requests will appear here</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={[...entries].reverse()}
+          keyExtractor={item => String(item.id)}
+          renderItem={({ item }) => <ApiRow item={item} />}
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator
+          ItemSeparatorComponent={() => <View style={lr.sep} />}
+        />
+      )}
+    </>
+  );
+}
+
 // ─── Data Tab ─────────────────────────────────────────────────────────────────
 function DataTab({ ble }) {
   const { sensorData, lastReceived, lastCmd, lastCmdError } = ble;
@@ -264,6 +359,7 @@ export default function FloatingDebugPanel() {
 
   const [visible, setVisible] = useState(false);
   const [tab, setTab] = useState('log');
+  const apiEntries = useApiLog();
   const [menuVisible, setMenuVisible] = useState(false);
 
   const pan = useRef(new Animated.ValueXY({ x: START_X, y: START_Y })).current;
@@ -272,7 +368,10 @@ export default function FloatingDebugPanel() {
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      // Only claim a moving touch once it's a real drag — otherwise a finger
+      // that wobbles a pixel or two would steal taps from the menu items.
+      onMoveShouldSetPanResponder: (_, g) =>
+        Math.abs(g.dx) > TAP_SLOP || Math.abs(g.dy) > TAP_SLOP,
       onPanResponderGrant: () => {
         dragged.current = false;
         pan.setOffset({ x: pan.x._value, y: pan.y._value });
@@ -340,8 +439,8 @@ export default function FloatingDebugPanel() {
       {/* ── Floating button — draggable, tap opens the tool menu ───── */}
       <Animated.View
         style={[fl.fab, { transform: pan.getTranslateTransform() }]}
-        {...panResponder.panHandlers}
       >
+        {/* Menu is outside the drag handlers so its buttons get taps directly */}
         {menuVisible && (
           <View style={fl.menu}>
             <TouchableOpacity
@@ -362,7 +461,7 @@ export default function FloatingDebugPanel() {
             </TouchableOpacity>
           </View>
         )}
-        <View style={fl.fabTouch}>
+        <View style={fl.fabTouch} {...panResponder.panHandlers}>
           <View style={[fl.dot, { backgroundColor: dotColor }]} />
           <Text style={fl.fabIcon}>🔧</Text>
           {debugLogs.length > 0 && (
@@ -435,6 +534,9 @@ export default function FloatingDebugPanel() {
                   {t.id === 'log' && debugLogs.length > 0
                     ? ` (${debugLogs.length})`
                     : ''}
+                  {t.id === 'api' && apiEntries.length > 0
+                    ? ` (${apiEntries.length})`
+                    : ''}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -479,6 +581,9 @@ export default function FloatingDebugPanel() {
 
             {/* DATA TAB */}
             {tab === 'data' && <DataTab ble={ble} />}
+
+            {/* API TAB */}
+            {tab === 'api' && <ApiTab entries={apiEntries} />}
           </View>
         </View>
       </Modal>
@@ -810,4 +915,20 @@ const dt = StyleSheet.create({
     fontFamily: 'Courier',
     lineHeight: 16,
   },
+});
+
+// ─── API tab styles ───────────────────────────────────────────────────────────
+const ar = StyleSheet.create({
+  row: { paddingHorizontal: 10, paddingVertical: 8 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  method: { color: '#38bdf8', fontSize: 10, fontWeight: '800', width: 44 },
+  ms: { color: '#94a3b8', fontSize: 10, marginLeft: 'auto' },
+  url: {
+    color: '#cbd5e1',
+    fontSize: 10,
+    fontFamily: 'Courier',
+    marginTop: 4,
+    lineHeight: 14,
+  },
+  err: { color: '#f87171', fontSize: 10, marginTop: 3 },
 });
