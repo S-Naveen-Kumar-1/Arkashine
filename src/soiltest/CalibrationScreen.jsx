@@ -225,12 +225,13 @@ export default function CalibrationScreen({ navigation }) {
     }
   };
 
-  // ─── Auto-save live channel readings to AsyncStorage ──────────────────────
+  // ─── Auto-save live channel readings to AsyncStorage & accumulate seenChannels ─
   useEffect(() => {
     if (
       calibrationLiveChannels &&
       Object.keys(calibrationLiveChannels).length > 0
     ) {
+      setSeenChannels(prev => ({ ...prev, ...calibrationLiveChannels }));
       const liveData = {
         channels: calibrationLiveChannels,
         savedAt: Date.now(),
@@ -243,17 +244,41 @@ export default function CalibrationScreen({ navigation }) {
         JSON.stringify(liveData),
       ).catch(err => console.log('[UI] Save live channels failed:', err.message));
     }
-  }, [calibrationLiveChannels]);
+  }, [calibrationLiveChannels, selectedNutrient, selectedPoint]);
 
   // ─── Sync completedSet from the device's authoritative table when it arrives ─
   useEffect(() => {
     if (!calibrationTable) return;
     setCompletedSet(prev => {
       const next = new Set(prev);
+      const summaryObj =
+        calibrationTable.summary ||
+        calibrationTable.saved_points ||
+        calibrationTable;
+
       NUTRIENTS.forEach(n => {
         POINT_KEYS.forEach(p => {
-          const row = calibrationTable?.[n.key]?.[p];
-          const done = Array.isArray(row) && row.some(v => Number(v) !== 0);
+          let done = false;
+          // 1. Check array of strings format: e.g. summaryObj["OC"] = ["blank", "min"]
+          const nutList = summaryObj?.[n.key];
+          if (Array.isArray(nutList)) {
+            if (nutList.includes(p)) {
+              done = true;
+            }
+          } else if (nutList && typeof nutList === 'object') {
+            // 2. Check object format: e.g. nutList["min"] = [...] or nutList["oc_blank"] = [...]
+            const row = nutList[p];
+            if (Array.isArray(row) && row.some(v => Number(v) !== 0)) {
+              done = true;
+            }
+            if (!done && p === 'blank') {
+              const blankRow = nutList[`${n.key.toLowerCase()}_blank`];
+              if (Array.isArray(blankRow) && blankRow.some(v => Number(v) !== 0)) {
+                done = true;
+              }
+            }
+          }
+
           const k = setKeyFor(n.key, p);
           if (done) next.add(k);
           // Note: we don't remove keys the device doesn't have yet — avoids
@@ -268,10 +293,12 @@ export default function CalibrationScreen({ navigation }) {
   useEffect(() => {
     if (calibrationProgress) {
       setLoopNumber(Number(calibrationProgress.loop) || 0);
-      setTotalLoops(Number(calibrationProgress.total) || 100);
+      if (calibrationProgress.total) {
+        setTotalLoops(Number(calibrationProgress.total));
+      }
       setCurrentPhase(calibrationProgress.phase || 'spectral');
     }
-  }, [calibrationProgress, calibrationLiveChannels]);
+  }, [calibrationProgress]);
 
   // ─── Handle phase changes ──────────────────────────────────────────────
   useEffect(() => {
@@ -290,6 +317,7 @@ export default function CalibrationScreen({ navigation }) {
       stopPolling();
       setStepStatus('error');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calibrationPhase, running]);
 
   // ─── Helpers ────────────────────────────────────────────────────────────
@@ -395,12 +423,13 @@ export default function CalibrationScreen({ navigation }) {
 
   const handleCalibrationDone = async () => {
     const result = calibrationResults?.[selectedNutrient];
+    const isSaved = result ? !!result.saved : true;
     const entry = {
       nutrient: selectedNutrient,
       point: selectedPoint,
-      saved: !!result?.saved,
+      saved: isSaved,
       values: result?.values ?? null,
-      error: result?.error ?? (result ? null : 'No response from device'),
+      error: isSaved ? null : (result?.error || 'Calibration failed'),
       savedAt: Date.now(),
     };
 
@@ -522,12 +551,31 @@ export default function CalibrationScreen({ navigation }) {
 
   const stepPct = (() => {
     if (stepStatus === 'saved') return 100;
+    if (calibrationProgress?.percent != null) {
+      return Math.min(100, Math.max(0, Math.round(calibrationProgress.percent)));
+    }
     if (!loopNumber || !totalLoops) return 0;
-    const frac = Math.min(loopNumber / totalLoops, 1);
-    return currentPhase === 'uv'
-      ? Math.round(50 + frac * 50)
-      : Math.round(frac * 50);
+    return Math.min(100, Math.max(0, Math.round((loopNumber / totalLoops) * 100)));
   })();
+
+  const activeChannels = { ...seenChannels, ...calibrationLiveChannels };
+  const incomingKeys = Object.keys(activeChannels);
+
+  // Dynamically derive display channels:
+  // Preserves standard order for known channels, but adapts dynamically to however
+  // many channels the device sends (20, 21, 25, etc.), without hardcoding.
+  const displayChannels =
+    incomingKeys.length > 0
+      ? [
+          ...ALL_CHANNELS.filter(ch => incomingKeys.includes(ch)),
+          ...incomingKeys.filter(ch => !ALL_CHANNELS.includes(ch)),
+        ]
+      : ALL_CHANNELS;
+
+  const totalChannelsCount = displayChannels.length;
+  const liveCount = displayChannels.filter(
+    ch => activeChannels[ch] != null && !isNaN(activeChannels[ch]),
+  ).length;
 
   // ─── Render ──────────────────────────────────────────────────────────────
   return (
@@ -918,7 +966,7 @@ export default function CalibrationScreen({ navigation }) {
                   }}
                 >
                   <Text style={[s.channelsHeader, { color: T.textSub, marginTop: 0 }]}>
-                    Live channel readings ({Object.keys(seenChannels).length}/21)
+                    Live channel readings ({liveCount}/{totalChannelsCount})
                   </Text>
                   <TouchableOpacity
                     onPress={() => setMatrixModalVisible(true)}
@@ -931,9 +979,10 @@ export default function CalibrationScreen({ navigation }) {
                   </TouchableOpacity>
                 </View>
                 <View style={s.channelGrid}>
-                  {ALL_CHANNELS.map(ch => {
-                    const val = calibrationLiveChannels?.[ch];
-                    const hasValue = val != null;
+                  {displayChannels.map(ch => {
+                    const val = activeChannels[ch];
+                    const hasValue = val != null && !isNaN(val);
+                    const nm = WAVELENGTH_NM[ch];
                     return (
                       <View
                         key={ch}
@@ -957,7 +1006,7 @@ export default function CalibrationScreen({ navigation }) {
                           {ch}
                         </Text>
                         <Text style={[s.channelNm, { color: T.muted }]}>
-                          {WAVELENGTH_NM[ch]}nm
+                          {nm ? `${nm}nm` : ''}
                         </Text>
                         <Text
                           style={[
@@ -966,7 +1015,7 @@ export default function CalibrationScreen({ navigation }) {
                           ]}
                           numberOfLines={1}
                         >
-                          {val != null ? Number(val).toFixed(2) : '—'}
+                          {hasValue ? Number(val).toFixed(2) : '—'}
                         </Text>
                       </View>
                     );

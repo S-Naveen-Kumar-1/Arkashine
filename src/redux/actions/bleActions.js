@@ -901,49 +901,153 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  if (parsed.SOILCALIBRATION === 'COMPLETE') {
-    console.log('[BLE] SOILCALIBRATION COMPLETE');
-    dispatch(ac.log('CAL', '← SOILCALIBRATION COMPLETE'));
-    dispatch({
-      type: 'SOIL_CALIBRATION_COMPLETE',
-      payload: { data: 'complete' },
-    });
-    return null;
-  }
+  // 1) Live progress updates:
+  // - {"SOILCALIBRATION": "CAPTURING", "sample": i, "total": count, "percent": ...}
+  // - {"SOILCALIBRATIONDATA": "CAPTURING", "nutrient": ..., "point": ..., "sample": i, "total": count, "channels": {...}}
+  // - {"SOILCALIBRATIONPROGRESS": {...}}
+  const isCalCapturing =
+    parsed.SOILCALIBRATION === 'CAPTURING' ||
+    parsed.SOILCALIBRATIONDATA === 'CAPTURING' ||
+    parsed.SOILCALIBRATIONPROGRESS !== undefined;
 
-  if (parsed.SOILCALIBRATIONPROGRESS !== undefined) {
+  if (isCalCapturing) {
     const p = parsed.SOILCALIBRATIONPROGRESS || {};
+    const nutrient = parsed.nutrient || p.nutrient || null;
+    const point = parsed.point || p.point || null;
+    const rawSample =
+      parsed.sample !== undefined
+        ? Number(parsed.sample)
+        : p.loop !== undefined
+        ? Number(p.loop) - 1
+        : 0;
+    const loop = rawSample + 1; // 1-based loop index
+    const total = Number(parsed.total || p.total) || 100;
+    const percent =
+      parsed.percent !== undefined
+        ? Number(parsed.percent)
+        : total > 0
+        ? Math.round((loop / total) * 100)
+        : 0;
+    const channels = parsed.channels || p.channels || {};
+
     console.log(
-      '[BLE] PROGRESS:',
-      p.nutrient,
-      p.point,
-      p.phase,
-      p.loop,
-      '/',
-      p.total,
+      '[BLE] CAL PROGRESS:',
+      nutrient,
+      point,
+      `loop ${loop}/${total}`,
+      `channels: ${Object.keys(channels).length}`,
     );
     dispatch(
       ac.log(
         'CAL',
-        `← progress ${p.nutrient}/${p.point} ${p.phase} loop ${p.loop}/${p.total}`,
+        `← progress ${nutrient || ''} ${point || ''} loop ${loop}/${total} (${
+          Object.keys(channels).length
+        } chs)`,
       ),
     );
     dispatch({
       type: 'SOIL_CALIBRATION_PROGRESS',
       payload: {
-        nutrient: p.nutrient || null,
-        point: p.point || null,
+        nutrient,
+        point,
         phase: p.phase || 'spectral',
-        loop: Number(p.loop) || 0,
-        total: Number(p.total) || 100,
-        channels: p.channels || {},
+        loop,
+        sample: rawSample,
+        total,
+        percent,
+        channels,
       },
     });
     return null;
   }
 
+  // 2) Completion / Saved messages from firmware:
+  // - {"SOILCALIBRATION": "COMPLETED", "nutrient": ..., "point": ..., "message": ...}
+  // - {"SOILCALIBRATION": "COMPLETE"}
+  // - {"SOILCALIBRATIONDATA": "SAVED", "nutrient": ..., "point": ...}
+  // - {"SOILCALIBRATE": "SAVED", "nutrient": ..., "point": ...}
+  // - {"SOILCALIBRATE": {"status": "DONE"}}
+  const isCalComplete =
+    parsed.SOILCALIBRATION === 'COMPLETE' ||
+    parsed.SOILCALIBRATION === 'COMPLETED' ||
+    parsed.SOILCALIBRATIONDATA === 'SAVED' ||
+    parsed.SOILCALIBRATE === 'SAVED' ||
+    parsed.SOILCALIBRATE === 'DONE' ||
+    (parsed.SOILCALIBRATE &&
+      (parsed.SOILCALIBRATE.status === 'DONE' ||
+        parsed.SOILCALIBRATE.status === 'SAVED'));
+
+  if (isCalComplete) {
+    const pObj =
+      typeof parsed.SOILCALIBRATE === 'object' ? parsed.SOILCALIBRATE : {};
+    const nutrient =
+      parsed.nutrient ||
+      (parsed.nutrients && parsed.nutrients[0]) ||
+      pObj.nutrient ||
+      null;
+    const point = parsed.point || pObj.point || null;
+    const nutrients =
+      parsed.nutrients || (nutrient ? [nutrient] : pObj.nutrients || []);
+    const results =
+      parsed.results ||
+      pObj.results ||
+      (nutrient ? { [nutrient]: { saved: true, values: null } } : {});
+
+    console.log('[BLE] SOILCALIBRATION COMPLETED:', nutrient, point);
+    dispatch(
+      ac.log(
+        'CAL',
+        `← SOILCALIBRATION COMPLETED ${nutrient || ''} ${point || ''}`,
+      ),
+    );
+    dispatch({
+      type: 'SOIL_CALIBRATION_RESULT',
+      payload: { point, nutrient, nutrients, results, error: null },
+    });
+    dispatch({
+      type: 'SOIL_CALIBRATION_COMPLETE',
+      payload: { data: 'complete', nutrient, point },
+    });
+    return null;
+  }
+
+  // 3) Calibration errors:
+  const isCalError =
+    parsed.SOILCALIBRATION === 'ERROR' ||
+    parsed.SOILCALIBRATE === 'ERROR' ||
+    (parsed.SOILCALIBRATE && parsed.SOILCALIBRATE.status === 'ERROR');
+
+  if (isCalError) {
+    const pObj =
+      typeof parsed.SOILCALIBRATE === 'object' ? parsed.SOILCALIBRATE : {};
+    const errorMsg =
+      parsed.message ||
+      parsed.ERROR ||
+      pObj.message ||
+      pObj.error ||
+      'Calibration failed';
+    console.log('[BLE] CAL ERROR:', errorMsg);
+    dispatch(ac.log('CAL', `← SOILCALIBRATION ERROR: ${errorMsg}`));
+    dispatch({
+      type: 'SOIL_CALIBRATION_RESULT',
+      payload: {
+        nutrient: parsed.nutrient || pObj.nutrient,
+        point: parsed.point || pObj.point,
+        nutrients: parsed.nutrients || [],
+        results: {},
+        error: errorMsg,
+      },
+    });
+    return null;
+  }
+
+  // 4) Status polling response:
   if (parsed.SOILCALIBRATIONSTATUS !== undefined) {
-    const status = parsed.SOILCALIBRATIONSTATUS;
+    const rawStatus =
+      typeof parsed.SOILCALIBRATIONSTATUS === 'object'
+        ? parsed.SOILCALIBRATIONSTATUS.status
+        : parsed.SOILCALIBRATIONSTATUS;
+    const status = String(rawStatus || '').toUpperCase();
     console.log('[BLE] STATUS:', status);
     dispatch(ac.log('CAL', `← SOILCALIBRATIONSTATUS: ${status}`));
     dispatch({ type: 'SOIL_CALIBRATION_STATUS', payload: { status } });
@@ -951,42 +1055,25 @@ function parsePayload(jsonStr, dispatch) {
     return null;
   }
 
-  if (parsed.SOILCALIBRATE && parsed.SOILCALIBRATE.status === 'DONE') {
-    const point = parsed.SOILCALIBRATE.point;
-    const nutrients = parsed.SOILCALIBRATE.nutrients || [];
-    const results = parsed.SOILCALIBRATE.results || {};
-    console.log('[BLE] RESULT DONE:', point, nutrients);
-    dispatch(ac.log('CAL', `← SOILCALIBRATE DONE point=${point}`));
-    dispatch({
-      type: 'SOIL_CALIBRATION_RESULT',
-      payload: { point, nutrients, results, error: null },
-    });
-    return null;
-  }
-
-  if (parsed.SOILCALIBRATE && parsed.SOILCALIBRATE.status === 'ERROR') {
-    console.log('[BLE] RESULT ERROR:', parsed.ERROR);
-    dispatch(
-      ac.log('CAL', `← SOILCALIBRATE ERROR: ${parsed.ERROR || 'unknown'}`),
-    );
-    dispatch({
-      type: 'SOIL_CALIBRATION_RESULT',
-      payload: {
-        point: parsed.SOILCALIBRATE.point,
-        nutrients: parsed.SOILCALIBRATE.nutrients || [],
-        results: {},
-        error: parsed.ERROR || 'Calibration failed',
-      },
-    });
-    return null;
-  }
-
-  if (parsed.SOILCALIBRATIONDATA !== undefined) {
-    console.log('[BLE] DATA received');
+  // 5) Calibration data / summary table response:
+  // e.g. {"SOILCALIBRATIONDATA": "OK", "summary": {"OC": ["blank", "min"], ...}}
+  // or {"SOILCALIBRATIONDATA": "OK", "saved_points": ...}
+  if (
+    parsed.SOILCALIBRATIONDATA !== undefined &&
+    parsed.SOILCALIBRATIONDATA !== 'CAPTURING' &&
+    parsed.SOILCALIBRATIONDATA !== 'SAVED'
+  ) {
+    const tablePayload =
+      parsed.summary ||
+      parsed.saved_points ||
+      (typeof parsed.SOILCALIBRATIONDATA === 'object'
+        ? parsed.SOILCALIBRATIONDATA
+        : parsed);
+    console.log('[BLE] CALIBRATION TABLE DATA received:', tablePayload);
     dispatch(ac.log('CAL', '← SOILCALIBRATIONDATA received'));
     dispatch({
       type: 'SOIL_CALIBRATION_DATA',
-      payload: parsed.SOILCALIBRATIONDATA,
+      payload: tablePayload,
     });
     return null;
   }
@@ -1510,10 +1597,12 @@ export const cmdPrintSoilResult = (metadata = {}) => dispatch => {
 export const cmdStartSoilCalibration =
   (nutrients, point, value) => dispatch => {
     resetBleParserBuffer();
+    const list = Array.isArray(nutrients) ? nutrients : [nutrients];
     return _sendJSON(
       {
         SOILCALIBRATION: 'START',
-        nutrients: Array.isArray(nutrients) ? nutrients : [nutrients],
+        nutrients: list,
+        nutrient: list[0],
         point,
         ...(value != null ? { value } : {}),
       },
@@ -1522,7 +1611,7 @@ export const cmdStartSoilCalibration =
   };
 
 export const cmdStopSoilCalibration = () => dispatch =>
-  _sendJSON({ SOILCALIBRATION: 'STOP' }, dispatch);
+  _sendJSON({ SOILCALIBRATION: 'STOP', SOILCALIBRATE: 'CANCEL' }, dispatch);
 export const cmdCheckSoilCalibrationStatus = () => dispatch =>
   _sendJSON({ SOILCALIBRATIONSTATUS: true }, dispatch);
 export const cmdGetSoilCalibrationData = () => dispatch =>

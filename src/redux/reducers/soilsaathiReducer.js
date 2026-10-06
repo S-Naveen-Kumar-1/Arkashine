@@ -364,8 +364,12 @@ export default function soilsaathiReducer(state = init, action) {
       console.log('[REDUCER] STATUS:', raw);
       const map = {
         IDLE: 'idle',
+        RUNNING: 'reading',
+        CAPTURING: 'reading',
         READING: 'reading',
         DONE: 'done',
+        COMPLETED: 'done',
+        SAVED: 'done',
         ERROR: 'error',
         STOPPED: 'idle',
       };
@@ -386,7 +390,8 @@ export default function soilsaathiReducer(state = init, action) {
           point: action.payload.point,
           phase: action.payload.phase || 'spectral',
           loop: Number(action.payload.loop) || 0,
-          total: Number(action.payload.total) || 100,
+          total: Number(action.payload.total) || (state.calibrationProgress?.total || 100),
+          percent: action.payload.percent != null ? Number(action.payload.percent) : null,
         },
         calibrationLiveChannels: {
           ...state.calibrationLiveChannels,
@@ -398,14 +403,24 @@ export default function soilsaathiReducer(state = init, action) {
     // ─── FIX: CALIBRATION RESULT ──────────────────────────────────────────
     case 'SOIL_CALIBRATION_RESULT': {
       console.log('[REDUCER] RESULT:', action.payload);
+      const nut = action.payload.nutrient;
+      const pt = action.payload.point;
+      const prevResults = state.calibrationResults || {};
+      const newResults = { ...prevResults, ...(action.payload.results || {}) };
+      if (nut) {
+        newResults[nut] = {
+          saved: !action.payload.error,
+          point: pt,
+          message: action.payload.message,
+        };
+      }
       return {
         ...state,
         calibrationPhase: action.payload.error ? 'error' : 'done',
         calibrationPoint: action.payload.point,
-        calibrationNutrients: action.payload.nutrients || [],
-        calibrationResults: action.payload.results || {},
+        calibrationNutrients: action.payload.nutrients || (nut ? [nut] : []),
+        calibrationResults: newResults,
         calibrationError: action.payload.error ?? null,
-        calibrationProgress: null,
       };
     }
 
@@ -414,7 +429,6 @@ export default function soilsaathiReducer(state = init, action) {
       return {
         ...state,
         calibrationPhase: 'done',
-        calibrationProgress: null,
       };
     }
 
