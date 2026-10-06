@@ -16,6 +16,7 @@ import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
+import ActiveDeviceBanner from '../components/ActiveDeviceBanner';
 const STEPS = [
   {
     icon: 'sprout',
@@ -56,6 +57,7 @@ export default function IntroScreen({ navigation, route }) {
         theme={theme}
       />
       <ActiveFarmerBanner />
+      <ActiveDeviceBanner deviceType="soilsaathi" />
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={s.scroll} bounces={false}>
         {/* HERO */}

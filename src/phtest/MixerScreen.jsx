@@ -33,6 +33,7 @@ import {
   cmdStopPhTestMotor,
 } from '../redux/actions/bleActions';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
+import ActiveDeviceBanner from '../components/ActiveDeviceBanner';
 
 const MOTOR_DURATION = 60;
 
@@ -312,6 +313,7 @@ export default function MixerScreen({ navigation, route }) {
         theme={theme}
       />
       <ActiveFarmerBanner />
+      <ActiveDeviceBanner deviceType="ph_bottle" />
 
       <ScrollView
         style={{ flex: 1 }}

@@ -8,14 +8,16 @@ import {
   StatusBar,
   Animated,
   Easing,
+  ScrollView,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import { startMotorTimer } from '../redux/actions/soilsaathiActions';
 import { AppButton, TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
-import { Spacing, Radius, Typography, Shadow } from '../theme';
+import { Spacing, Radius, Shadow } from '../theme';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
+import ActiveDeviceBanner from '../components/ActiveDeviceBanner';
 
 export default function PourScreen({ navigation, route }) {
   const dispatch = useDispatch();
@@ -66,7 +68,15 @@ export default function PourScreen({ navigation, route }) {
     navigation.replace('SoilCalibrationScreen', route?.params);
   };
 
+  // Farmer + device are chosen here, right before the test starts.
+  const deviceBannerRef = useRef(null);
+
   const startSoilTest = () => {
+    // Several linked SoiLENZ devices → the user must pick which one gets
+    // this reading first (opens the picker).
+    if (deviceBannerRef.current && !deviceBannerRef.current.ensureSelected()) {
+      return;
+    }
     // The actual start sequence (TEST_RESET / stop / start sensor) now
     // happens after the filter-wait step, once the user has removed the
     // filter paper — see FilterWaitScreen.
@@ -75,7 +85,9 @@ export default function PourScreen({ navigation, route }) {
 
   const dropY = dropAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [-10, 40],
+    // Stays inside the device box (falls onto the dish) so it never runs
+    // into the farmer/device rows above.
+    outputRange: [0, 34],
   });
 
   return (
@@ -87,9 +99,14 @@ export default function PourScreen({ navigation, route }) {
         onBack={() => navigation.goBack()}
         theme={theme}
       />
-      <ActiveFarmerBanner />
+      <ActiveFarmerBanner allowSelect />
+      <ActiveDeviceBanner ref={deviceBannerRef} deviceType="soilsaathi" allowSelect />
 
-      <View style={s.wrapper}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={s.wrapper}
+        showsVerticalScrollIndicator={false}
+      >
         {/* 💧 DEVICE VISUAL */}
         <View
           style={[
@@ -126,16 +143,15 @@ export default function PourScreen({ navigation, route }) {
         >
           <Text style={s.instrIcon}>⬇️</Text>
 
-          <Text
-            style={[Typography.h3, { color: T.primary, textAlign: 'center' }]}
-          >
-            Pour the Solution
-          </Text>
-
-          <Text style={[s.instrText, { color: T.textSub }]}>
-            Pour the prepared solution (5g soil + 40ml extractant) into the
-            SOILENZ device opening
-          </Text>
+          <View style={s.instrBody}>
+            <Text style={[s.instrTitle, { color: T.primary }]}>
+              Pour the Solution
+            </Text>
+            <Text style={[s.instrText, { color: T.textSub }]}>
+              Pour the prepared solution (5g soil + 40ml extractant) into the
+              SOILENZ device opening
+            </Text>
+          </View>
         </View>
 
         {/* ⏳ WAITING STATE */}
@@ -165,8 +181,10 @@ export default function PourScreen({ navigation, route }) {
             Pour sample into device
           </Text>
         </View>
+      </ScrollView>
 
-        {/* 🧪 BUTTON ROW - FLEX LAYOUT */}
+      {/* 🧪 BUTTON ROW — pinned below the scroll so Start is always reachable */}
+      <View style={s.footer}>
         <View style={s.buttonRow}>
           <View style={s.buttonWrapper}>
             <AppButton
@@ -215,20 +233,26 @@ const s = StyleSheet.create({
   container: { flex: 1 },
 
   wrapper: {
-    flex: 1,
+    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.lg,
   },
 
+  footer: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.lg,
+  },
+
   deviceBox: {
-    width: 180,
-    height: 180,
+    width: 160,
+    height: 160,
     borderRadius: 30,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 36,
+    marginBottom: 24,
   },
 
   deviceEmoji: {
@@ -237,8 +261,8 @@ const s = StyleSheet.create({
 
   dropEmoji: {
     position: 'absolute',
-    top: -20,
-    fontSize: 34,
+    top: 6,
+    fontSize: 28,
   },
 
   deviceLabel: {
@@ -248,24 +272,32 @@ const s = StyleSheet.create({
   },
 
   instructionCard: {
-    borderRadius: Radius.xl,
+    borderRadius: Radius.lg,
     borderWidth: 1,
-    padding: Spacing.lg,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
+    gap: 12,
+    marginBottom: 12,
     width: '100%',
   },
 
   instrIcon: {
-    fontSize: 36,
-    marginBottom: 10,
+    fontSize: 26,
+  },
+
+  instrBody: { flex: 1 },
+
+  instrTitle: {
+    fontSize: 15,
+    fontWeight: '800',
   },
 
   instrText: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 20,
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 17,
   },
 
   waitCard: {
@@ -276,7 +308,6 @@ const s = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     width: '100%',
-    marginBottom: 32,
   },
 
   pulseDot: {

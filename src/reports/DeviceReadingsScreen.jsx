@@ -20,7 +20,6 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -28,6 +27,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing, Shadow } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
+import SearchFilterBar from '../components/SearchFilterBar';
 import {
   fetchDeviceReadings,
   fetchDeviceFieldSchema,
@@ -43,7 +43,7 @@ const DEVICE_META = {
   atmo_sense: {
     icon: 'weather-partly-cloudy',
     color: '#7C3AED',
-    label: 'AtmoSense',
+    label: 'SoilSparsh',
   },
   soil_life: {
     icon: 'leaf-circle-outline',
@@ -59,6 +59,11 @@ const DEVICE_META = {
     icon: 'leaf',
     color: '#65A30D',
     label: 'LeafLenz',
+  },
+  soil_map: {
+    icon: 'map-outline',
+    color: '#EA580C',
+    label: 'SoilMap',
   },
 };
 
@@ -206,7 +211,12 @@ export default function DeviceReadingsScreen({ navigation, route }) {
   const { deviceId, deviceName, deviceType, device, pickMode, onPick } = route.params;
   console.log('DeviceReadingsScreen route.params:', route.params);
   console.log('DeviceReadingsScreen params:', route.params);
-  const meta = DEVICE_META[deviceType] || DEVICE_META.soilsaathi;
+  // Unknown type → its own name from the API, never mislabelled as SoiLENZ.
+  const meta = DEVICE_META[deviceType] || {
+    icon: 'chip',
+    color: '#64748B',
+    label: device?.type_name || deviceType || 'Device',
+  };
 
   const slot = useSelector(s => s.reports.readingsByDevice[deviceId]);
   const readings = slot?.data ?? [];
@@ -241,14 +251,16 @@ export default function DeviceReadingsScreen({ navigation, route }) {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    dispatch(fetchDeviceReadings(deviceId, 1));
+    // Failures are stored in the reducer (shown as the error bar) — catch so
+    // they don't surface as unhandled promise rejections.
+    dispatch(fetchDeviceReadings(deviceId, 1)).catch(() => {});
     if (!schema && !schemaLoading) {
-      dispatch(fetchDeviceFieldSchema(deviceType));
+      dispatch(fetchDeviceFieldSchema(deviceType)).catch(() => {});
     }
   }, [deviceId, deviceType, dispatch]);
 
   const loadPage = useCallback(
-    page => dispatch(fetchDeviceReadings(deviceId, page)),
+    page => dispatch(fetchDeviceReadings(deviceId, page)).catch(() => {}),
     [deviceId, dispatch],
   );
 
@@ -559,17 +571,13 @@ export default function DeviceReadingsScreen({ navigation, route }) {
       />
 
       {pickMode && (
-        <View style={s.pickSearchWrap}>
-          <Icon name="magnify" size={16} color={T.muted} />
-          <TextInput
-            style={[s.pickSearchInput, { color: T.text }]}
-            placeholder="Search by tag or crop…"
-            placeholderTextColor={T.muted}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            autoCapitalize="none"
-          />
-        </View>
+        <SearchFilterBar
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          placeholder="Search by tag or crop…"
+          collapsible={false}
+          style={{ marginHorizontal: Spacing.lg, marginBottom: Spacing.sm }}
+        />
       )}
 
       {readingsError && (
@@ -635,20 +643,6 @@ const s = StyleSheet.create({
   root: { flex: 1 },
   list: { padding: Spacing.lg, paddingTop: Spacing.sm },
 
-  // ── Pick-mode search bar ──────────────────────────────────────────────────
-  pickSearchWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: 'rgba(148,163,184,0.35)',
-  },
-  pickSearchInput: { flex: 1, fontSize: 13, padding: 0 },
 
   // ── Info card ──────────────────────────────────────────────────────────────
   infoCard: {

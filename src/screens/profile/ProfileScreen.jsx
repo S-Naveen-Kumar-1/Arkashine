@@ -19,8 +19,8 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import { useDispatch, useSelector } from 'react-redux';
 import { logoutUser, toggleTheme } from '../../redux/actions';
 import useTheme from '../../hooks/useTheme';
+import SearchFilterBar from '../../components/SearchFilterBar';
 import { Spacing, Radius, Shadow, Typography } from '../../theme';
-import { TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Enable LayoutAnimation for Android
@@ -508,32 +508,12 @@ function HelpSupportModal({ T, onClose }) {
         contentContainerStyle={{ paddingBottom: 40 }}
       >
         {/* Search Bar */}
-        <View style={helpModal.searchContainer}>
-          <View
-            style={[
-              helpModal.searchBox,
-              { backgroundColor: T.card, borderColor: T.cardBorder },
-            ]}
-          >
-            <MaterialCommunityIcons name="magnify" size={20} color={T.muted} />
-            <TextInput
-              placeholder="Search FAQs..."
-              placeholderTextColor={T.muted}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              style={[helpModal.searchInput, { color: T.text }]}
-            />
-            {searchQuery !== '' && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <MaterialCommunityIcons
-                  name="close-circle"
-                  size={18}
-                  color={T.muted}
-                />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
+        <SearchFilterBar
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          placeholder="Search FAQs..."
+          style={helpModal.searchContainer}
+        />
 
         {/* Contact Info */}
         <View style={helpModal.contactSection}>
@@ -658,20 +638,6 @@ const helpModal = StyleSheet.create({
   searchContainer: {
     paddingHorizontal: Spacing.lg,
     paddingVertical: 12,
-  },
-  searchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
   },
   sectionTitle: {
     fontSize: 11,

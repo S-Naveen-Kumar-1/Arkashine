@@ -37,6 +37,7 @@ import { cmdGetFinalResult } from '../redux/actions/bleActions';
 import { createPHBottleReading } from '../redux/actions/phTestActions';
 import { getUserDevices } from '../redux/actions';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
+import ActiveDeviceBanner from '../components/ActiveDeviceBanner';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const toNum = v => {
@@ -379,7 +380,14 @@ export default function PHECResultScreen({ navigation, route }) {
     d => d.devise_type === 'ph_bottle' || d.device_type === 'ph_bottle',
   );
 
+  // Device picked for this run on PourScreen / CalibrationGateScreen
+  // (ActiveDeviceBanner).
+  const selectedDevice = useSelector(
+    s => s.userDevices?.activeTestDevices?.ph_bottle,
+  );
+
   const phBottleDeviceId =
+    selectedDevice?.id ||
     route?.params?.deviceId ||
     route?.params?.device?.id ||
     phBottleDevice?.id;
@@ -537,6 +545,7 @@ export default function PHECResultScreen({ navigation, route }) {
         theme={theme}
       />
       <ActiveFarmerBanner canChange={false} />
+      <ActiveDeviceBanner deviceType="ph_bottle" canChange={false} />
 
       <ScrollView
         contentContainerStyle={s.scroll}

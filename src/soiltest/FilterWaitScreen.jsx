@@ -28,6 +28,7 @@ import {
   cmdStopSoilTest,
 } from '../redux/actions/bleActions';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
+import ActiveDeviceBanner from '../components/ActiveDeviceBanner';
 
 const FILTER_WAIT_SECONDS = 5 * 60;
 const SETTLE_WAIT_SECONDS = 60;
@@ -138,6 +139,7 @@ export default function FilterWaitScreen({ navigation, route }) {
         theme={theme}
       />
       <ActiveFarmerBanner />
+      <ActiveDeviceBanner deviceType="soilsaathi" />
 
       <View style={s.body}>
         {!ready ? (

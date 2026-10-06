@@ -24,6 +24,7 @@ import {
   cmdGetSoilResult,
 } from '../redux/actions/bleActions';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
+import ActiveDeviceBanner from '../components/ActiveDeviceBanner';
 
 export function SensorScreen({ navigation, route }) {
   const { connected, device } = useSelector(s => s.ble);
@@ -290,6 +291,7 @@ export function SensorScreen({ navigation, route }) {
         theme={theme}
       />
       <ActiveFarmerBanner />
+      <ActiveDeviceBanner deviceType="soilsaathi" />
 
       <ScrollView
         style={{ flex: 1 }}

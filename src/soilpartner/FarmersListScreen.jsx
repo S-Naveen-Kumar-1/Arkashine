@@ -9,7 +9,6 @@ import {
   StatusBar,
   FlatList,
   TouchableOpacity,
-  TextInput,
   ActivityIndicator,
   RefreshControl,
   Image,
@@ -19,6 +18,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Spacing, Radius, Shadow } from '../theme';
 import useTheme from '../hooks/useTheme';
+import SearchFilterBar from '../components/SearchFilterBar';
 import { TopBar } from '../components/common';
 import { fetchFarmers } from '../redux/actions/soilPartnerActions';
 
@@ -407,82 +407,20 @@ export default function FarmersListScreen({ navigation }) {
         </View>
       )}
 
-      {/* Search bar */}
-      <View
-        style={[
-          s.searchBar,
-          {
-            backgroundColor: T.inputBg ?? T.card,
-            borderColor: T.cardBorder ?? T.border ?? '#E2E8F0',
-          },
-        ]}
-      >
-        <Icon name="magnify" size={20} color={T.muted} />
-        <TextInput
-          style={[s.searchInput, { color: T.text }]}
-          placeholder="Search name, phone, village, crop…"
-          placeholderTextColor={T.muted}
-          value={search}
-          onChangeText={setSearch}
-          returnKeyType="search"
-        />
-        {search.length > 0 && (
-          <TouchableOpacity
-            onPress={() => setSearch('')}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Icon name="close-circle" size={16} color={T.muted} />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Status filter pills — horizontal scroll */}
-      <View style={s.filterRow}>
-        {STATUS_FILTERS.map(f => {
-          const active = activeStatus === f.key;
-          const cnt = f.key === 'all' ? farmers.length : counts[f.key] ?? 0;
-          return (
-            <TouchableOpacity
-              key={f.key}
-              style={[
-                s.filterPill,
-                {
-                  backgroundColor: active ? f.color : T.card,
-                  borderColor: active
-                    ? f.color
-                    : T.border ?? T.cardBorder ?? '#E2E8F0',
-                },
-              ]}
-              onPress={() => setActiveStatus(f.key)}
-            >
-              <Text style={[s.filterTxt, { color: active ? '#fff' : T.text }]}>
-                {f.label}
-              </Text>
-              {cnt > 0 && (
-                <View
-                  style={[
-                    s.filterCount,
-                    {
-                      backgroundColor: active
-                        ? 'rgba(255,255,255,0.25)'
-                        : f.color + '20',
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      s.filterCountTxt,
-                      { color: active ? '#fff' : f.color },
-                    ]}
-                  >
-                    {cnt}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      {/* Search + status filter */}
+      <SearchFilterBar
+        query={search}
+        onQueryChange={setSearch}
+        placeholder="Search name, phone, village, crop…"
+        filters={STATUS_FILTERS.map(f => ({
+          ...f,
+          count: f.key === 'all' ? farmers.length : counts[f.key] ?? 0,
+        }))}
+        activeFilter={activeStatus}
+        onFilterChange={setActiveStatus}
+        chipsInset={Spacing.lg}
+        style={{ marginBottom: Spacing.md }}
+      />
 
       {/* Result count + add button */}
       <View style={s.countRow}>
@@ -528,7 +466,7 @@ export default function FarmersListScreen({ navigation }) {
         data={filtered}
         keyExtractor={item => String(item.id)}
         contentContainerStyle={s.list}
-        ListHeaderComponent={renderHeader}
+        ListHeaderComponent={renderHeader()}
         ListEmptyComponent={
           farmersLoading ? (
             <ActivityIndicator
@@ -592,38 +530,7 @@ const s = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // Search
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    height: 46,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  searchInput: { flex: 1, fontSize: 14 },
 
-  // Filter pills
-  filterRow: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-    marginBottom: Spacing.md,
-  },
-  filterPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-  },
-  filterTxt: { fontSize: 11, fontWeight: '700' },
-  filterCount: { borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1 },
-  filterCountTxt: { fontSize: 9, fontWeight: '800' },
 
   // Count row
   countRow: {

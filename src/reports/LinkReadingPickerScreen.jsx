@@ -21,10 +21,8 @@ import {
   StyleSheet,
   StatusBar,
   FlatList,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch } from 'react-redux';
@@ -32,6 +30,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../theme';
 import { TopBar } from '../components/common';
 import useTheme from '../hooks/useTheme';
+import SearchFilterBar from '../components/SearchFilterBar';
 import { fetchPhBottleLinkCandidates } from '../redux/actions/soilsaathiActions';
 import { fetchSoilLensLinkCandidates } from '../redux/actions/phTestActions';
 
@@ -181,46 +180,30 @@ export default function LinkReadingPickerScreen({ navigation, route }) {
       <StatusBar barStyle={T.statusBar ?? 'light-content'} backgroundColor={T.bg} />
       <TopBar title={`Link ${meta.label} Reading`} onBack={() => navigation.goBack()} theme={theme} />
 
-      <View style={[s.searchWrap, { borderColor: BORDER }]}>
-        <Icon name="magnify" size={16} color={T.muted} />
-        <TextInput
-          style={[s.searchInput, { color: T.text }]}
-          placeholder="Search by device, tag or crop…"
-          placeholderTextColor={T.muted}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          autoCapitalize="none"
-        />
-      </View>
-
       {/* Device filter — only worth showing when the user has more than one */}
-      {devices.length > 1 && (
-        <View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={s.chipsRow}
-          >
-            {[{ id: null, label: 'All devices' }, ...devices.map(d => ({ id: d.id, label: `${deviceLabel(d)} · ${d.available_count}` }))].map(chip => {
-              const active = filterDeviceId === chip.id;
-              return (
-                <TouchableOpacity
-                  key={String(chip.id)}
-                  onPress={() => setFilterDeviceId(chip.id)}
-                  style={[
-                    s.chip,
-                    active
-                      ? { backgroundColor: meta.color, borderColor: meta.color }
-                      : { backgroundColor: T.card, borderColor: BORDER },
-                  ]}
-                >
-                  <Text style={[s.chipText, { color: active ? '#fff' : T.text }]}>{chip.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
+      <SearchFilterBar
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        placeholder="Search by device, tag or crop…"
+        collapsible={false}
+        filters={
+          devices.length > 1
+            ? [
+                { key: null, label: 'All devices' },
+                ...devices.map(d => ({
+                  key: d.id,
+                  label: deviceLabel(d),
+                  count: d.available_count,
+                  color: meta.color,
+                })),
+              ]
+            : null
+        }
+        activeFilter={filterDeviceId}
+        onFilterChange={setFilterDeviceId}
+        chipsInset={Spacing.lg}
+        style={{ marginHorizontal: Spacing.lg, marginBottom: Spacing.sm }}
+      />
 
       {error && (
         <View style={[s.errorBar, { backgroundColor: '#EF444418', borderColor: '#EF4444' }]}>
@@ -263,22 +246,7 @@ const s = StyleSheet.create({
   root: { flex: 1 },
   list: { padding: Spacing.lg, paddingTop: Spacing.sm, flexGrow: 1 },
 
-  searchWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-  },
-  searchInput: { flex: 1, fontSize: 13, padding: 0 },
 
-  chipsRow: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.sm, gap: 8 },
-  chip: { borderWidth: 1, borderRadius: Radius.full, paddingHorizontal: 12, paddingVertical: 6 },
-  chipText: { fontSize: 12, fontWeight: '700' },
 
   row: {
     flexDirection: 'row',

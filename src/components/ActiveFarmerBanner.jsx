@@ -10,7 +10,8 @@
 //
 // Props:
 //   allowSelect  show a "Select farmer (optional)" row when none is chosen
-//                (used on the flow's first screen, BLEScanScreen)
+//                (used on the screen right before the test starts:
+//                PourScreen / CalibrationGateScreen)
 //   canChange    show Change / Remove (false on results screens — the reading
 //                has already been saved for this farmer)
 
@@ -22,7 +23,6 @@ import {
   TouchableOpacity,
   Modal,
   FlatList,
-  TextInput,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,6 +30,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../theme';
 import useTheme from '../hooks/useTheme';
+import SearchFilterBar from './SearchFilterBar';
 import {
   fetchFarmers,
   setActiveFarmer,
@@ -142,17 +143,13 @@ export default function ActiveFarmerBanner({ allowSelect = false, canChange = tr
             </TouchableOpacity>
           </View>
 
-          <View style={[s.searchWrap, { borderColor: BORDER }]}>
-            <Icon name="magnify" size={16} color={T.muted} />
-            <TextInput
-              style={[s.searchInput, { color: T.text }]}
-              placeholder="Search by name, phone or village…"
-              placeholderTextColor={T.muted}
-              value={query}
-              onChangeText={setQuery}
-              autoCapitalize="none"
-            />
-          </View>
+          <SearchFilterBar
+            query={query}
+            onQueryChange={setQuery}
+            placeholder="Search by name, phone or village…"
+            collapsible={false}
+            style={{ marginHorizontal: Spacing.lg, marginBottom: Spacing.sm }}
+          />
 
           <TouchableOpacity
             onPress={removeFarmer}
@@ -233,18 +230,6 @@ const s = StyleSheet.create({
     paddingVertical: Spacing.md,
   },
   modalTitle: { fontSize: 18, fontWeight: '800' },
-  searchWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-  },
-  searchInput: { flex: 1, fontSize: 13, padding: 0 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

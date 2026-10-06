@@ -52,6 +52,7 @@ import { notifyPdfDownloaded } from '../utils/downloadNotification';
 import { fetchDeviceFieldThresholds, fetchReportDevices } from '../redux/actions/reportsActions';
 import { getUserDevices } from '../redux/actions';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
+import ActiveDeviceBanner from '../components/ActiveDeviceBanner';
 
 const { width: SW } = Dimensions.get('window');
 const PAD = Spacing.lg ?? 16;
@@ -1131,7 +1132,13 @@ export function SoilResultsScreen({ navigation, route }) {
 
   const soilData = useSelector(s => s.soilsaathi?.bleResultData);
   const soilResultError = useSelector(s => s.soilsaathi?.bleResultError);
+  // Device picked for this run on PourScreen / CalibrationGateScreen
+  // (ActiveDeviceBanner).
+  const selectedDevice = useSelector(
+    s => s.userDevices?.activeTestDevices?.soilsaathi,
+  );
   const deviceId =
+    selectedDevice?.id ||
     route?.params?.deviceId ||
     route?.params?.device?.id ||
     soilLenzDevice?.id;
@@ -1696,6 +1703,7 @@ export function SoilResultsScreen({ navigation, route }) {
         theme={theme}
       />
       <ActiveFarmerBanner canChange={false} />
+      <ActiveDeviceBanner deviceType="soilsaathi" canChange={false} />
 
       {/* onRetry points at retrySave (which just clears hasAttemptedSave).
         The effect above is what actually re-invokes saveReading, exactly

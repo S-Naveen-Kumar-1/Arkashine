@@ -54,6 +54,10 @@ let _reconnectTimer = null,
 
 let _chunkBuffer = '';
 let _isUserDisconnecting = false;
+// Set by bleLogout(), cleared by the next connect after logging back in.
+// While set, a late disconnect event is treated as intentional (no toast, no
+// auto-reconnect) and stray commands are dropped without a toast.
+let _loggedOut = false;
 
 // ─── FIX: mixing-completion tracking (module scope — survives remounts) ───
 // _prevMotorStatus: last MOTORSTATUS we saw, so we can detect a
@@ -534,6 +538,10 @@ async function _mockSendJSON(payload, dispatch) {
 }
 
 async function _sendJSON(payload, dispatch) {
+  if (_loggedOut) {
+    dispatch(ac.log('CMD', 'Logged out — dropped'));
+    return false;
+  }
   if (_mockMode) return _mockSendJSON(payload, dispatch);
   if (!_device || !_config) {
     dispatch(ac.log('CMD', 'Not connected — dropped'));
@@ -1220,8 +1228,9 @@ function _armDisconnectHandler(conn, dispatch) {
     _chunkBuffer = '';
     dispatch(ac.disconnect());
 
-    // If the user intentionally disconnected or switched devices, do not auto-reconnect
-    if (_isUserDisconnecting) {
+    // If the user intentionally disconnected, switched devices or logged out,
+    // do not auto-reconnect
+    if (_isUserDisconnecting || _loggedOut) {
       dispatch(
         ac.log('DISCONNECT', 'Clean user-initiated disconnect completed'),
       );
@@ -1237,7 +1246,7 @@ function _armDisconnectHandler(conn, dispatch) {
 
     clearTimeout(_reconnectTimer);
     _reconnectTimer = setTimeout(async () => {
-      if (_isUserDisconnecting || _device) return;
+      if (_isUserDisconnecting || _loggedOut || _device) return;
       try {
         dispatch(ac.log('RECONNECT', 'Attempting…'));
         const r = await bleManager.connectToDevice(conn.id, {
@@ -1276,6 +1285,7 @@ function _armDisconnectHandler(conn, dispatch) {
 }
 
 export const connectDevice = rawDevice => async dispatch => {
+  _loggedOut = false;
   clearTimeout(_reconnectTimer);
   _reconnectTimer = null;
   clearTimeout(_scanTimer);
@@ -1357,6 +1367,16 @@ export const connectDevice = rawDevice => async dispatch => {
   }
 };
 
+// Logout: stop scanning, drop the connection, and keep Bluetooth quiet (no
+// disconnect/reconnect toasts, no stray commands) until the next connect.
+export const bleLogout = () => async dispatch => {
+  _loggedOut = true;
+  clearTimeout(_reconnectTimer);
+  _reconnectTimer = null;
+  dispatch(stopScan());
+  await dispatch(disconnectDevice());
+};
+
 export const disconnectDevice = () => async dispatch => {
   dispatch(ac.log('DISCONNECT', 'User initiated'));
   _isUserDisconnecting = true;
@@ -1393,6 +1413,7 @@ export const disconnectDevice = () => async dispatch => {
 // a physical SoiLENZ in range. See _mockSendJSON above for the simulated
 // firmware replies this drives once commands start flowing.
 export const connectMockDevice = () => async dispatch => {
+  _loggedOut = false;
   const mockId = 'MOCK-SOILENZ-0001';
   const cfg = {
     serviceUUID: FIRMWARE_SERVICE_UUID,

@@ -31,6 +31,7 @@ import {
   REPORT_LANGUAGE_SET,
 } from '../../config/actionTypes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { bleLogout } from './bleActions';
 
 import axios from 'axios';
 
@@ -53,6 +54,10 @@ export const logoutUser = () => {
   return async dispatch => {
     try {
       console.log('logout..');
+
+      // Disconnect any device first so no Bluetooth popups follow the user
+      // to the login screen.
+      await dispatch(bleLogout()).catch(() => {});
 
       await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('refreshToken');
@@ -110,6 +115,13 @@ export function getUserDevices(token) {
     },
   };
 }
+
+// Device a test run saves its reading to — see ActiveDeviceBanner.
+export const setActiveTestDevice = (key, device) => ({
+  type: 'SET_ACTIVE_TEST_DEVICE',
+  payload: { key, device },
+});
+export const clearActiveTestDevices = () => ({ type: 'CLEAR_ACTIVE_TEST_DEVICES' });
 
 // ── BLE ──────────────────────────────────────────────────────
 export const bleDeviceFound = d => ({ type: BLE_DEVICE_FOUND, payload: d });

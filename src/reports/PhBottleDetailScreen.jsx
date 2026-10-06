@@ -50,6 +50,9 @@ const DEVICE_META = {
   ph_bottle: { color: '#2563EB', icon: 'water-check-outline' },
   atmo_sense: { color: '#7C3AED', icon: 'weather-partly-cloudy' },
   soil_life: { color: '#D97706', icon: 'leaf-circle-outline' },
+  carbon_credits: { color: '#0F766E', icon: 'molecule-co2' },
+  leaflenz: { color: '#65A30D', icon: 'leaf' },
+  soil_map: { color: '#EA580C', icon: 'map-outline' },
 };
 const FALLBACK_META = { color: '#2563EB', icon: 'water-check-outline' };
 

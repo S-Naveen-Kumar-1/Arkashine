@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   FlatList,
   Dimensions,
-  TextInput,
   Alert,
   ActivityIndicator,
   Animated,
@@ -21,6 +20,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useDispatch, useSelector } from 'react-redux';
 import { useFocusEffect } from '@react-navigation/native';
 import { clearActiveFarmer } from '../../redux/actions/soilPartnerActions';
+import { clearActiveTestDevices } from '../../redux/actions';
+import SearchFilterBar from '../../components/SearchFilterBar';
 import {
   PRODUCTS,
   CATEGORIES,
@@ -63,13 +64,16 @@ export function ProductsListingScreen({ navigation }) {
   const dispatch = useDispatch();
   const activeFarmerSource = useSelector(s => s.soilPartner?.activeFarmerSource);
 
-  // A farmer picked inside the test flow (ActiveFarmerBanner on BLEScanScreen)
+  // A farmer picked inside the test flow (ActiveFarmerBanner on PourScreen /
+  // CalibrationGateScreen)
   // belongs to that one test run — once the partner is back on this list the
   // run is over, so clear it. A farmer set by "Start Test for <farmer>" on the
   // farmer's page is left alone (that page clears it when the partner leaves).
   useFocusEffect(
     useCallback(() => {
       if (activeFarmerSource === 'test_flow') dispatch(clearActiveFarmer());
+      // Same for the device chosen for the run (ActiveDeviceBanner).
+      dispatch(clearActiveTestDevices());
     }, [activeFarmerSource, dispatch]),
   );
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -382,33 +386,6 @@ export function ProductsListingScreen({ navigation }) {
     );
   };
 
-  const renderCategoryButton = ({ item }) => (
-    <TouchableOpacity
-      style={[
-        s.categoryBtn,
-        {
-          backgroundColor: selectedCategory === item ? T.primary : T.card,
-          borderColor: selectedCategory === item ? T.primary : T.cardBorder,
-        },
-      ]}
-      onPress={() => setSelectedCategory(item)}
-      activeOpacity={0.7}
-    >
-      <Text
-        style={[
-          s.categoryBtnText,
-          {
-            color: selectedCategory === item ? '#fff' : T.textSub,
-            fontWeight: selectedCategory === item ? '700' : '600',
-          },
-        ]}
-        numberOfLines={1}
-      >
-        {item}
-      </Text>
-    </TouchableOpacity>
-  );
-
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
@@ -451,63 +428,17 @@ export function ProductsListingScreen({ navigation }) {
           </View>
         </View>
 
-        {/* ── SEARCH ───────────────────────────────────────────────── */}
-        <View
+        {/* ── SEARCH + CATEGORY FILTER ─────────────────────────────── */}
+        <SearchFilterBar
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          placeholder="Search products..."
+          filters={CATEGORIES.map(c => ({ key: c, label: c }))}
+          activeFilter={selectedCategory}
+          onFilterChange={setSelectedCategory}
+          chipsInset={Spacing.lg}
           style={{ paddingHorizontal: Spacing.lg, marginBottom: Spacing.lg }}
-        >
-          <View
-            style={[
-              s.searchBar,
-              {
-                backgroundColor: T.inputBg ?? T.card,
-                borderColor: T.cardBorder,
-              },
-            ]}
-          >
-            <MaterialCommunityIcons
-              name="magnify"
-              size={20}
-              color={T.textSub}
-              style={{ marginRight: 10 }}
-            />
-            <TextInput
-              style={[s.searchInput, { color: T.text }]}
-              placeholder="Search products..."
-              placeholderTextColor={T.textSub}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              returnKeyType="search"
-              clearButtonMode="while-editing"
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity
-                onPress={() => setSearchQuery('')}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <MaterialCommunityIcons
-                  name="close-circle"
-                  size={17}
-                  color={T.textSub}
-                />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        {/* ── CATEGORY FILTER ──────────────────────────────────────── */}
-        <View style={{ marginBottom: Spacing.lg }}>
-          <FlatList
-            data={CATEGORIES}
-            renderItem={renderCategoryButton}
-            keyExtractor={item => item}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              paddingHorizontal: Spacing.lg,
-              gap: Spacing.sm,
-            }}
-          />
-        </View>
+        />
 
         {/* ── STATS ROW ────────────────────────────────────────────── */}
         <View style={[s.statsRow, { paddingHorizontal: Spacing.lg }]}>
@@ -597,32 +528,8 @@ const s = StyleSheet.create({
   countBadgeText: { color: '#fff', fontSize: 13, fontWeight: '800' },
 
   // SEARCH
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 48,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.md,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    paddingVertical: 0,
-  },
 
   // CATEGORY
-  categoryBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 36,
-  },
-  categoryBtnText: { fontSize: 13, maxWidth: 100 },
 
   // STATS
   statsRow: {

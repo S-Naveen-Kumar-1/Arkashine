@@ -3,7 +3,7 @@
 // Screen 1: Shows stat summary + list of user devices.
 // Tapping a device card → DeviceReadingsScreen
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -21,8 +21,10 @@ import { Radius, Spacing, Shadow } from '../theme';
 import { TopBar } from '../components/common';
 import { fetchReportDevices } from '../redux/actions/reportsActions';
 import useTheme from '../hooks/useTheme';
+import SearchFilterBar from '../components/SearchFilterBar';
 
-// Maps devise_type → icon + colour
+// Maps devise_type → icon + colour. Labels match the website's DEVICE_NAMES
+// (agriapp/models.py).
 const DEVICE_META = {
   soilsaathi: { icon: 'flask-outline', color: '#16A34A', label: 'SoiLENZ' },
   ph_bottle: {
@@ -33,7 +35,7 @@ const DEVICE_META = {
   atmo_sense: {
     icon: 'weather-partly-cloudy',
     color: '#7C3AED',
-    label: 'AtmoSense',
+    label: 'SoilSparsh',
   },
   soil_life: {
     icon: 'leaf-circle-outline',
@@ -50,10 +52,23 @@ const DEVICE_META = {
     color: '#65A30D',
     label: 'LeafLenz',
   },
+  soil_map: {
+    icon: 'map-outline',
+    color: '#EA580C',
+    label: 'SoilMap',
+  },
 };
 
+// A type this table doesn't know yet — show the API's own type name rather
+// than mislabelling it as SoiLENZ.
+const fallbackMeta = device => ({
+  icon: 'chip',
+  color: '#64748B',
+  label: device.type_name || device.devise_type || 'Device',
+});
+
 function DeviceCard({ device, onPress, T }) {
-  const meta = DEVICE_META[device.devise_type] || DEVICE_META.soilsaathi;
+  const meta = DEVICE_META[device.devise_type] || fallbackMeta(device);
   const count = device.api_used ?? 0;
 
   return (
@@ -158,6 +173,41 @@ export default function ReportsScreen({ navigation }) {
   const devices = useSelector(s => s.reports?.devices ?? []);
 
   const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+
+  // One chip per device type the user actually has, with its count.
+  const typeFilters = useMemo(() => {
+    const counts = {};
+    devices.forEach(d => {
+      counts[d.devise_type] = (counts[d.devise_type] ?? 0) + 1;
+    });
+    return [
+      { key: 'all', label: 'All', count: devices.length },
+      ...Object.keys(counts).map(type => {
+        const meta = DEVICE_META[type] || fallbackMeta({ devise_type: type });
+        return {
+          key: type,
+          label: meta.label,
+          icon: meta.icon,
+          color: meta.color,
+          count: counts[type],
+        };
+      }),
+    ];
+  }, [devices]);
+
+  const visibleDevices = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return devices.filter(
+      d =>
+        (typeFilter === 'all' || d.devise_type === typeFilter) &&
+        (!q ||
+          [d.name, d.devise_id, d.serial_no]
+            .filter(Boolean)
+            .some(v => String(v).toLowerCase().includes(q))),
+    );
+  }, [devices, query, typeFilter]);
 
   const fetchDevices = async () => {
     await dispatch(fetchReportDevices());
@@ -244,13 +294,36 @@ export default function ReportsScreen({ navigation }) {
 
         {/* ── Device list ─────────────────────────────────────────── */}
         {devices?.length > 0 && (
-          <Text style={[s.sectionTitle, { color: T.textSub }]}>
-            Your devices
-          </Text>
+          <>
+            <SearchFilterBar
+              query={query}
+              onQueryChange={setQuery}
+              placeholder="Search device name, ID or serial…"
+              filters={typeFilters}
+              activeFilter={typeFilter}
+              onFilterChange={setTypeFilter}
+              chipsInset={Spacing.lg}
+              label={
+                visibleDevices.length === devices.length
+                  ? 'Your devices'
+                  : `Your devices · ${visibleDevices.length} of ${devices.length}`
+              }
+              style={{ marginBottom: Spacing.md }}
+            />
+          </>
         )}
 
+        {devices?.length > 0 && visibleDevices.length === 0 ? (
+          <View style={[s.empty]}>
+            <Icon name="filter-off-outline" size={48} color={T.muted} />
+            <Text style={[s.emptySub, { color: T.muted }]}>
+              No devices match your search or filter.
+            </Text>
+          </View>
+        ) : null}
+
         {devices?.length > 0 ? (
-          devices.map(device => (
+          visibleDevices.map(device => (
             <DeviceCard
               key={device.id}
               device={device}
@@ -327,13 +400,6 @@ const s = StyleSheet.create({
   statValue: { fontSize: 20, fontWeight: '800', marginBottom: 2 },
   statLabel: { fontSize: 10, fontWeight: '600', textAlign: 'center' },
 
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: Spacing.sm,
-  },
 
   deviceCard: {
     flexDirection: 'row',

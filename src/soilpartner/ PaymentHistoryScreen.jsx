@@ -10,7 +10,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  TextInput,
   Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,6 +17,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Spacing, Radius, Shadow } from '../theme';
 import useTheme from '../hooks/useTheme';
+import SearchFilterBar from '../components/SearchFilterBar';
 import { TopBar } from '../components/common';
 import { fetchPayments } from '../redux/actions/soilPartnerActions';
 
@@ -353,103 +353,28 @@ export default function PaymentHistoryScreen({ navigation }) {
     <View>
       <SummaryStrip meta={paymentsMeta} T={T} />
 
-      {/* Search */}
-      <View
-        style={[
-          s.searchBar,
-          {
-            backgroundColor: T.inputBg ?? T.card,
-            borderColor: T.cardBorder ?? T.border,
-          },
-        ]}
-      >
-        <MaterialCommunityIcons
-          name="magnify"
-          size={20}
-          color={T.muted ?? T.textSub}
-        />
-        <TextInput
-          style={[s.searchInput, { color: T.text }]}
-          placeholder="Search by farmer name…"
-          placeholderTextColor={T.muted ?? T.textSub}
-          value={search}
-          onChangeText={setSearch}
-          clearButtonMode="while-editing"
-        />
-        {search.length > 0 && (
-          <TouchableOpacity
-            onPress={() => setSearch('')}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <MaterialCommunityIcons
-              name="close-circle"
-              size={16}
-              color={T.muted ?? T.textSub}
-            />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Filter pills */}
-      <View style={s.filterRow}>
-        {filters.map(f => {
-          const active = activeFilter === f.key;
-          return (
-            <TouchableOpacity
-              key={f.key}
-              style={[
-                s.filterPill,
-                {
-                  backgroundColor: active ? f.color : T.card,
-                  borderColor: active ? f.color : T.border ?? T.cardBorder,
-                },
-              ]}
-              onPress={() => handleFilter(f.key)}
-            >
-              <Text style={[s.filterText, { color: active ? '#fff' : T.text }]}>
-                {f.label}
-              </Text>
-              {f.key === 'paid' && paymentsMeta.paid_count > 0 && (
-                <View
-                  style={[
-                    s.filterBadge,
-                    { backgroundColor: active ? '#ffffff30' : f.color + '20' },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      s.filterBadgeText,
-                      { color: active ? '#fff' : f.color },
-                    ]}
-                  >
-                    {paymentsMeta.paid_count}
-                  </Text>
-                </View>
-              )}
-              {f.key === 'pending' && paymentsMeta.pending_count > 0 && (
-                <View
-                  style={[
-                    s.filterBadge,
-                    { backgroundColor: active ? '#ffffff30' : f.color + '20' },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      s.filterBadgeText,
-                      { color: active ? '#fff' : f.color },
-                    ]}
-                  >
-                    {paymentsMeta.pending_count}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-        <Text style={[s.resultCount, { color: T.muted ?? T.textSub }]}>
-          {filtered.length} result{filtered.length !== 1 ? 's' : ''}
-        </Text>
-      </View>
+      {/* Search + status filter */}
+      <SearchFilterBar
+        query={search}
+        onQueryChange={setSearch}
+        placeholder="Search by farmer name…"
+        filters={filters.map(f => ({
+          ...f,
+          count:
+            f.key === 'paid'
+              ? paymentsMeta.paid_count
+              : f.key === 'pending'
+              ? paymentsMeta.pending_count
+              : 0,
+        }))}
+        activeFilter={activeFilter}
+        onFilterChange={handleFilter}
+        chipsInset={Spacing.lg}
+        style={{ marginBottom: Spacing.sm }}
+      />
+      <Text style={[s.resultCount, { color: T.muted ?? T.textSub }]}>
+        {filtered.length} result{filtered.length !== 1 ? 's' : ''}
+      </Text>
     </View>
   );
 
@@ -490,7 +415,7 @@ export default function PaymentHistoryScreen({ navigation }) {
         data={filtered}
         keyExtractor={(item, i) => `${item.id ?? i}`}
         contentContainerStyle={s.list}
-        ListHeaderComponent={renderHeader}
+        ListHeaderComponent={renderHeader()}
         ListEmptyComponent={renderEmpty}
         ListFooterComponent={
           paymentsLoading ? (
@@ -520,37 +445,7 @@ export default function PaymentHistoryScreen({ navigation }) {
 const s = StyleSheet.create({
   root: { flex: 1 },
   list: { padding: Spacing.lg, paddingTop: Spacing.sm },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    height: 46,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.md,
-    marginBottom: Spacing.md,
-  },
-  searchInput: { flex: 1, fontSize: 14 },
-  filterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: Spacing.md,
-    flexWrap: 'wrap',
-  },
-  filterPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-  },
-  filterText: { fontSize: 12, fontWeight: '700' },
-  filterBadge: { borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
-  filterBadgeText: { fontSize: 10, fontWeight: '800' },
-  resultCount: { fontSize: 12, marginLeft: 'auto' },
+  resultCount: { fontSize: 12, alignSelf: 'flex-end', marginBottom: Spacing.md },
   emptyWrap: { alignItems: 'center', paddingVertical: 48, gap: 10 },
   emptyTitle: { fontSize: 16, fontWeight: '700' },
   emptySub: { fontSize: 13, textAlign: 'center', maxWidth: 240 },

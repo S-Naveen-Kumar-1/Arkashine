@@ -31,6 +31,7 @@ import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import Geolocation from '@react-native-community/geolocation';
 import { Spacing, Radius, Shadow } from '../theme';
 import useTheme from '../hooks/useTheme';
+import SearchFilterBar from '../components/SearchFilterBar';
 import { TopBar } from '../components/common';
 import {
   addFarmer,
@@ -357,28 +358,14 @@ function SearchablePickerModal({
           </View>
 
           {/* Search bar */}
-          <View
-            style={[
-              spm.searchBar,
-              { backgroundColor: T.bg, borderColor: T.border ?? '#E2E8F0' },
-            ]}
-          >
-            <Icon name="magnify" size={18} color={T.muted} />
-            <TextInput
-              ref={inputRef}
-              style={[spm.searchInput, { color: T.text }]}
-              placeholder={`Search ${title.toLowerCase()}…`}
-              placeholderTextColor={T.muted}
-              value={query}
-              onChangeText={setQuery}
-              autoCorrect={false}
-            />
-            {query.length > 0 && (
-              <TouchableOpacity onPress={() => setQuery('')}>
-                <Icon name="close-circle" size={16} color={T.muted} />
-              </TouchableOpacity>
-            )}
-          </View>
+          <SearchFilterBar
+            inputRef={inputRef}
+            collapsible={false}
+            query={query}
+            onQueryChange={setQuery}
+            placeholder={`Search ${title.toLowerCase()}…`}
+            style={{ marginHorizontal: Spacing.lg, marginBottom: Spacing.sm }}
+          />
 
           {/* Count */}
           <Text style={[spm.count, { color: T.muted }]}>
@@ -475,18 +462,6 @@ const spm = StyleSheet.create({
     marginBottom: 12,
   },
   title: { fontSize: 18, fontWeight: '900' },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: Spacing.lg,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    height: 44,
-    marginBottom: 8,
-  },
-  searchInput: { flex: 1, fontSize: 14 },
   count: { fontSize: 11, paddingHorizontal: Spacing.lg, marginBottom: 4 },
   item: {
     flexDirection: 'row',

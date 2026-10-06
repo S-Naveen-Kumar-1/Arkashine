@@ -1,12 +1,13 @@
 // src/screens/phtest/CalibrationGateScreen.jsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   StatusBar,
   TouchableOpacity,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -17,6 +18,7 @@ import useTheme from '../hooks/useTheme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import ConnectionFailedModal from '../components/ConnectionFailedModal';
 import ActiveFarmerBanner from '../components/ActiveFarmerBanner';
+import ActiveDeviceBanner from '../components/ActiveDeviceBanner';
 
 export default function CalibrationGateScreen({ navigation, route }) {
   const theme = useTheme();
@@ -26,6 +28,17 @@ export default function CalibrationGateScreen({ navigation, route }) {
   const { connected, device } = useSelector(s => s.ble);
   const [showConnectionModal, setShowConnectionModal] = useState(false);
   const needsCalibration = testCount > 0 && testCount % 100 === 0;
+
+  // Farmer + device are chosen here, right before the test starts.
+  const deviceBannerRef = useRef(null);
+  const startTest = () => {
+    // Several linked pH Bottles → the user must pick which one gets this
+    // reading first (opens the picker).
+    if (deviceBannerRef.current && !deviceBannerRef.current.ensureSelected()) {
+      return;
+    }
+    navigation.replace('MixerScreen', route?.params);
+  };
 
   useEffect(() => {
     if (!connected) {
@@ -41,9 +54,14 @@ export default function CalibrationGateScreen({ navigation, route }) {
         onBack={() => navigation.goBack()}
         theme={theme}
       />
-      <ActiveFarmerBanner />
+      <ActiveFarmerBanner allowSelect />
+      <ActiveDeviceBanner ref={deviceBannerRef} deviceType="ph_bottle" allowSelect />
 
-      <View style={s.body}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={s.body}
+        showsVerticalScrollIndicator={false}
+      >
         {/* ── Device status ───────────────────────── */}
         {connected && device && (
           <View
@@ -128,7 +146,7 @@ export default function CalibrationGateScreen({ navigation, route }) {
         {/* ── PRIMARY: START TEST ────────────────── */}
         <TouchableOpacity
           style={[s.btnPrimary, { backgroundColor: T.primary }]}
-          onPress={() => navigation.replace('MixerScreen', route?.params)}
+          onPress={startTest}
           activeOpacity={0.85}
         >
           <Icon name="play-circle" size={20} color="#fff" />
@@ -154,7 +172,7 @@ export default function CalibrationGateScreen({ navigation, route }) {
             ⚠️ Skipping calibration may reduce accuracy
           </Text>
         )}
-      </View>
+      </ScrollView>
       <ConnectionFailedModal
         visible={showConnectionModal}
         message={'Connection to device was lost.'}
@@ -180,7 +198,8 @@ const s = StyleSheet.create({
   container: { flex: 1 },
 
   body: {
-    flex: 1,
+    flexGrow: 1,
+    paddingTop: Spacing.md,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing.lg,
