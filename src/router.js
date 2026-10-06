@@ -5,6 +5,7 @@ import RegisterScreen from './auth/RegisterScreen';
 const Stack = createNativeStackNavigator();
 import IntroScreen from './soiltest/IntroScreen';
 import PourScreen from './soiltest/PourScreen';
+import DeviceVersionScreen from './soiltest/DeviceVersionScreen';
 import FilterWaitScreen from './soiltest/FilterWaitScreen';
 import { TimerScreen } from './soiltest/TimerScreen';
 import { SensorScreen } from './soiltest/SensorScreen';
@@ -89,6 +90,11 @@ export const AppStack = () => {
             headerShown: false,
             // gestureEnabled: false,
           }}
+        />
+        <Stack.Screen
+          name="DeviceVersionScreen"
+          component={DeviceVersionScreen}
+          options={{ headerShown: false }}
         />
         <Stack.Screen
           name="FilterWaitScreen"

@@ -38,6 +38,7 @@ import {
   CAL_POINT_DONE,
   BLE_MIXING_COMPLETE,
   BLE_PRINT_STATUS,
+  BLE_DEVICE_VERSION,
 } from '../../config/actionTypes';
 
 const MAX_LOGS = 300;
@@ -116,6 +117,9 @@ const init = {
   // Print status — ← {"SOILPRINT":"STARTED"|"DONE"|"ERROR"|"PRINTED_CONSOLE"}
   // { status: 'printing'|'done'|'error', message? }
   printStatus: null,
+  // Firmware version — { status: 'loading'|'ok'|'error', version?,
+  // device_id?, serial_no?, message? } (cmdGetDeviceVersion)
+  deviceVersion: null,
 };
 
 export default function bleReducer(state = init, action) {
@@ -143,6 +147,8 @@ export default function bleReducer(state = init, action) {
      return { ...state, mixingCompleted: action.payload };
     case BLE_PRINT_STATUS:
       return { ...state, printStatus: action.payload };
+    case BLE_DEVICE_VERSION:
+      return { ...state, deviceVersion: action.payload };
 
     case BLE_CONNECT_REQUEST:
       return {
@@ -180,6 +186,7 @@ export default function bleReducer(state = init, action) {
     case BLE_DISCONNECT:
       return {
         ...state,
+        deviceVersion: null,
         connected: false,
         device: null,
         bleConfig: null,

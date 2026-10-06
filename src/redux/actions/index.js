@@ -116,6 +116,19 @@ export function getUserDevices(token) {
   };
 }
 
+// Active app version on the server (versions app on the backend).
+export function getServerVersion() {
+  return {
+    type: 'GET_SERVER_VERSION',
+    payload: {
+      request: {
+        url: '/versions/api/current-version/',
+        method: 'GET',
+      },
+    },
+  };
+}
+
 // Device a test run saves its reading to — see ActiveDeviceBanner.
 export const setActiveTestDevice = (key, device) => ({
   type: 'SET_ACTIVE_TEST_DEVICE',

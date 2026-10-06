@@ -71,6 +71,11 @@ export default function PourScreen({ navigation, route }) {
   // Farmer + device are chosen here, right before the test starts.
   const deviceBannerRef = useRef(null);
 
+  // Active version on the server (DeviceVersionScreen).
+  const openVersion = () => {
+    navigation.navigate('DeviceVersionScreen');
+  };
+
   const startSoilTest = () => {
     // Several linked SoiLENZ devices → the user must pick which one gets
     // this reading first (opens the picker).
@@ -186,41 +191,30 @@ export default function PourScreen({ navigation, route }) {
       {/* 🧪 BUTTON ROW — pinned below the scroll so Start is always reachable */}
       <View style={s.footer}>
         <View style={s.buttonRow}>
-          <View style={s.buttonWrapper}>
-            <AppButton
-              label="Calibrate Device"
-              onPress={startCalibrate}
-              color={T.primary}
-              textColor={T.primary}
-              outlined
-              style={[
-                s.flexButton,
-                {
-                  backgroundColor: T.primaryDim,
-                  borderColor: T.primary,
-                  opacity: 0.9,
-                },
-              ]}
-            />
-          </View>
-
-          <View style={s.buttonWrapper}>
-            <AppButton
-              label="Start Soil Test"
-              onPress={startSoilTest}
-              color={T.primary}
-              textColor={T.primary}
-              outlined
-              style={[
-                s.flexButton,
-                {
-                  backgroundColor: T.primaryDim,
-                  borderColor: T.primary,
-                  opacity: 0.9,
-                },
-              ]}
-            />
-          </View>
+          {[
+            { label: 'Calibrate', onPress: startCalibrate },
+            { label: 'Version', onPress: openVersion },
+            { label: 'Start Test', onPress: startSoilTest },
+          ].map(b => (
+            <View key={b.label} style={s.buttonWrapper}>
+              <AppButton
+                label={b.label}
+                onPress={b.onPress}
+                size="sm"
+                color={T.primary}
+                textColor={T.primary}
+                outlined
+                style={[
+                  s.flexButton,
+                  {
+                    backgroundColor: T.primaryDim,
+                    borderColor: T.primary,
+                    opacity: 0.9,
+                  },
+                ]}
+              />
+            </View>
+          ))}
         </View>
       </View>
     </SafeAreaView>
@@ -331,7 +325,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
-    gap: 12,
+    gap: 8,
   },
 
   buttonWrapper: {
@@ -340,5 +334,6 @@ const s = StyleSheet.create({
 
   flexButton: {
     width: '100%',
+    paddingHorizontal: 6,
   },
 });

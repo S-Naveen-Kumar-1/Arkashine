@@ -31,6 +31,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../theme';
 import useTheme from '../hooks/useTheme';
 import SearchFilterBar from './SearchFilterBar';
+import TestSelectionRow from './TestSelectionRow';
 import {
   fetchFarmers,
   setActiveFarmer,
@@ -98,36 +99,25 @@ export default function ActiveFarmerBanner({ allowSelect = false, canChange = tr
   return (
     <>
       {activeFarmerId ? (
-        <View style={[s.banner, { backgroundColor: ACCENT + '14', borderColor: ACCENT + '55' }]}>
-          <Icon name="account-circle-outline" size={20} color={ACCENT} />
-          <View style={s.bannerText}>
-            <Text style={[s.bannerLabel, { color: T.muted }]}>Testing for farmer</Text>
-            <Text style={[s.bannerName, { color: T.text }]} numberOfLines={1}>
-              {activeFarmerName || `Farmer #${activeFarmerId}`}
-              {activeFarmerPhone ? <Text style={{ color: T.muted }}>{`  ·  ${activeFarmerPhone}`}</Text> : null}
-            </Text>
-          </View>
-          {canChange ? (
-            <TouchableOpacity onPress={openPicker} hitSlop={8}>
-              <Text style={[s.changeTxt, { color: ACCENT }]}>Change</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
+        <TestSelectionRow
+          icon="account-check-outline"
+          color={ACCENT}
+          label="Testing for farmer"
+          value={`${activeFarmerName || `Farmer #${activeFarmerId}`}${
+            activeFarmerPhone ? `  ·  ${activeFarmerPhone}` : ''
+          }`}
+          actionLabel={canChange ? 'Change' : null}
+          onPress={canChange ? openPicker : undefined}
+        />
       ) : (
-        <TouchableOpacity
+        <TestSelectionRow
+          icon="account-plus-outline"
+          color={ACCENT}
+          label="Farmer · optional"
+          placeholder="No farmer — test without one"
+          actionLabel="Select"
           onPress={openPicker}
-          activeOpacity={0.8}
-          style={[s.banner, { backgroundColor: T.card, borderColor: BORDER }]}
-        >
-          <Icon name="account-plus-outline" size={20} color={ACCENT} />
-          <View style={s.bannerText}>
-            <Text style={[s.bannerName, { color: T.text }]}>Select farmer (optional)</Text>
-            <Text style={[s.bannerLabel, { color: T.muted }]}>
-              Save this test to one of your farmers, or skip to test without one
-            </Text>
-          </View>
-          <Icon name="chevron-right" size={18} color={T.muted} />
-        </TouchableOpacity>
+        />
       )}
 
       <Modal
@@ -204,22 +194,6 @@ export default function ActiveFarmerBanner({ allowSelect = false, canChange = tr
 }
 
 const s = StyleSheet.create({
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-  },
-  bannerText: { flex: 1, minWidth: 0 },
-  bannerLabel: { fontSize: 11 },
-  bannerName: { fontSize: 14, fontWeight: '700' },
-  changeTxt: { fontSize: 13, fontWeight: '700' },
 
   modalRoot: { flex: 1 },
   modalHeader: {

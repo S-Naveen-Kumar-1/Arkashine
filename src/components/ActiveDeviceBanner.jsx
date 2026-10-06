@@ -45,6 +45,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Radius, Spacing } from '../theme';
 import useTheme from '../hooks/useTheme';
+import TestSelectionRow from './TestSelectionRow';
 import { getUserDevices, setActiveTestDevice } from '../redux/actions';
 import {
   testDeviceKey,
@@ -105,6 +106,8 @@ function ActiveDeviceBanner(
   if (!key) return null;
   if (!active && !(allowSelect && candidates.length > 1)) return null;
 
+  const changeable = allowSelect && canChange && candidates.length > 1;
+
   const pick = device => {
     dispatch(setActiveTestDevice(key, device));
     setPickerOpen(false);
@@ -113,35 +116,24 @@ function ActiveDeviceBanner(
   return (
     <>
       {active ? (
-        <View style={[s.banner, { backgroundColor: ACCENT + '14', borderColor: ACCENT + '55' }]}>
-          <Icon name="chip" size={20} color={ACCENT} />
-          <View style={s.bannerText}>
-            <Text style={[s.bannerLabel, { color: T.muted }]}>Saving to device</Text>
-            <Text style={[s.bannerName, { color: T.text }]} numberOfLines={1}>
-              {deviceLabel(active)}
-            </Text>
-          </View>
-          {allowSelect && canChange && candidates.length > 1 ? (
-            <TouchableOpacity onPress={() => setPickerOpen(true)} hitSlop={8}>
-              <Text style={[s.changeTxt, { color: ACCENT }]}>Change</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
+        <TestSelectionRow
+          icon="chip"
+          color={ACCENT}
+          label="Saving to device"
+          value={deviceLabel(active)}
+          actionLabel={changeable ? 'Change' : null}
+          onPress={changeable ? () => setPickerOpen(true) : undefined}
+        />
       ) : (
-        <TouchableOpacity
+        <TestSelectionRow
+          icon="chip"
+          color={WARN}
+          label="Device · required"
+          placeholder={`Choose 1 of ${candidates.length} linked devices`}
+          required
+          actionLabel="Select"
           onPress={() => setPickerOpen(true)}
-          activeOpacity={0.8}
-          style={[s.banner, { backgroundColor: WARN + '14', borderColor: WARN + '66' }]}
-        >
-          <Icon name="chip" size={20} color={WARN} />
-          <View style={s.bannerText}>
-            <Text style={[s.bannerName, { color: T.text }]}>Select device</Text>
-            <Text style={[s.bannerLabel, { color: T.muted }]}>
-              {`You have ${candidates.length} linked devices — choose which one this test is saved to`}
-            </Text>
-          </View>
-          <Icon name="chevron-right" size={18} color={T.muted} />
-        </TouchableOpacity>
+        />
       )}
 
       <Modal
@@ -209,22 +201,6 @@ function ActiveDeviceBanner(
 export default forwardRef(ActiveDeviceBanner);
 
 const s = StyleSheet.create({
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-  },
-  bannerText: { flex: 1, minWidth: 0 },
-  bannerLabel: { fontSize: 11 },
-  bannerName: { fontSize: 14, fontWeight: '700' },
-  changeTxt: { fontSize: 13, fontWeight: '700' },
 
   modalRoot: { flex: 1 },
   modalHeader: {

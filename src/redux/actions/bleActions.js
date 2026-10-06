@@ -36,6 +36,7 @@ import {
   BLE_FINAL_RESULT,
   BLE_MIXING_COMPLETE, // ← NEW: add this to src/config/actionTypes.js
   BLE_PRINT_STATUS, // ← NEW: add this to src/config/actionTypes.js
+  BLE_DEVICE_VERSION,
   CAL_POINT_DONE,
 } from '../../config/actionTypes';
 import { requestBLEPermissions } from '../../utils/permissions';
@@ -312,6 +313,7 @@ export const ac = {
   mixingComplete: v => ({ type: BLE_MIXING_COMPLETE, payload: v }),
   // ← NEW: { status: 'printing' | 'done' | 'error', message? }
   printStatus: s => ({ type: BLE_PRINT_STATUS, payload: s }),
+  deviceVersion: v => ({ type: BLE_DEVICE_VERSION, payload: v }),
 
   log: (tag, message) => ({
     type: BLE_DEBUG_LOG,
@@ -530,6 +532,8 @@ async function _mockSendJSON(payload, dispatch) {
       dispatch,
       500,
     );
+  } else if (payload.CHECKVERSION === 'GET') {
+    _mockReply({ CHECKVERSION: 'OK', current: '1.1.1.1' }, dispatch, 400);
   } else if (payload.SOILPRINT === 'START') {
     _mockReply({ SOILPRINT: 'STARTED' }, dispatch, 200);
     _mockReply({ SOILPRINT: 'DONE' }, dispatch, 1200);
@@ -716,6 +720,31 @@ function parsePayload(jsonStr, dispatch) {
       type: 'SOIL_MOTOR_STATE_FROM_BLE',
       payload: { data: s },
     });
+    return null;
+  }
+
+  // ─── Device version ← {"CHECKVERSION":"OK","current":"1.1.1.1"} ─────────
+  // or the fallback {"GETSYSTEMINFO":"OK","version":...,"device_id":...,
+  // "serial_no":...} (see cmdGetDeviceVersion).
+  if (parsed.CHECKVERSION !== undefined || parsed.GETSYSTEMINFO !== undefined) {
+    const key = parsed.CHECKVERSION !== undefined ? 'CHECKVERSION' : 'GETSYSTEMINFO';
+    const version = parsed.current ?? parsed.version;
+    _clearVersionTimer();
+    if (parsed[key] === 'OK' && version != null) {
+      dispatch(ac.log('VERSION', `← ${key} ${version}`));
+      dispatch(
+        ac.deviceVersion({
+          status: 'ok',
+          version: String(version),
+          device_id: parsed.device_id ?? null,
+          serial_no: parsed.serial_no ?? null,
+        }),
+      );
+    } else {
+      const msg = parsed.message || parsed.ERROR || `${key} ${parsed[key]}`;
+      dispatch(ac.log('VERSION', `← ${key} error: ${msg}`));
+      dispatch(ac.deviceVersion({ status: 'error', message: String(msg) }));
+    }
     return null;
   }
 
@@ -1216,6 +1245,7 @@ function _armDisconnectHandler(conn, dispatch) {
     }
 
     dispatch(ac.log('DISCONNECT', `Device ${conn.id} disconnected`));
+    _clearVersionTimer();
     _clearHandshakeTimer();
     _clearPhMotorAckTimer();
     _clearSoilMotorAckTimer();
@@ -1383,6 +1413,7 @@ export const disconnectDevice = () => async dispatch => {
   clearTimeout(_reconnectTimer);
   _reconnectTimer = null;
   clearTimeout(_scanTimer);
+  _clearVersionTimer();
   _clearHandshakeTimer();
   _clearPhMotorAckTimer();
   _clearSoilMotorAckTimer();
@@ -1610,6 +1641,45 @@ export const cmdPrintSoilResult = (metadata = {}) => dispatch => {
     payload.longitude = Number(long);
   }
   return _sendJSON(payload, dispatch);
+};
+
+// ─── Device version ────────────────────────────────────────────────────────────
+// Sends {"CHECKVERSION":"GET"}. Firmware that doesn't know it stays silent,
+// so after VERSION_TIMEOUT_MS fall back once to {"GETSYSTEMINFO":"GET"}
+// (also carries the version), then give up. The reply lands in
+// state.ble.deviceVersion.
+const VERSION_TIMEOUT_MS = 5000;
+let _versionTimer = null;
+
+function _clearVersionTimer() {
+  if (_versionTimer) {
+    clearTimeout(_versionTimer);
+    _versionTimer = null;
+  }
+}
+
+export const cmdGetDeviceVersion = () => async dispatch => {
+  _clearVersionTimer();
+  dispatch(ac.deviceVersion({ status: 'loading' }));
+
+  const fail = message => {
+    _clearVersionTimer();
+    dispatch(ac.deviceVersion({ status: 'error', message }));
+  };
+
+  if (!(await _sendJSON({ CHECKVERSION: 'GET' }, dispatch))) {
+    return fail('Device not connected');
+  }
+  _versionTimer = setTimeout(async () => {
+    dispatch(ac.log('VERSION', 'No CHECKVERSION reply — trying GETSYSTEMINFO'));
+    if (!(await _sendJSON({ GETSYSTEMINFO: 'GET' }, dispatch))) {
+      return fail('Device not connected');
+    }
+    _versionTimer = setTimeout(
+      () => fail('Device did not report its version'),
+      VERSION_TIMEOUT_MS,
+    );
+  }, VERSION_TIMEOUT_MS);
 };
 
 // ─── Soil calibration commands ─────────────────────────────────────────────────
