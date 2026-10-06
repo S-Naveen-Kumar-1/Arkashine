@@ -30,8 +30,15 @@ DEVICE_NAME           = "ArkaShine-Soil"
 FIRMWARE_SERVICE_UUID = "12345678-1234-1234-1234-1234567890ab"
 FIRMWARE_DATA_UUID    = "abcd1234-5678-1234-5678-1234567890ab"
 SOFTWARE_VERSION      = "1.1.1.1"
-DEVICE_ID             = "SIM-001"
+DEVICE_ID             = "naveen_123"
 SERIAL_NO             = "ARK-SIM-2026"
+
+# OTA update simulation (dummy values)
+LATEST_VERSION         = "1.1.14"     # what CHECKUPDATE reports as available
+UPDATE_BYTES_TOTAL     = 2500000     # size of the fake update package
+UPDATE_DOWNLOAD_SECS   = 8.0         # how long the fake download takes
+UPDATE_STAGE_SECS      = 1.5         # each of unzip / copy / cleanup
+SIMULATE_UPDATE_ERROR  = False       # True → download fails with "HTTP 404"
 
 SOIL_CAL_FILE = "simulated_soil_calibration.json"
 
@@ -74,6 +81,21 @@ _calibration_running   = False
 _calibration_cancel    = False
 latest_result          = None
 _ble_server_ref        = None
+_ble_loop              = None   # asyncio loop that owns the BlueZ D-Bus connection
+
+_update_lock           = threading.Lock()
+_update_cancel         = False
+_update_running        = False
+
+
+def _idle_update_state():
+    return {
+        "state": "IDLE", "stage": "Idle", "percent": 0, "version": None,
+        "message": "", "bytes_downloaded": 0, "bytes_total": 0,
+    }
+
+
+_update_state = _idle_update_state()
 
 # ==============================================================================
 # CALIBRATION DATABASE
@@ -107,10 +129,7 @@ def save_calibration_db(data):
 # ==============================================================================
 # BLE NOTIFY HELPER
 # ==============================================================================
-def ble_notify(server, data: dict):
-    if server is None:
-        print(f"⚠️ [MOCK BLE NOTIFY]: {data}")
-        return
+def _do_notify(server, data: dict):
     try:
         payload = json.dumps(data).encode("utf-8")
         char = server.get_characteristic(FIRMWARE_DATA_UUID)
@@ -119,6 +138,30 @@ def ble_notify(server, data: dict):
         print(f"📤 BLE TX: {data}")
     except Exception as ex:
         print(f"❌ BLE TX Error: {ex}")
+
+
+def ble_notify(server, data: dict):
+    if server is None:
+        print(f"⚠️ [MOCK BLE NOTIFY]: {data}")
+        return
+    # The workflow simulations run in worker threads, but bless/dbus_next is
+    # not thread-safe: touching the characteristic from another thread
+    # corrupts the D-Bus traffic and BlueZ drops the link (the app then sees
+    # a disconnect -> auto-reconnect loop). Always hop onto the BLE loop.
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if _ble_loop is not None and running is not _ble_loop:
+        _ble_loop.call_soon_threadsafe(_do_notify, server, data)
+    else:
+        _do_notify(server, data)
+
+
+def simulate_print(server, farmer_name):
+    print(f"[SIMULATOR] Thermal Print Request for: {farmer_name}")
+    time.sleep(1.0)
+    ble_notify(server, {"SOILPRINT": "DONE", "message": "Print completed successfully"})
 
 # ==============================================================================
 # WORKFLOW SIMULATIONS
@@ -249,10 +292,89 @@ def simulate_calibration(server, nutrient, point):
         _calibration_running = False
 
 # ==============================================================================
+# OTA UPDATE SIMULATION
+# ==============================================================================
+# Progress is only reported when the app polls {"UPDATE":"STATUS"}; this
+# thread just moves _update_state through the stages.
+def _version_tuple(v):
+    return tuple(int(p) if p.isdigit() else 0 for p in str(v).split("."))
+
+
+def _set_update_state(**fields):
+    global _update_state
+    with _update_lock:
+        _update_state = {**_update_state, **fields}
+        snapshot = dict(_update_state)
+    print(f"🔄 [SIMULATOR] Update: {snapshot['state']} {snapshot['percent']}% — {snapshot['message']}")
+
+
+def _cancelled_state():
+    return {
+        "state": "CANCELLED", "stage": "Cancelled", "percent": 0, "version": None,
+        "message": "Cancelled by user", "bytes_downloaded": 0, "bytes_total": 0,
+    }
+
+
+def simulate_update(version):
+    global _update_running, _update_cancel, SOFTWARE_VERSION
+    _update_running = True
+    try:
+        total = UPDATE_BYTES_TOTAL
+        _set_update_state(
+            state="DOWNLOADING", stage="Downloading", percent=0, version=version,
+            message="Starting download", bytes_downloaded=0, bytes_total=total,
+        )
+
+        steps = 20
+        for i in range(1, steps + 1):
+            time.sleep(UPDATE_DOWNLOAD_SECS / steps)
+            if _update_cancel:
+                _set_update_state(**_cancelled_state())
+                return
+            if SIMULATE_UPDATE_ERROR and i == steps // 2:
+                _set_update_state(
+                    state="ERROR", stage="Error", percent=0, version=None,
+                    message="HTTP 404", bytes_downloaded=0, bytes_total=0,
+                )
+                return
+            done = int(total * i / steps)
+            _set_update_state(
+                percent=int(100 * i / steps), bytes_downloaded=done,
+                message="Downloading update",
+            )
+
+        _set_update_state(state="DOWNLOADED", stage="Downloaded", percent=100,
+                          message="Download complete")
+        # A force stop (VERSIONUPDATE FORSESTOP) is honoured at every stage.
+        for state, stage, message in (
+            ("UNZIPPING", "Unzipping in Progress", "Extracting files"),
+            ("COPYING", "Copying in Progress", "Copying new files"),
+            ("CLEANUP", "Cleanup in Progress", "Cleaning up old data"),
+        ):
+            time.sleep(UPDATE_STAGE_SECS)
+            if _update_cancel:
+                _set_update_state(**_cancelled_state())
+                return
+            _set_update_state(state=state, stage=stage, message=message)
+
+        time.sleep(UPDATE_STAGE_SECS)
+        if _update_cancel:
+            _set_update_state(**_cancelled_state())
+            return
+        _set_update_state(state="INSTALLED", stage="Installed", message="Restarting")
+        # The real device reboots into the new firmware.
+        SOFTWARE_VERSION = version
+        print(f"✅ [SIMULATOR] Now running version {SOFTWARE_VERSION}")
+    finally:
+        _update_running = False
+        _update_cancel = False
+
+
+# ==============================================================================
 # COMMAND ROUTING
 # ==============================================================================
 def handle_ble_command(server, raw_bytes: bytes):
-    global _calibration_cancel, ble_motor_status
+    global _calibration_cancel, ble_motor_status, _update_cancel
 
     try:
         cmd_str = raw_bytes.decode("utf-8")
@@ -339,11 +461,79 @@ def handle_ble_command(server, raw_bytes: bytes):
             "serial_no": SERIAL_NO,
         })
 
+    # Current firmware version
+    elif cmd.get("CHECKVERSION") == "GET":
+        ble_notify(server, {"CHECKVERSION": "OK", "current": SOFTWARE_VERSION})
+
+    # User confirmed the firmware update (app's Version screen)
+    elif cmd.get("VERSIONUPDATE") == "START":
+        if not _update_running:
+            _update_cancel = False
+            # Set DOWNLOADING right away so an immediate STATUS poll never
+            # sees a previous run's INSTALLED / CANCELLED.
+            _set_update_state(
+                state="DOWNLOADING", stage="Downloading", percent=0,
+                version=LATEST_VERSION, message="Starting download",
+                bytes_downloaded=0, bytes_total=UPDATE_BYTES_TOTAL,
+            )
+            t = threading.Thread(target=simulate_update, args=(LATEST_VERSION,), daemon=True)
+            t.start()
+        ble_notify(server, {"VERSIONUPDATE": "STARTED"})
+
+    # Progress poll
+    elif cmd.get("VERSIONUPDATE") == "STATUS":
+        with _update_lock:
+            # Table format: no "version" field in VERSIONUPDATE STATUS replies.
+            status = {k: v for k, v in _update_state.items() if k != "version"}
+            ble_notify(server, {"VERSIONUPDATE": "STATUS", **status})
+
+    # User stopped / declined the update
+    elif cmd.get("VERSIONUPDATE") == "FORSESTOP":
+        if _update_running:
+            _update_cancel = True
+        ble_notify(server, {"VERSIONUPDATE": "CANCELLED"})
+
+    # Is a newer version available?
+    elif cmd.get("CHECKUPDATE") == "START":
+        if _version_tuple(LATEST_VERSION) > _version_tuple(SOFTWARE_VERSION):
+            ble_notify(server, {
+                "CHECKUPDATE": "AVAILABLE",
+                "current"    : SOFTWARE_VERSION,
+                "latest"     : LATEST_VERSION,
+            })
+        else:
+            ble_notify(server, {"CHECKUPDATE": "UP_TO_DATE", "current": SOFTWARE_VERSION})
+
+    # User confirmed the update
+    elif cmd.get("UPDATE") == "YES":
+        if _update_running:
+            with _update_lock:
+                ble_notify(server, {"UPDATE": "STATUS", **_update_state})
+        else:
+            _update_cancel = False
+            ble_notify(server, {"UPDATE": "STARTED", "version": LATEST_VERSION})
+            t = threading.Thread(target=simulate_update, args=(LATEST_VERSION,), daemon=True)
+            t.start()
+
+    # Progress poll
+    elif cmd.get("UPDATE") == "STATUS":
+        with _update_lock:
+            ble_notify(server, {"UPDATE": "STATUS", **_update_state})
+
+    # User declined the update
+    elif cmd.get("UPDATE") == "NO":
+        ble_notify(server, {"UPDATE": "CANCELLED"})
+
+    # Cancel while downloading
+    elif cmd.get("UPDATE") == "CANCEL":
+        _update_cancel = True
+        ble_notify(server, {"UPDATE": "CANCEL_REQUESTED"})
+
     # Thermal Print
     elif cmd.get("SOILPRINT") == "START":
-        print(f"🖨️ [SIMULATOR] Thermal Print Request for: {cmd.get('farmer_name')}")
-        time.sleep(1.0)
-        ble_notify(server, {"SOILPRINT": "DONE", "message": "Print completed successfully"})
+        # In a thread — sleeping here would block the BLE event loop.
+        t = threading.Thread(target=simulate_print, args=(server, cmd.get("farmer_name")), daemon=True)
+        t.start()
 
     else:
         print(f"ℹ️ [SIMULATOR] Ignored/Unrecognized command: {cmd}")
@@ -367,8 +557,9 @@ def run_simulator():
         sys.exit(1)
 
     async def _ble_main():
-        global _ble_server_ref
-        loop = asyncio.get_event_loop()
+        global _ble_server_ref, _ble_loop
+        loop = asyncio.get_running_loop()
+        _ble_loop = loop
         server = BlessServer(name=DEVICE_NAME, loop=loop)
         _ble_server_ref = server
 
@@ -400,6 +591,12 @@ def run_simulator():
                 import traceback
                 traceback.print_exc()
 
+        # Without a read handler bless raises on every GATT read, which some
+        # Android stacks treat as a broken link.
+        def read_request(characteristic, **kwargs):
+            return characteristic.value or bytearray()
+
+        server.read_request_func = read_request
         server.write_request_func = write_request
 
         print("\n🔵 Starting BLE advertising...")
@@ -407,8 +604,16 @@ def run_simulator():
         print(f"✅ BLE Simulator is RUNNING and advertising as '{DEVICE_NAME}'!")
         print("📱 You can now open your mobile app, scan, and connect!\n")
 
+        was_connected = False
         while True:
             await asyncio.sleep(1)
+            try:
+                connected = await server.is_connected()
+            except Exception:
+                continue
+            if connected != was_connected:
+                print("🔗 App CONNECTED" if connected else "🔌 App DISCONNECTED")
+                was_connected = connected
 
     try:
         asyncio.run(_ble_main())

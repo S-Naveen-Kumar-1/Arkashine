@@ -37,6 +37,8 @@ import {
   BLE_MIXING_COMPLETE, // ← NEW: add this to src/config/actionTypes.js
   BLE_PRINT_STATUS, // ← NEW: add this to src/config/actionTypes.js
   BLE_DEVICE_VERSION,
+  BLE_VERSION_UPDATE,
+  BLE_SYSTEM_INFO,
   CAL_POINT_DONE,
 } from '../../config/actionTypes';
 import { requestBLEPermissions } from '../../utils/permissions';
@@ -314,6 +316,8 @@ export const ac = {
   // ← NEW: { status: 'printing' | 'done' | 'error', message? }
   printStatus: s => ({ type: BLE_PRINT_STATUS, payload: s }),
   deviceVersion: v => ({ type: BLE_DEVICE_VERSION, payload: v }),
+  versionUpdate: v => ({ type: BLE_VERSION_UPDATE, payload: v }),
+  systemInfo: v => ({ type: BLE_SYSTEM_INFO, payload: v }),
 
   log: (tag, message) => ({
     type: BLE_DEBUG_LOG,
@@ -414,6 +418,39 @@ function _mockReply(obj, dispatch, delayMs = 400) {
   setTimeout(() => {
     parsePayload(JSON.stringify(obj), dispatch);
   }, delayMs);
+}
+
+// Simulated firmware update for the mock device: ~6s download, then
+// unzip / copy / cleanup ~1.5s each, then INSTALLED.
+let _mockVU = null; // { startedAt, stopped }
+function _mockVersionUpdateReply(cmd) {
+  if (cmd === 'START') {
+    _mockVU = { startedAt: Date.now(), stopped: false };
+    return { VERSIONUPDATE: 'STARTED' };
+  }
+  if (cmd === 'FORSESTOP') {
+    if (_mockVU) _mockVU.stopped = true;
+    return { VERSIONUPDATE: 'CANCELLED' };
+  }
+  const total = 2500000;
+  if (!_mockVU || _mockVU.stopped) {
+    return { VERSIONUPDATE: 'STATUS', state: 'CANCELLED', stage: 'Cancelled', percent: 0, message: 'Cancelled by user', bytes_downloaded: 0, bytes_total: 0 };
+  }
+  const base = { VERSIONUPDATE: 'STATUS', bytes_total: total };
+  const t = (Date.now() - _mockVU.startedAt) / 1000;
+  if (t < 6) {
+    const pct = Math.floor((t / 6) * 100);
+    return { ...base, state: 'DOWNLOADING', stage: 'Downloading', percent: pct, message: 'Downloading update', bytes_downloaded: Math.floor((total * pct) / 100) };
+  }
+  const stages = [
+    ['DOWNLOADED', 'Downloaded', 'Download complete'],
+    ['UNZIPPING', 'Unzipping in Progress', 'Extracting files'],
+    ['COPYING', 'Copying in Progress', 'Copying new files'],
+    ['CLEANUP', 'Cleanup in Progress', 'Cleaning up old data'],
+    ['INSTALLED', 'Installed', 'Restarting'],
+  ];
+  const [state, stage, message] = stages[Math.min(Math.floor((t - 6) / 1.5), stages.length - 1)];
+  return { ...base, state, stage, percent: 100, message, bytes_downloaded: total };
 }
 
 async function _mockSendJSON(payload, dispatch) {
@@ -534,6 +571,14 @@ async function _mockSendJSON(payload, dispatch) {
     );
   } else if (payload.CHECKVERSION === 'GET') {
     _mockReply({ CHECKVERSION: 'OK', current: '1.1.1.1' }, dispatch, 400);
+  } else if (payload.VERSIONUPDATE !== undefined) {
+    _mockReply(_mockVersionUpdateReply(payload.VERSIONUPDATE), dispatch, 300);
+  } else if (payload.GETSYSTEMINFO === 'GET') {
+    _mockReply(
+      { GETSYSTEMINFO: 'OK', version: '1.1.1.1', device_id: 'SIM-001', serial_no: 'ARK-SIM-2026' },
+      dispatch,
+      500,
+    );
   } else if (payload.SOILPRINT === 'START') {
     _mockReply({ SOILPRINT: 'STARTED' }, dispatch, 200);
     _mockReply({ SOILPRINT: 'DONE' }, dispatch, 1200);
@@ -724,26 +769,66 @@ function parsePayload(jsonStr, dispatch) {
   }
 
   // ─── Device version ← {"CHECKVERSION":"OK","current":"1.1.1.1"} ─────────
-  // or the fallback {"GETSYSTEMINFO":"OK","version":...,"device_id":...,
-  // "serial_no":...} (see cmdGetDeviceVersion).
-  if (parsed.CHECKVERSION !== undefined || parsed.GETSYSTEMINFO !== undefined) {
-    const key = parsed.CHECKVERSION !== undefined ? 'CHECKVERSION' : 'GETSYSTEMINFO';
-    const version = parsed.current ?? parsed.version;
-    _clearVersionTimer();
-    if (parsed[key] === 'OK' && version != null) {
-      dispatch(ac.log('VERSION', `← ${key} ${version}`));
+  if (parsed.CHECKVERSION !== undefined) {
+    if (parsed.CHECKVERSION === 'OK' && parsed.current != null) {
+      dispatch(ac.log('VERSION', `← CHECKVERSION ${parsed.current}`));
+      _resolveDeviceVersion(String(parsed.current), dispatch);
+    } else {
+      const msg = parsed.message || parsed.ERROR || `CHECKVERSION ${parsed.CHECKVERSION}`;
+      dispatch(ac.log('VERSION', `← CHECKVERSION error: ${msg}`));
+      // GETSYSTEMINFO may still answer with the version — only fail if not.
+      if (!_versionPending) dispatch(ac.deviceVersion({ status: 'error', message: String(msg) }));
+    }
+    return null;
+  }
+
+  // ─── System info ← {"GETSYSTEMINFO":"OK","version","device_id","serial_no"}
+  // Gives the Version screen its device details; also answers the version
+  // if CHECKVERSION hasn't.
+  if (parsed.GETSYSTEMINFO !== undefined) {
+    _clearSysInfoTimer();
+    if (parsed.GETSYSTEMINFO !== 'OK') {
+      dispatch(ac.log('VERSION', `← GETSYSTEMINFO ${parsed.GETSYSTEMINFO}`));
       dispatch(
-        ac.deviceVersion({
-          status: 'ok',
-          version: String(version),
-          device_id: parsed.device_id ?? null,
-          serial_no: parsed.serial_no ?? null,
+        ac.systemInfo({
+          status: 'error',
+          message: parsed.message || `Device replied ${parsed.GETSYSTEMINFO}`,
         }),
       );
+      return null;
+    }
+    dispatch(ac.log('VERSION', `← GETSYSTEMINFO ${parsed.version ?? ''} id=${parsed.device_id ?? '—'}`));
+    dispatch(
+      ac.systemInfo({
+        status: 'ok',
+        version: parsed.version ?? null,
+        device_id: parsed.device_id ?? null,
+        serial_no: parsed.serial_no ?? null,
+      }),
+    );
+    if (_versionPending && parsed.version != null) {
+      _resolveDeviceVersion(String(parsed.version), dispatch);
+    }
+    return null;
+  }
+
+  // ─── Firmware update ← VERSIONUPDATE STARTED / STATUS / CANCELLED ──────
+  if (parsed.VERSIONUPDATE !== undefined) {
+    _clearVersionUpdateTimer();
+    const v = parsed.VERSIONUPDATE;
+    if (v === 'STATUS') {
+      dispatch(ac.log('VERSION', `← VERSIONUPDATE STATUS ${parsed.state} ${parsed.percent ?? ''}%`));
+      _applyVersionUpdateStatus(parsed, dispatch);
     } else {
-      const msg = parsed.message || parsed.ERROR || `${key} ${parsed[key]}`;
-      dispatch(ac.log('VERSION', `← ${key} error: ${msg}`));
-      dispatch(ac.deviceVersion({ status: 'error', message: String(msg) }));
+      dispatch(ac.log('VERSION', `← VERSIONUPDATE ${v}`));
+      _versionUpdateStopping = false;
+      dispatch(
+        ac.versionUpdate(
+          v === 'STARTED' ? { status: 'started' }
+            : v === 'CANCELLED' ? { status: 'cancelled' }
+            : { status: 'error', message: parsed.message || `Device replied ${v}` },
+        ),
+      );
     }
     return null;
   }
@@ -1246,6 +1331,8 @@ function _armDisconnectHandler(conn, dispatch) {
 
     dispatch(ac.log('DISCONNECT', `Device ${conn.id} disconnected`));
     _clearVersionTimer();
+    _clearSysInfoTimer();
+    _clearVersionUpdateTimer();
     _clearHandshakeTimer();
     _clearPhMotorAckTimer();
     _clearSoilMotorAckTimer();
@@ -1414,6 +1501,8 @@ export const disconnectDevice = () => async dispatch => {
   _reconnectTimer = null;
   clearTimeout(_scanTimer);
   _clearVersionTimer();
+  _clearSysInfoTimer();
+  _clearVersionUpdateTimer();
   _clearHandshakeTimer();
   _clearPhMotorAckTimer();
   _clearSoilMotorAckTimer();
@@ -1650,6 +1739,14 @@ export const cmdPrintSoilResult = (metadata = {}) => dispatch => {
 // state.ble.deviceVersion.
 const VERSION_TIMEOUT_MS = 5000;
 let _versionTimer = null;
+// True from cmdGetDeviceVersion until CHECKVERSION or GETSYSTEMINFO answers.
+let _versionPending = false;
+
+function _resolveDeviceVersion(version, dispatch) {
+  _versionPending = false;
+  _clearVersionTimer();
+  dispatch(ac.deviceVersion({ status: 'ok', version }));
+}
 
 function _clearVersionTimer() {
   if (_versionTimer) {
@@ -1658,11 +1755,15 @@ function _clearVersionTimer() {
   }
 }
 
+// Sends CHECKVERSION, then GETSYSTEMINFO for the device details (and as a
+// second source of the version). Whichever answers first sets the version.
 export const cmdGetDeviceVersion = () => async dispatch => {
   _clearVersionTimer();
+  _versionPending = true;
   dispatch(ac.deviceVersion({ status: 'loading' }));
 
   const fail = message => {
+    _versionPending = false;
     _clearVersionTimer();
     dispatch(ac.deviceVersion({ status: 'error', message }));
   };
@@ -1670,16 +1771,119 @@ export const cmdGetDeviceVersion = () => async dispatch => {
   if (!(await _sendJSON({ CHECKVERSION: 'GET' }, dispatch))) {
     return fail('Device not connected');
   }
-  _versionTimer = setTimeout(async () => {
-    dispatch(ac.log('VERSION', 'No CHECKVERSION reply — trying GETSYSTEMINFO'));
-    if (!(await _sendJSON({ GETSYSTEMINFO: 'GET' }, dispatch))) {
-      return fail('Device not connected');
-    }
-    _versionTimer = setTimeout(
-      () => fail('Device did not report its version'),
-      VERSION_TIMEOUT_MS,
+  // Small gap so the two replies don't arrive on top of each other.
+  setTimeout(() => {
+    _sendJSON({ GETSYSTEMINFO: 'GET' }, dispatch);
+  }, 400);
+  _versionTimer = setTimeout(
+    () => fail('Device did not report its version'),
+    VERSION_TIMEOUT_MS * 2,
+  );
+};
+
+// ─── System info (device ID check) ─────────────────────────────────────────────
+// Sends {"GETSYSTEMINFO":"GET"}; the reply lands in state.ble.systemInfo as
+// { status: 'ok', version, device_id, serial_no }. Used by BLEScanScreen to
+// check a SoiLENZ's device_id against the user's linked devices.
+const SYSINFO_TIMEOUT_MS = 6000;
+let _sysInfoTimer = null;
+
+function _clearSysInfoTimer() {
+  if (_sysInfoTimer) {
+    clearTimeout(_sysInfoTimer);
+    _sysInfoTimer = null;
+  }
+}
+
+export const cmdGetSystemInfo = () => async dispatch => {
+  _clearSysInfoTimer();
+  dispatch(ac.systemInfo({ status: 'loading' }));
+  if (!(await _sendJSON({ GETSYSTEMINFO: 'GET' }, dispatch))) {
+    dispatch(ac.systemInfo({ status: 'error', message: 'Device not connected' }));
+    return;
+  }
+  _sysInfoTimer = setTimeout(() => {
+    _sysInfoTimer = null;
+    dispatch(ac.systemInfo({ status: 'error', message: 'Device did not report its ID' }));
+  }, SYSINFO_TIMEOUT_MS);
+};
+
+// ─── Firmware update start ─────────────────────────────────────────────────────
+// Sends {"VERSIONUPDATE":"START"}; the device answers {"VERSIONUPDATE":"STARTED"}.
+// No answer within VERSION_UPDATE_TIMEOUT_MS → error, so the button can't
+// stay stuck on "Starting…". Result in state.ble.versionUpdate.
+const VERSION_UPDATE_TIMEOUT_MS = 8000;
+let _versionUpdateTimer = null;
+// Set by FORSESTOP until the device confirms, so an in-flight STATUS reply
+// doesn't flip the screen back from "Stopping…" to "running".
+let _versionUpdateStopping = false;
+
+// Maps a VERSIONUPDATE STATUS reply onto state.ble.versionUpdate.
+function _applyVersionUpdateStatus(p, dispatch) {
+  const st = p.state;
+  if (!st || st === 'IDLE') return; // nothing running (or poll raced ahead)
+  // STATUS CANCELLED / ERROR are ignored — a force stop finishes on the
+  // direct {"VERSIONUPDATE":"CANCELLED"} reply to FORSESTOP instead.
+  if (st === 'CANCELLED' || st === 'ERROR') return;
+  const status =
+    st === 'INSTALLED' ? 'installed'
+      : _versionUpdateStopping ? 'stopping'
+      : 'running';
+  if (status !== 'running' && status !== 'stopping') _versionUpdateStopping = false;
+  dispatch(
+    ac.versionUpdate({
+      merge: true,
+      status,
+      state: st,
+      stage: p.stage ?? st,
+      percent: Number(p.percent) || 0,
+      message: p.message ?? '',
+      bytes_downloaded: Number(p.bytes_downloaded) || 0,
+      bytes_total: Number(p.bytes_total) || 0,
+    }),
+  );
+}
+
+function _clearVersionUpdateTimer() {
+  if (_versionUpdateTimer) {
+    clearTimeout(_versionUpdateTimer);
+    _versionUpdateTimer = null;
+  }
+}
+
+export const cmdStartVersionUpdate = () => async dispatch => {
+  _clearVersionUpdateTimer();
+  _versionUpdateStopping = false;
+  dispatch(ac.versionUpdate({ status: 'sending' }));
+  if (!(await _sendJSON({ VERSIONUPDATE: 'START' }, dispatch))) {
+    dispatch(ac.versionUpdate({ status: 'error', message: 'Device not connected' }));
+    return;
+  }
+  _versionUpdateTimer = setTimeout(() => {
+    _versionUpdateTimer = null;
+    dispatch(
+      ac.versionUpdate({ status: 'error', message: 'Device did not confirm the update' }),
     );
-  }, VERSION_TIMEOUT_MS);
+  }, VERSION_UPDATE_TIMEOUT_MS);
+};
+
+// Progress poll — the Version screen sends this right after STARTED and then
+// every few seconds until INSTALLED / CANCELLED / ERROR.
+export const cmdPollVersionUpdate = () => dispatch =>
+  _sendJSON({ VERSIONUPDATE: 'STATUS' }, dispatch);
+
+// User stops the update; the device answers {"VERSIONUPDATE":"CANCELLED"}.
+export const cmdStopVersionUpdate = () => async dispatch => {
+  _versionUpdateStopping = true;
+  dispatch(ac.versionUpdate({ merge: true, status: 'stopping' }));
+  if (!(await _sendJSON({ VERSIONUPDATE: 'FORSESTOP' }, dispatch))) {
+    dispatch(ac.versionUpdate({ status: 'error', message: 'Device not connected' }));
+  }
+};
+
+export const clearVersionUpdate = () => dispatch => {
+  _clearVersionUpdateTimer();
+  dispatch(ac.versionUpdate(null));
 };
 
 // ─── Soil calibration commands ─────────────────────────────────────────────────

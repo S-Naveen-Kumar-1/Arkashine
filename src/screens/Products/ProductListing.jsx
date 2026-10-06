@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   Animated,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -20,7 +21,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useDispatch, useSelector } from 'react-redux';
 import { useFocusEffect } from '@react-navigation/native';
 import { clearActiveFarmer } from '../../redux/actions/soilPartnerActions';
-import { clearActiveTestDevices } from '../../redux/actions';
+import { clearActiveTestDevices, getUserDevices } from '../../redux/actions';
 import SearchFilterBar from '../../components/SearchFilterBar';
 import {
   PRODUCTS,
@@ -74,8 +75,23 @@ export function ProductsListingScreen({ navigation }) {
       if (activeFarmerSource === 'test_flow') dispatch(clearActiveFarmer());
       // Same for the device chosen for the run (ActiveDeviceBanner).
       dispatch(clearActiveTestDevices());
+      // Linked devices decide which products are unlocked — load them every
+      // time the list is shown, not only when another screen happened to.
+      dispatch(getUserDevices());
     }, [activeFarmerSource, dispatch]),
   );
+
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await dispatch(getUserDevices());
+    } catch (e) {
+      // reducer keeps the error; nothing else to do here
+    } finally {
+      setRefreshing(false);
+    }
+  }, [dispatch]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingProductId, setLoadingProductId] = useState(null);
@@ -101,7 +117,7 @@ export function ProductsListingScreen({ navigation }) {
       );
     }
     return filtered;
-  }, [selectedCategory, searchQuery]);
+  }, [devices, selectedCategory, searchQuery]);
 
   const activeProducts = useMemo(
     () => filteredProducts.filter(p => !p.locked).length,
@@ -396,7 +412,15 @@ export function ProductsListingScreen({ navigation }) {
       <ScrollView
         style={s.scroll}
         showsVerticalScrollIndicator={false}
-        bounces={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={T.primary}
+            colors={[T.primary]}
+            progressBackgroundColor={T.card}
+          />
+        }
         scrollEventThrottle={16}
       >
         {/* ── HEADER ───────────────────────────────────────────────── */}

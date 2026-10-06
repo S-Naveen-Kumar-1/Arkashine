@@ -194,8 +194,9 @@ export default function IntroScreen({ navigation, route }) {
           onPress={handleStart}
           color={T.primary}
           textColor="#fff"
-          size="lg"
+          size="sm"
           icon="🚀"
+          iconSize={12}
           style={[
             s.cta,
             {

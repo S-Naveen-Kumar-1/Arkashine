@@ -39,6 +39,8 @@ import {
   BLE_MIXING_COMPLETE,
   BLE_PRINT_STATUS,
   BLE_DEVICE_VERSION,
+  BLE_VERSION_UPDATE,
+  BLE_SYSTEM_INFO,
 } from '../../config/actionTypes';
 
 const MAX_LOGS = 300;
@@ -120,6 +122,14 @@ const init = {
   // Firmware version — { status: 'loading'|'ok'|'error', version?,
   // device_id?, serial_no?, message? } (cmdGetDeviceVersion)
   deviceVersion: null,
+  // Firmware update — { status, state?, stage?, percent?, version?, message?,
+  // bytes_downloaded?, bytes_total? }
+  // status: 'sending'|'started'|'running'|'stopping'|'installed'|
+  //         'cancelled'|'error' (cmdStartVersionUpdate / VERSIONUPDATE STATUS)
+  versionUpdate: null,
+  // GETSYSTEMINFO — { status: 'loading'|'ok'|'error', version?, device_id?,
+  // serial_no?, message? } (cmdGetSystemInfo / cmdGetDeviceVersion)
+  systemInfo: null,
 };
 
 export default function bleReducer(state = init, action) {
@@ -149,6 +159,15 @@ export default function bleReducer(state = init, action) {
       return { ...state, printStatus: action.payload };
     case BLE_DEVICE_VERSION:
       return { ...state, deviceVersion: action.payload };
+    case BLE_SYSTEM_INFO:
+      return { ...state, systemInfo: action.payload };
+    case BLE_VERSION_UPDATE:
+      // { merge: true, ... } updates the current progress; otherwise replace.
+      if (action.payload?.merge) {
+        const { merge, ...fields } = action.payload;
+        return { ...state, versionUpdate: { ...state.versionUpdate, ...fields } };
+      }
+      return { ...state, versionUpdate: action.payload };
 
     case BLE_CONNECT_REQUEST:
       return {
@@ -187,6 +206,7 @@ export default function bleReducer(state = init, action) {
       return {
         ...state,
         deviceVersion: null,
+        systemInfo: null,
         connected: false,
         device: null,
         bleConfig: null,

@@ -1,6 +1,6 @@
 // src/screens/ble/DeviceScanScreen.jsx
 
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -25,7 +25,13 @@ import {
   connectMockDevice,
   disconnectDevice,
   retryHandshake,
+  cmdGetSystemInfo,
 } from '../../redux/actions/bleActions';
+import { getUserDevices, setActiveTestDevice } from '../../redux/actions';
+import { devicesOfType, testDeviceKey } from '../../utils/testDevices';
+
+// Device IDs are compared ignoring case and surrounding spaces.
+const normId = v => String(v ?? '').trim().toLowerCase();
 
 export default function DeviceScanScreen({ route, navigation }) {
   const item = route?.params?.item;
@@ -48,7 +54,53 @@ export default function DeviceScanScreen({ route, navigation }) {
     bleConfig,
     handshakeStatus,
     handshakeRaw,
+    systemInfo,
   } = useSelector(s => s.ble);
+
+  // ── Device-ID check (SoiLENZ and pH Bottle) ──────────────────────────
+  // After the handshake, ask the device for its device_id (GETSYSTEMINFO)
+  // and only allow Begin Test if it matches one of the user's linked
+  // devices of this product's type.
+  const checkKey = testDeviceKey(item?.device_type);
+  const isChecked = checkKey === 'soilsaathi' || checkKey === 'ph_bottle';
+  const userDevices = useSelector(s => s.userDevices?.devices);
+  const devicesLoading = useSelector(s => s.userDevices?.loadingDevices);
+  const linkedOfType = useMemo(
+    () => (isChecked ? devicesOfType(userDevices, checkKey) : []),
+    [isChecked, userDevices, checkKey],
+  );
+
+  useEffect(() => {
+    if (isChecked) dispatch(getUserDevices());
+  }, [isChecked, dispatch]);
+
+  const handshakeOk = connected && handshakeStatus === 'success';
+  useEffect(() => {
+    if (isChecked && handshakeOk) dispatch(cmdGetSystemInfo());
+  }, [isChecked, handshakeOk, connectedDevice?.id, dispatch]);
+
+  // { state: 'skip'|'checking'|'ok'|'mismatch'|'error', deviceId?, match?, message? }
+  const idCheck = useMemo(() => {
+    if (!isChecked) return { state: 'skip' };
+    if (!handshakeOk || !systemInfo || systemInfo.status === 'loading') {
+      return { state: 'checking' };
+    }
+    if (systemInfo.status === 'error') {
+      return { state: 'error', message: systemInfo.message };
+    }
+    const deviceId = systemInfo.device_id;
+    if (!deviceId) return { state: 'error', message: 'Device did not report an ID' };
+    if (devicesLoading && linkedOfType.length === 0) return { state: 'checking', deviceId };
+    const match = linkedOfType.find(d => normId(d.devise_id) === normId(deviceId));
+    return match ? { state: 'ok', deviceId, match } : { state: 'mismatch', deviceId };
+  }, [isChecked, handshakeOk, systemInfo, devicesLoading, linkedOfType]);
+
+  // The verified device is the one this test saves to.
+  useEffect(() => {
+    if (idCheck.state === 'ok') dispatch(setActiveTestDevice(checkKey, idCheck.match));
+  }, [idCheck.state, idCheck.match, checkKey, dispatch]);
+
+  const canProceed = !isChecked || idCheck.state === 'ok';
 
   // Init BLE adapter monitor once
   useEffect(() => {
@@ -111,10 +163,11 @@ export default function DeviceScanScreen({ route, navigation }) {
 
   // Navigate after connecting — handshake fires automatically in bleActions
   const handleProceed = useCallback(() => {
+    if (!canProceed) return; // device not verified as one of the user's devices
     if (item?.name === 'Ph Bottle')
       navigation.navigate('CalibrationGateScreen', route?.params);
     else navigation.navigate('SoilTestIntroScreen', route?.params);
-  }, [item, navigation, route?.params]);
+  }, [item, navigation, route?.params, canProceed]);
 
   const btOff =
     bleAdapterState !== 'PoweredOn' && bleAdapterState !== 'Unknown';
@@ -171,6 +224,9 @@ export default function DeviceScanScreen({ route, navigation }) {
             onDisconnect={() => dispatch(disconnectDevice())}
             onProceed={handleProceed}
             onRetryHandshake={() => dispatch(retryHandshake())}
+            idCheck={idCheck}
+            canProceed={canProceed}
+            onRetryIdCheck={() => dispatch(cmdGetSystemInfo())}
           />
         )}
 
@@ -275,6 +331,9 @@ function ConnectedBanner({
   onDisconnect,
   onProceed,
   onRetryHandshake,
+  idCheck,
+  canProceed,
+  onRetryIdCheck,
 }) {
   const pending = handshakeStatus === 'pending';
   const success = handshakeStatus === 'success';
@@ -302,8 +361,9 @@ function ConnectedBanner({
           {device.name || 'Device'}
         </Text>
         <TouchableOpacity
-          style={[cb.proceedBtn, { backgroundColor: T.primary }]}
+          style={[cb.proceedBtn, { backgroundColor: T.primary }, !canProceed && cb.proceedOff]}
           onPress={onProceed}
+          disabled={!canProceed}
         >
           <Text style={cb.proceedText}>Begin Test →</Text>
         </TouchableOpacity>
@@ -343,6 +403,9 @@ function ConnectedBanner({
         )}
       </View>
 
+      {/* Device-ID check (SoiLENZ / pH Bottle) */}
+      {idCheck && idCheck.state !== 'skip' ? <IdCheckRow idCheck={idCheck} T={T} onRetry={onRetryIdCheck} /> : null}
+
       {/* UUIDs (debug info) */}
       {bleConfig && (
         <View style={[cb.uuidBox, { borderColor: T.border }]}>
@@ -364,6 +427,45 @@ function ConnectedBanner({
           ))}
         </View>
       )}
+    </View>
+  );
+}
+
+// ─── IdCheckRow ───────────────────────────────────────────────────────────────
+// Result of matching the device's device_id (GETSYSTEMINFO) against the
+// user's linked devices of the same type (SoiLENZ / pH Bottle).
+function IdCheckRow({ idCheck, T, onRetry }) {
+  const RED = '#ef4444';
+  const { state, deviceId, match, message } = idCheck;
+  const color = state === 'ok' ? T.primary : state === 'checking' ? '#f59e0b' : RED;
+  const text =
+    state === 'checking'
+      ? 'Checking device ID…'
+      : state === 'ok'
+      ? `Device ID ${deviceId} · linked${match?.name ? ` as ${match.name}` : ''}`
+      : state === 'mismatch'
+      ? `Device ID ${deviceId} is not linked to your account`
+      : message || 'Could not read the device ID';
+  return (
+    <View style={[cb.hsRow, { borderColor: color + '44', backgroundColor: state === 'ok' ? 'transparent' : color + '10' }]}>
+      {state === 'checking' ? (
+        <ActivityIndicator size="small" color={color} />
+      ) : (
+        <Icon
+          name={state === 'ok' ? 'card-account-details-outline' : 'card-remove-outline'}
+          size={14}
+          color={color}
+        />
+      )}
+      <Text style={[cb.hsLabel, { color, flex: 1 }]} numberOfLines={2}>
+        {text}
+      </Text>
+      {state === 'error' ? (
+        <TouchableOpacity onPress={onRetry} style={cb.retryBtn}>
+          <Icon name="refresh" size={13} color={color} />
+          <Text style={[cb.retryText, { color }]}>Retry</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -600,6 +702,7 @@ const cb = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
+  proceedOff: { opacity: 0.4 },
   proceedText: { color: '#fff', fontSize: 13, fontWeight: '800' },
   hsRow: {
     flexDirection: 'row',

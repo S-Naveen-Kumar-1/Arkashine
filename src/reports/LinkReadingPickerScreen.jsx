@@ -23,6 +23,7 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch } from 'react-redux';
@@ -221,6 +222,15 @@ export default function LinkReadingPickerScreen({ navigation, route }) {
         renderItem={renderRow}
         contentContainerStyle={s.list}
         ListEmptyComponent={renderEmpty}
+        refreshControl={
+          <RefreshControl
+            refreshing={false}
+            onRefresh={() => load(1, filterDeviceId, false)}
+            tintColor={meta.color}
+            colors={[meta.color]}
+            progressBackgroundColor={T.card}
+          />
+        }
         ListFooterComponent={
           hasMore && !loading ? (
             <TouchableOpacity

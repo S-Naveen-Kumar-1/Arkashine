@@ -14,10 +14,12 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
+  RefreshControl,
 } from 'react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useDispatch, useSelector } from 'react-redux';
-import { logoutUser, toggleTheme } from '../../redux/actions';
+import { logoutUser, toggleTheme, getUserDevices } from '../../redux/actions';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import useTheme from '../../hooks/useTheme';
 import SearchFilterBar from '../../components/SearchFilterBar';
 import { Spacing, Radius, Shadow, Typography } from '../../theme';
@@ -718,6 +720,29 @@ export default function ProfileScreen({ navigation }) {
 
   const [showHelpModal, setShowHelpModal] = useState(false);
 
+  // Pull-to-refresh: re-read the saved profile and reload linked devices.
+  // (The stats row is static content, so it doesn't change.)
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const [token, refreshToken, userData] = await Promise.all([
+        AsyncStorage.getItem('token'),
+        AsyncStorage.getItem('refreshToken'),
+        AsyncStorage.getItem('user'),
+      ]);
+      const parsed = userData ? JSON.parse(userData) : null;
+      if (token && parsed?.user) {
+        dispatch({ type: 'RESTORE_LOGIN', payload: { token, refreshToken, user: parsed.user } });
+      }
+      await dispatch(getUserDevices()).catch(() => {});
+    } catch (e) {
+      console.log('Profile refresh error:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const initials = (user?.name || user?.username || 'U')
     .split(' ')
     .map(w => w[0])
@@ -790,6 +815,15 @@ export default function ProfileScreen({ navigation }) {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 40 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={T.primary}
+            colors={[T.primary]}
+            progressBackgroundColor={T.card}
+          />
+        }
       >
         {/* ── Profile Hero ── */}
         <View
