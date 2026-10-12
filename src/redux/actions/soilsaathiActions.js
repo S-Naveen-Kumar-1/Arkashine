@@ -320,20 +320,35 @@ export function predictSoil({ lat, lon, polygon = [] }) {
   };
 }
 
-// The report is generated on-demand server-side and can take 45-50s,
-// well past the shared axios client's default 15s timeout — override it
-// per-request instead of raising the timeout for every API call.
-const PDF_REQUEST_TIMEOUT_MS = 90000;
+// The report is generated on-demand server-side and can take 20-50s,
+// well past standard API timeouts. Both Normal and Advisory reports now
+// poll with automatic retry on 503 (generating), 504/502 (gateway busy),
+// 202 (accepted), or network timeouts. Overall budget: 3 minutes.
+const REPORT_REQUEST_TIMEOUT_MS = 60000;
+const REPORT_TOTAL_BUDGET_MS = 180000;
+const REPORT_RETRY_DELAY_MS = 3000;
 
-// Advisory PDF: the server builds it in the background and answers 503
-// {"status":"generating"} (within ~15s) until it's ready, so ask again every
-// few seconds instead of holding one request open past the server's worker
-// timeout (which is what produced the 502s). Overall budget: 3 minutes.
-const ADVISORY_PDF_TIMEOUT_MS = 60000;      // one request
-const ADVISORY_PDF_TOTAL_MS = 180000;       // all retries together
-const ADVISORY_PDF_RETRY_DELAY_MS = 4000;
+function isRetriableReportError(e) {
+  const err = e?.error ?? e;
+  const status = err?.response?.status;
+  if (status === 503 || status === 504 || status === 502 || status === 202) {
+    return true;
+  }
+  if (err?.code === 'ECONNABORTED' || err?.message?.toLowerCase().includes('timeout')) {
+    return true;
+  }
+  return false;
+}
 
-function requestSoilRecommendationPDF(deviceId, callId) {
+function isValidPdfData(data) {
+  if (!data) return false;
+  if (typeof data === 'string') return data.length > 100;
+  if (data.byteLength != null) return data.byteLength > 100;
+  if (data.length != null) return data.length > 100;
+  return true;
+}
+
+export function requestSoilRecommendationPDF(deviceId, callId) {
   return {
     type: SOIL_PDF_REQUEST,
     payload: {
@@ -341,11 +356,8 @@ function requestSoilRecommendationPDF(deviceId, callId) {
         method: 'GET',
         url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/recommendation-pdf/`,
         responseType: 'arraybuffer',
-        timeout: ADVISORY_PDF_TIMEOUT_MS,
-
-        headers: {
-          Accept: '*/*',
-        },
+        timeout: REPORT_REQUEST_TIMEOUT_MS,
+        headers: { Accept: '*/*' },
       },
     },
   };
@@ -353,24 +365,24 @@ function requestSoilRecommendationPDF(deviceId, callId) {
 
 export const downloadSoilRecommendationPDF =
   (deviceId, callId) => async dispatch => {
-    const giveUpAt = Date.now() + ADVISORY_PDF_TOTAL_MS;
+    const giveUpAt = Date.now() + REPORT_TOTAL_BUDGET_MS;
     for (;;) {
       try {
-        return await dispatch(requestSoilRecommendationPDF(deviceId, callId));
+        const res = await dispatch(requestSoilRecommendationPDF(deviceId, callId));
+        if (isValidPdfData(res?.payload?.data)) {
+          return res;
+        }
+        throw new Error('Incomplete advisory PDF data');
       } catch (e) {
-        const stillGenerating = (e?.error ?? e)?.response?.status === 503;
-        if (!stillGenerating || Date.now() + ADVISORY_PDF_RETRY_DELAY_MS > giveUpAt) {
+        if (!isRetriableReportError(e) || Date.now() + REPORT_RETRY_DELAY_MS > giveUpAt) {
           throw e;
         }
-        await new Promise(r => setTimeout(r, ADVISORY_PDF_RETRY_DELAY_MS));
+        await new Promise(r => setTimeout(r, REPORT_RETRY_DELAY_MS));
       }
     }
   };
-export function downloadSoilDetailPDF(
-  deviceId,
-  callId,
-  token,
-) {
+
+export function requestSoilDetailPDF(deviceId, callId) {
   return {
     type: SOIL_PDF_REQUEST,
     payload: {
@@ -378,12 +390,37 @@ export function downloadSoilDetailPDF(
         method: 'GET',
         url: `/api/mobile/devices/${deviceId}/soilsaathi/${callId}/pdf/`,
         responseType: 'arraybuffer',
-        timeout: PDF_REQUEST_TIMEOUT_MS,
-
-        headers: {
-          Accept: '*/*',
-        },
+        timeout: REPORT_REQUEST_TIMEOUT_MS,
+        headers: { Accept: '*/*' },
       },
     },
   };
 }
+
+export const downloadSoilDetailPDF =
+  (deviceId, callId) => async dispatch => {
+    const giveUpAt = Date.now() + REPORT_TOTAL_BUDGET_MS;
+    for (;;) {
+      try {
+        const res = await dispatch(requestSoilDetailPDF(deviceId, callId));
+        if (isValidPdfData(res?.payload?.data)) {
+          return res;
+        }
+        throw new Error('Incomplete report PDF data');
+      } catch (e) {
+        if (!isRetriableReportError(e) || Date.now() + REPORT_RETRY_DELAY_MS > giveUpAt) {
+          throw e;
+        }
+        await new Promise(r => setTimeout(r, REPORT_RETRY_DELAY_MS));
+      }
+    }
+  };
+
+// Pre-triggers generation of both Normal and Advisory PDFs in the background
+// as soon as a reading is saved or viewed. By the time the user taps "Download",
+// the server has already rendered the files, eliminating the 40-50s waiting delay.
+export const prewarmSoilReports = (deviceId, callId) => dispatch => {
+  if (!deviceId || !callId) return;
+  dispatch(requestSoilDetailPDF(deviceId, callId)).catch(() => {});
+  dispatch(requestSoilRecommendationPDF(deviceId, callId)).catch(() => {});
+};

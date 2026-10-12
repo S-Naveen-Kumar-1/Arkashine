@@ -57,6 +57,10 @@ let _reconnectTimer = null,
 
 let _chunkBuffer = '';
 let _isUserDisconnecting = false;
+// Set of device IDs that were explicitly disconnected by user or device switch.
+// Prevents Android's asynchronous onDisconnected callback from firing false
+// "Device disconnected" alerts and auto-reconnect loops when switching devices.
+const _intentionallyDisconnectedDeviceIds = new Set();
 // Set by bleLogout(), cleared by the next connect after logging back in.
 // While set, a late disconnect event is treated as intentional (no toast, no
 // auto-reconnect) and stray commands are dropped without a toast.
@@ -1323,9 +1327,16 @@ function startNotifications(device, cfg, dispatch) {
 // no further reconnect attempt.
 function _armDisconnectHandler(conn, dispatch) {
   conn.onDisconnected(() => {
-    // If this disconnect event belongs to an old/stale device that was replaced, ignore it
-    if (_device && _device.id !== conn.id) {
-      dispatch(ac.log('DISCONNECT', `Stale disconnect from ${conn.id} ignored`));
+    // 1. If this device was intentionally disconnected (by user or device switch), ignore cleanly
+    if (_intentionallyDisconnectedDeviceIds.has(conn.id)) {
+      _intentionallyDisconnectedDeviceIds.delete(conn.id);
+      dispatch(ac.log('DISCONNECT', `Clean disconnect from intentional switch ${conn.id}`));
+      return;
+    }
+
+    // 2. If this disconnect event belongs to an old/stale device that was replaced or we are no longer using it, ignore it
+    if (!_device || _device.id !== conn.id) {
+      dispatch(ac.log('DISCONNECT', `Stale disconnect from ${conn.id} ignored (active: ${_device?.id || 'none'})`));
       return;
     }
 
@@ -1363,7 +1374,7 @@ function _armDisconnectHandler(conn, dispatch) {
 
     clearTimeout(_reconnectTimer);
     _reconnectTimer = setTimeout(async () => {
-      if (_isUserDisconnecting || _loggedOut || _device) return;
+      if (_isUserDisconnecting || _loggedOut || _device || _intentionallyDisconnectedDeviceIds.has(conn.id)) return;
       try {
         dispatch(ac.log('RECONNECT', 'Attempting…'));
         const r = await bleManager.connectToDevice(conn.id, {
@@ -1420,6 +1431,7 @@ export const connectDevice = rawDevice => async dispatch => {
     dispatch(
       ac.log('CONNECT', `Switching device from ${_device.id} to ${rawDevice.id}`),
     );
+    _intentionallyDisconnectedDeviceIds.add(_device.id);
     _isUserDisconnecting = true;
     _notifySub?.remove();
     _notifySub = null;
@@ -1512,6 +1524,7 @@ export const disconnectDevice = () => async dispatch => {
   _notifySub = null;
   _chunkBuffer = '';
   if (_device) {
+    _intentionallyDisconnectedDeviceIds.add(_device.id);
     try {
       await _device.cancelConnection();
     } catch (e) {
@@ -1524,7 +1537,7 @@ export const disconnectDevice = () => async dispatch => {
   dispatch(ac.disconnect());
   setTimeout(() => {
     _isUserDisconnecting = false;
-  }, 600);
+  }, 1200);
 };
 
 // ─── Simulated device (dev-only) ───────────────────────────────────────────

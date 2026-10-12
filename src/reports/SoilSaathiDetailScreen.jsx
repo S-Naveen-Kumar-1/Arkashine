@@ -55,6 +55,7 @@ import {
   getSoilYieldPrediction,
   downloadSoilRecommendationPDF,
   downloadSoilDetailPDF,
+  prewarmSoilReports,
   linkPhBottle,
   unlinkPhBottle,
   listSoilPlots,
@@ -2715,6 +2716,7 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
     dispatch(getSoilFertilizerRecommendation(deviceId, readingId)).catch(() => {});
     dispatch(getSoilCropMatch(deviceId, readingId)).catch(() => {});
     dispatch(getSoilYieldOptions(deviceId, readingId)).catch(() => {});
+    dispatch(prewarmSoilReports(deviceId, readingId));
 
     return () => dispatch(clearSelectedReading());
   }, [deviceId, readingId, dispatch]);
@@ -2824,6 +2826,20 @@ export default function SoilSaathiDetailScreen({ navigation, route }) {
               T={T}
               dispatch={dispatch}
             />
+
+            {/* Normal Soil Analysis PDF Report */}
+            <View style={{ marginBottom: Spacing.md }}>
+              <PDFDownloadButton
+                deviceId={deviceId}
+                readingId={readingId}
+                T={T}
+                dispatch={dispatch}
+                action={downloadSoilDetailPDF}
+                title="Soil Test Report (Standard)"
+                subtitle="Complete soil health parameters and test values"
+                fileName="Soil_Report"
+              />
+            </View>
 
             <View style={s.statRow}>
               {statItems.map(item => (

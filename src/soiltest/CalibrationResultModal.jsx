@@ -18,6 +18,8 @@ export default function CalibrationResultModal({
   onClose,
   onRecalibrate,
   onNext,
+  onSkipPoint,
+  onSkipNutrient,
   theme,
 }) {
   const T = theme.colors;
@@ -114,6 +116,16 @@ export default function CalibrationResultModal({
               outlined
               style={{ flex: 1 }}
             />
+            {onSkipPoint && nextTarget && (
+              <AppButton
+                label="Skip Point"
+                onPress={onSkipPoint}
+                color={T.warning || '#F59E0B'}
+                textColor={T.warning || '#F59E0B'}
+                outlined
+                style={{ flex: 1 }}
+              />
+            )}
             <AppButton
               label={
                 isError
@@ -127,9 +139,20 @@ export default function CalibrationResultModal({
               onPress={isError ? onClose : onNext}
               color={T.primary}
               textColor="#fff"
-              style={{ flex: 1.4 }}
+              style={{ flex: 1.2 }}
             />
           </View>
+
+          {onSkipNutrient && (
+            <TouchableOpacity
+              onPress={onSkipNutrient}
+              style={{ marginTop: 12, paddingVertical: 4 }}
+            >
+              <Text style={{ fontSize: 13, color: T.primary, fontWeight: '700', textDecorationLine: 'underline' }}>
+                Skip {entry.nutrient} & Next Nutrient ➔
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {!isError && (
             <Text style={[s.hint, { color: T.muted }]}>

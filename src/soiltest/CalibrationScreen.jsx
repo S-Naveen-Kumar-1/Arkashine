@@ -528,6 +528,63 @@ export default function CalibrationScreen({ navigation }) {
     startCalibration(target.nutrient, target.point);
   };
 
+  const handleModalSkip = () => {
+    const target = findNextTarget(resultEntry?.nutrient, resultEntry?.point);
+    setResultModalVisible(false);
+    if (!target) {
+      setStepStatus('idle');
+      return;
+    }
+    setSelectedNutrient(target.nutrient);
+    setSelectedPoint(target.point);
+    setStepStatus('idle');
+  };
+
+  const handleModalSkipNutrient = () => {
+    setResultModalVisible(false);
+    const currentIdx = NUTRIENTS.findIndex(n => n.key === resultEntry?.nutrient);
+    const nextIdx = (currentIdx + 1) % NUTRIENTS.length;
+    setSelectedNutrient(NUTRIENTS[nextIdx].key);
+    setSelectedPoint('blank');
+    setStepStatus('idle');
+  };
+
+  const handleSkipToNextNutrient = () => {
+    if (running) handleCancel();
+    const currentIdx = NUTRIENTS.findIndex(n => n.key === selectedNutrient);
+    const nextIdx = (currentIdx + 1) % NUTRIENTS.length;
+    setSelectedNutrient(NUTRIENTS[nextIdx].key);
+    setSelectedPoint('blank');
+    setSeenChannels({});
+  };
+
+  const handleSkipCurrentPoint = () => {
+    if (running) handleCancel();
+    const target = findNextTarget(selectedNutrient, selectedPoint);
+    if (target) {
+      setSelectedNutrient(target.nutrient);
+      setSelectedPoint(target.point);
+      setSeenChannels({});
+    } else {
+      Alert.alert('All Points Checked', 'All calibration points have been reviewed.');
+    }
+  };
+
+  const handleSkipAndFinish = () => {
+    if (running) handleCancel();
+    Alert.alert(
+      'Finish Calibration?',
+      'You can exit calibration at any time. Any points saved so far are preserved on the device.',
+      [
+        { text: 'Stay Here', style: 'cancel' },
+        {
+          text: 'Finish & Exit',
+          onPress: () => navigation.goBack(),
+        },
+      ],
+    );
+  };
+
   // ─── Matrix modal ──────────────────────────────────────────────────────
   const handleMatrixCellSelect = (nutrient, point) => {
     setMatrixModalVisible(false);
@@ -642,9 +699,16 @@ export default function CalibrationScreen({ navigation }) {
                 : 'Nothing selected'}
             </Text>
             {selectedNutrient != null && (
-              <TouchableOpacity onPress={() => setSelectedNutrient(null)}>
-                <Text style={[s.linkTxt, { color: T.muted }]}>Clear</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <TouchableOpacity onPress={handleSkipToNextNutrient}>
+                  <Text style={[s.linkTxt, { color: T.primary, fontWeight: '700' }]}>
+                    Next Nutrient ❯
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setSelectedNutrient(null)}>
+                  <Text style={[s.linkTxt, { color: T.muted }]}>Clear</Text>
+                </TouchableOpacity>
+              </View>
             )}
           </View>
 
@@ -824,18 +888,37 @@ export default function CalibrationScreen({ navigation }) {
             </View>
           )}
 
-          <AppButton
-            label="Start Calibration"
-            onPress={handleStartCalibration}
-            color={T.primary}
-            textColor="#fff"
-            icon="🎯"
-            style={{ marginTop: Spacing.md }}
-          />
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: Spacing.md }}>
+            <AppButton
+              label="Skip Point"
+              onPress={handleSkipCurrentPoint}
+              color={T.muted}
+              textColor={T.muted}
+              outlined
+              style={{ flex: 1 }}
+            />
+            <AppButton
+              label="Start Calibration"
+              onPress={handleStartCalibration}
+              color={T.primary}
+              textColor="#fff"
+              icon="🎯"
+              style={{ flex: 2 }}
+            />
+          </View>
           <Text style={[s.hint, { color: T.muted }]}>
             Each calibration point takes about a minute: 100 spectral loops +
             100 UV loops.
           </Text>
+
+          <TouchableOpacity
+            onPress={handleSkipAndFinish}
+            style={{ alignItems: 'center', paddingVertical: Spacing.md, marginTop: Spacing.xs }}
+          >
+            <Text style={{ fontSize: 13, color: T.muted, textDecorationLine: 'underline' }}>
+              Skip Remaining & Finish Calibration
+            </Text>
+          </TouchableOpacity>
         </ScrollView>
       ) : (
         <ScrollView
@@ -1061,6 +1144,14 @@ export default function CalibrationScreen({ navigation }) {
                 style={{ flex: 1 }}
               />
               <AppButton
+                label="Skip Step"
+                onPress={handleSkipCurrentPoint}
+                color={T.warning || '#F59E0B'}
+                textColor={T.warning || '#F59E0B'}
+                outlined
+                style={{ flex: 1 }}
+              />
+              <AppButton
                 label="Cancel"
                 onPress={handleCancel}
                 color={T.muted}
@@ -1070,14 +1161,24 @@ export default function CalibrationScreen({ navigation }) {
               />
             </View>
           ) : (
-            <AppButton
-              label="Cancel"
-              onPress={handleCancel}
-              color={T.red}
-              textColor={T.red}
-              outlined
-              style={{ marginTop: Spacing.sm }}
-            />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: Spacing.sm }}>
+              <AppButton
+                label="Skip Step"
+                onPress={handleSkipCurrentPoint}
+                color={T.warning || '#F59E0B'}
+                textColor={T.warning || '#F59E0B'}
+                outlined
+                style={{ flex: 1 }}
+              />
+              <AppButton
+                label="Cancel"
+                onPress={handleCancel}
+                color={T.red}
+                textColor={T.red}
+                outlined
+                style={{ flex: 1 }}
+              />
+            </View>
           )}
           <Text style={[s.hint, { color: T.muted }]}>
             Do not disconnect the device while a reading is in progress.
@@ -1095,6 +1196,8 @@ export default function CalibrationScreen({ navigation }) {
         onClose={closeResultModal}
         onRecalibrate={handleModalRecalibrate}
         onNext={handleModalNext}
+        onSkipPoint={handleModalSkip}
+        onSkipNutrient={handleModalSkipNutrient}
         theme={theme}
       />
 

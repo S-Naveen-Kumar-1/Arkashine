@@ -43,6 +43,7 @@ import {
   downloadSoilDetailPDF,
   downloadSoilRecommendationPDF,
   linkPhBottle,
+  prewarmSoilReports,
 } from '../redux/actions/soilsaathiActions';
 import { openReadingPicker } from '../utils/linkPicker';
 import { showMessage } from 'react-native-flash-message';
@@ -1232,6 +1233,7 @@ export function SoilResultsScreen({ navigation, route }) {
   const [linkedPhBottle, setLinkedPhBottle] = useState(null);
   const [linkingPh, setLinkingPh] = useState(false);
   const [advisoryPath, setAdvisoryPath] = useState(null);
+  const [normalPdfPath, setNormalPdfPath] = useState(null);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   // local "request sent, waiting for STARTED/DONE/ERROR" flag — covers the
   // brief gap before printStatus flips, and doubles as the timeout trigger.
@@ -1353,6 +1355,7 @@ export function SoilResultsScreen({ navigation, route }) {
 
       console.log('[SoilResults] Reading saved successfully with ID:', id);
       setCallId(id);
+      dispatch(prewarmSoilReports(deviceId, id));
       setPhase('fetching');
       fetchBothRecs(id);
     } catch (e) {
@@ -1468,16 +1471,21 @@ export function SoilResultsScreen({ navigation, route }) {
     }
     setPdfLoading(true);
     try {
-      const response = await dispatch(downloadSoilDetailPDF(deviceId, callId));
-      const pdfData = response?.payload?.data;
-      if (!pdfData) throw new Error('No PDF data received');
+      let fileUri = normalPdfPath;
+      if (!fileUri) {
+        const response = await dispatch(downloadSoilDetailPDF(deviceId, callId));
+        const pdfData = response?.payload?.data;
+        if (!pdfData) throw new Error('No PDF data received');
 
-      const fileUri =
-        Platform.OS === 'android'
-          ? `${RNFS.DownloadDirectoryPath}/soil_report_${callId}_${Date.now()}.pdf`
-          : `${RNFS.DocumentDirectoryPath}/soil_report_${callId}_${Date.now()}.pdf`;
-      const base64 = Buffer.from(pdfData).toString('base64');
-      await RNFS.writeFile(fileUri, base64, 'base64');
+        fileUri =
+          Platform.OS === 'android'
+            ? `${RNFS.DownloadDirectoryPath}/soil_report_${callId}.pdf`
+            : `${RNFS.DocumentDirectoryPath}/soil_report_${callId}.pdf`;
+        const base64 = Buffer.from(pdfData).toString('base64');
+        await RNFS.writeFile(fileUri, base64, 'base64');
+        setNormalPdfPath(fileUri);
+        notifyPdfDownloaded({ title: 'Soil Analysis Report', filePath: fileUri });
+      }
 
       await RNShare.open({
         url: Platform.OS === 'android' ? `file://${fileUri}` : fileUri,
@@ -1486,11 +1494,18 @@ export function SoilResultsScreen({ navigation, route }) {
       });
     } catch (e) {
       if (e?.message === 'User did not share') return;
-      Alert.alert('Export failed', e?.message ?? 'Unknown error');
+      const axiosError = e?.error ?? e;
+      const msg =
+        axiosError?.code === 'ECONNABORTED' ||
+        axiosError?.response?.status === 503 ||
+        axiosError?.response?.status === 504
+          ? 'Report generation is taking a little longer on the server. Please try again in a few moments.'
+          : axiosError?.message ?? 'Failed to download report';
+      Alert.alert('Soil Report', msg);
     } finally {
       setPdfLoading(false);
     }
-  }, [deviceId, callId, dispatch]);
+  }, [deviceId, callId, dispatch, normalPdfPath]);
 
   // ── Link a PHBottle reading to this SoiLENZ reading ───────────────────
   const doLinkPhBottle = useCallback(
