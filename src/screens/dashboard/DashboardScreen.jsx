@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   FlatList,
   ImageBackground,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -170,15 +171,15 @@ export function DashboardScreen({ navigation }) {
   const [weatherLoading, setWeatherLoading] = useState(true);
 
   // Fetch devices
-  const fetchDevices = async () => {
+  const fetchDevices = useCallback(async () => {
     if (token) {
       await dispatch(getUserDevices(token));
     }
-  };
+  }, [dispatch, token]);
 
   useEffect(() => {
     fetchDevices();
-  }, [token]);
+  }, [fetchDevices]);
 
   // Fetch weather data
   const fetchWeatherData = async () => {
@@ -337,7 +338,15 @@ export function DashboardScreen({ navigation }) {
       ]}
       activeOpacity={0.8}
       onPress={() => {
-        if (item.route && item.active) {
+        if (item.locked || !item.active) {
+          Alert.alert(
+            'Device Not Linked',
+            `Your account does not have a linked ${item.name} device. Please contact admin or link this device to your account to use this feature.`,
+            [{ text: 'OK' }],
+          );
+          return;
+        }
+        if (item.route) {
           dispatch({
             type: 'SET_SELECTED_PRODUCT',
             payload: item,
@@ -345,7 +354,6 @@ export function DashboardScreen({ navigation }) {
           navigation.navigate(item.route, { item });
         }
       }}
-      disabled={!item.active}
     >
       {/* Top Row */}
       <View style={s.productTop}>
@@ -916,10 +924,6 @@ const s = StyleSheet.create({
     borderRadius: Radius.md,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-
-  productEmoji: {
-    fontSize: 28,
   },
 
   productTextWrap: {

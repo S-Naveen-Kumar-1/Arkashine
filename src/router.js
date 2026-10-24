@@ -41,6 +41,9 @@ import SoilLifeDetailScreen from './reports/SoilLifeDetailScreen';
 import SoilSparshDetailScreen from './reports/SoilSparshDetailScreen';
 
 import PhBottleDetailScreen from './reports/PhBottleDetailScreen';
+import LeafLenzDetailScreen from './reports/LeafLenzDetailScreen';
+import LeafLenzScanScreen from './leaflenz/LeafLenzScanScreen';
+import LeafLenzDiseaseLibraryScreen from './leaflenz/LeafLenzDiseaseLibraryScreen';
 import ForgotPasswordScreen from './screens/profile/ForgotPasswordModal';
 import SoilPartnerInfoScreen from './screens/profile/SoilPartnerInfoScreen';
 import SoilPartnerEnquiryScreen from './screens/profile/SoilPartnerEnquiryScreen';
@@ -373,6 +376,24 @@ export const AppStack = () => {
         <Stack.Screen
           name="CalibrationResultScreen"
           component={CalibrationResultScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="LeafLenzScanScreen"
+          component={LeafLenzScanScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="LeafLenzDetailScreen"
+          component={LeafLenzDetailScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="LeafLenzDiseaseLibraryScreen"
+          component={LeafLenzDiseaseLibraryScreen}
           options={{ headerShown: false }}
         />
         

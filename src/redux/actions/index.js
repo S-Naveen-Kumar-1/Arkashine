@@ -31,7 +31,8 @@ import {
   REPORT_LANGUAGE_SET,
 } from '../../config/actionTypes';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { bleLogout } from './bleActions';
+import { bleLogout, connectWifiDevice } from './bleActions';
+export { connectWifiDevice };
 
 import axios from 'axios';
 
@@ -204,3 +205,5 @@ export function forgotPassword(data) {
     },
   };
 }
+
+export * from './leaflenzActions';

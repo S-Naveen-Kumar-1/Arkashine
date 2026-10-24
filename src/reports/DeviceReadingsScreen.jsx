@@ -219,7 +219,8 @@ export default function DeviceReadingsScreen({ navigation, route }) {
   };
 
   const slot = useSelector(s => s.reports.readingsByDevice[deviceId]);
-  const readings = slot?.data ?? [];
+  const rawReadings = slot?.data;
+  const readings = useMemo(() => rawReadings ?? [], [rawReadings]);
   const readingsLoading = slot?.loading ?? false;
   const readingsError = slot?.error ?? null;
   const readingsMeta = slot?.meta ?? {};
@@ -257,7 +258,7 @@ export default function DeviceReadingsScreen({ navigation, route }) {
     if (!schema && !schemaLoading) {
       dispatch(fetchDeviceFieldSchema(deviceType)).catch(() => {});
     }
-  }, [deviceId, deviceType, dispatch]);
+  }, [deviceId, deviceType, dispatch, schema, schemaLoading]);
 
   const loadPage = useCallback(
     page => dispatch(fetchDeviceReadings(deviceId, page)).catch(() => {}),
@@ -545,6 +546,8 @@ export default function DeviceReadingsScreen({ navigation, route }) {
         ? 'SoilLifeDetailScreen'
         : deviceType === 'atmo_sense'
         ? 'SoilSparshDetailScreen'
+        : deviceType === 'leaflenz'
+        ? 'LeafLenzDetailScreen'
         : 'PhBottleDetailScreen';
 
     navigation.navigate(screen, {

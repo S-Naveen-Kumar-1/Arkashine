@@ -88,14 +88,14 @@ export const PRODUCTS = [
     name: 'Leaf Lenz',
     shortName: 'LeafLenz',
     device_type: 'leaflenz',
-    icon: 'leaf',
-    color: '#86EFAC',
+    icon: 'leaf-circle',
+    color: '#10B981',
     description:
       'AI-powered leaf disease detection using smartphone camera — instant diagnosis.',
     category: 'Plant Health',
     tag: 'AI Vision',
     active: true,
-    route: 'LeafLenz',
+    route: 'LeafLenzScanScreen',
     stats: { tests: 76, lastUsed: '5h ago' },
   },
 
@@ -194,23 +194,15 @@ export const mapProductsWithDevices = (products, deviceResponse) => {
       ?.replace(/[\s_]+/g, '')
       ?.trim();
 
-  if (!devices || devices.length === 0) {
-    return products.map(product => ({
-      ...product,
-      active: false,
-      locked: true,
-      device: null,
-      deviceId: null,
-      deviceType: null,
-    }));
-  }
-
   return products.map(product => {
-    const matchedDevice = devices.find(
-      d => normalize(d.devise_type) === normalize(product.device_type),
-    );
+    const isSoftwareProduct = product.device_type === 'leaflenz';
+    const matchedDevice = Array.isArray(devices)
+      ? devices.find(
+          d => normalize(d.devise_type) === normalize(product.device_type),
+        )
+      : null;
 
-    const isUnlocked = !!matchedDevice;
+    const isUnlocked = isSoftwareProduct || !!matchedDevice;
 
     return {
       ...product,
