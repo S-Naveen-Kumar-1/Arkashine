@@ -508,13 +508,19 @@ const s = StyleSheet.create({
   imageCard: {
     borderRadius: Radius.xl,
     borderWidth: 1,
+    borderStyle: 'solid',
     overflow: 'hidden',
     height: 240,
     marginBottom: Spacing.md,
     position: 'relative',
+    backgroundColor: '#00000008',
     ...Shadow.md,
   },
-  leafImage: { width: '100%', height: '100%' },
+  leafImage: {
+    width: '100%',
+    height: 240,
+    borderRadius: Radius.xl,
+  },
   placeholderImage: {
     width: '100%',
     height: '100%',

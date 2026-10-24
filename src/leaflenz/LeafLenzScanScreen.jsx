@@ -300,9 +300,15 @@ export default function LeafLenzScanScreen({ navigation, route }) {
       }
       const asset = response.assets?.[0];
       if (asset?.uri) {
-        setImageUri(asset.uri);
+        const cleanUri =
+          Platform.OS === 'android' &&
+          !asset.uri.startsWith('content://') &&
+          !asset.uri.startsWith('file://')
+            ? `file://${asset.uri}`
+            : asset.uri;
+        setImageUri(cleanUri);
         setImageFile({
-          uri: asset.uri,
+          uri: cleanUri,
           type: asset.type || 'image/jpeg',
           name: asset.fileName || `leaf_${Date.now()}.jpg`,
         });
@@ -329,9 +335,15 @@ export default function LeafLenzScanScreen({ navigation, route }) {
       }
       const asset = response.assets?.[0];
       if (asset?.uri) {
-        setImageUri(asset.uri);
+        const cleanUri =
+          Platform.OS === 'android' &&
+          !asset.uri.startsWith('content://') &&
+          !asset.uri.startsWith('file://')
+            ? `file://${asset.uri}`
+            : asset.uri;
+        setImageUri(cleanUri);
         setImageFile({
-          uri: asset.uri,
+          uri: cleanUri,
           type: asset.type || 'image/jpeg',
           name: asset.fileName || `leaf_${Date.now()}.jpg`,
         });
@@ -567,6 +579,7 @@ export default function LeafLenzScanScreen({ navigation, route }) {
           >
             <View style={s.imageWrap}>
               <Image
+                key={imageUri}
                 source={{ uri: imageUri }}
                 style={s.previewImg}
                 resizeMode="cover"
@@ -1039,6 +1052,7 @@ const s = StyleSheet.create({
   previewBox: {
     borderRadius: Radius.xl,
     borderWidth: 1,
+    borderStyle: 'solid',
     padding: Spacing.md,
     marginBottom: Spacing.md,
     ...Shadow.sm,
@@ -1049,8 +1063,13 @@ const s = StyleSheet.create({
     borderRadius: Radius.lg,
     overflow: 'hidden',
     position: 'relative',
+    backgroundColor: '#00000008',
   },
-  previewImg: { width: '100%', height: '100%' },
+  previewImg: {
+    width: '100%',
+    height: 240,
+    borderRadius: Radius.lg,
+  },
   scanLine: {
     position: 'absolute',
     left: 0,
