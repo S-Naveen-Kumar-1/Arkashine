@@ -98,8 +98,8 @@ export function SplashScreen({ navigation }) {
             />
           </View>
 
-          <Text style={styles.splashTitle}>SOIL LENZ</Text>
-          <Text style={styles.splashSub}>SMART SOIL DIAGNOSTICS</Text>
+          <Text style={styles.splashTitle}>SOIL PARTNER</Text>
+          <Text style={styles.splashSub}>POWERED BY ARKASHINE</Text>
 
           <ActivityIndicator
             color={C.accent}
@@ -141,10 +141,10 @@ const styles = StyleSheet.create({
   },
 
   splashTitle: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '900',
     color: C.white,
-    letterSpacing: 5,
+    letterSpacing: 4,
   },
 
   splashSub: {
@@ -152,6 +152,7 @@ const styles = StyleSheet.create({
     color: C.muted,
     marginTop: 6,
     letterSpacing: 2,
+    fontWeight: '700',
   },
 
   loader: {
