@@ -62,6 +62,7 @@ export function ProductsListingScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
   const devices = useSelector(s => s.userDevices?.devices || []);
+  const devicesLoaded = useSelector(s => s.userDevices?.devicesLoaded);
   const dispatch = useDispatch();
   const activeFarmerSource = useSelector(s => s.soilPartner?.activeFarmerSource);
 
@@ -466,7 +467,7 @@ export function ProductsListingScreen({ navigation }) {
 
         {/* ── STATS ROW ────────────────────────────────────────────── */}
         <View style={[s.statsRow, { paddingHorizontal: Spacing.lg }]}>
-          {renderStatCard('Active', activeProducts, 'flask-outline', '#22C55E')}
+          {renderStatCard('Active', devicesLoaded ? activeProducts : '–', 'flask-outline', '#22C55E')}
           {renderStatCard('Featured', featuredProducts, 'crown', '#F59E0B')}
           {renderStatCard(
             'Total',
@@ -478,7 +479,15 @@ export function ProductsListingScreen({ navigation }) {
 
         {/* ── PRODUCTS GRID ────────────────────────────────────────── */}
         <View style={{ paddingHorizontal: Spacing.lg }}>
-          {filteredProducts.length > 0 ? (
+          {!devicesLoaded ? (
+            // Linked devices decide which products are unlocked — don't show
+            // everything as locked before they arrive.
+            <ActivityIndicator
+              size="large"
+              color={T.primary}
+              style={{ paddingVertical: Spacing.xl * 2 }}
+            />
+          ) : filteredProducts.length > 0 ? (
             <FlatList
               data={filteredProducts}
               renderItem={renderProductCard}

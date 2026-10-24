@@ -47,6 +47,20 @@ const initialState = {
   fruitsError: null,
 };
 
+// The server's own message when it sent one (unreadable photo, fruit not
+// recognised, threshold reached…), otherwise what went wrong on the way.
+const scanErrorMessage = error => {
+  const detail = error?.response?.data?.detail;
+  if (detail) return detail;
+  if (error?.code === 'ECONNABORTED') {
+    return 'Grading took too long. Please check your connection and try again.';
+  }
+  if (!error?.response) {
+    return 'Could not reach the server. Please check your connection and try again.';
+  }
+  return 'Fruit grading analysis failed. Please try again.';
+};
+
 export default function harvestlenzReducer(state = initialState, action) {
   switch (action.type) {
     // ── List Scans ──
@@ -102,9 +116,7 @@ export default function harvestlenzReducer(state = initialState, action) {
       return {
         ...state,
         scanUploading: false,
-        scanError:
-          action.error?.response?.data?.detail ||
-          'Fruit grading analysis failed. Please try again.',
+        scanError: scanErrorMessage(action.error),
       };
     case CLEAR_HARVEST_SCAN_RESULT:
       return { ...state, scanResult: null, scanError: null, scanUploading: false };

@@ -12,6 +12,7 @@ import {
   ImageBackground,
   RefreshControl,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -154,6 +155,7 @@ export function DashboardScreen({ navigation }) {
   const scrollViewRef = useRef(null);
   const sliderRef = useRef(null);
   const devices = useSelector(s => s.userDevices?.devices);
+  const devicesLoaded = useSelector(s => s.userDevices?.devicesLoaded);
 
   // Refresh control state
   const [refreshing, setRefreshing] = useState(false);
@@ -472,6 +474,13 @@ export function DashboardScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
+          {!devicesLoaded ? (
+            <ActivityIndicator
+              color={T.primary}
+              style={{ paddingVertical: Spacing.xl }}
+            />
+          ) : (
+          <>
           <View style={s.quickAccessGrid}>
             {quickAccessProducts.slice(0, 2).map(item => (
               <View key={item.id} style={{ flex: 1 }}>
@@ -486,6 +495,8 @@ export function DashboardScreen({ navigation }) {
               </View>
             ))}
           </View>
+          </>
+          )}
         </View>
 
         {/* Live Overview Section */}

@@ -315,6 +315,7 @@ export default function PaymentHistoryScreen({ navigation }) {
     payments = [],
     paymentsMeta = {},
     paymentsLoading,
+    paymentsLoaded,
   } = useSelector(s => s.soilPartner ?? {});
   const [activeFilter, setActiveFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -379,7 +380,7 @@ export default function PaymentHistoryScreen({ navigation }) {
   );
 
   const renderEmpty = () => {
-    if (paymentsLoading) return null;
+    if (paymentsLoading || !paymentsLoaded) return null;
     return (
       <View style={s.emptyWrap}>
         <MaterialCommunityIcons
@@ -418,7 +419,7 @@ export default function PaymentHistoryScreen({ navigation }) {
         ListHeaderComponent={renderHeader()}
         ListEmptyComponent={renderEmpty}
         ListFooterComponent={
-          paymentsLoading ? (
+          paymentsLoading || !paymentsLoaded ? (
             <ActivityIndicator
               color={PRIMARY}
               style={{ paddingVertical: Spacing.lg }}

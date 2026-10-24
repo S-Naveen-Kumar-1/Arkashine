@@ -1,6 +1,6 @@
 // src/harvestlenz/HarvestLenzFruitsScreen.jsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -141,12 +141,46 @@ export default function HarvestLenzFruitsScreen({ navigation, route }) {
 
   const { deviceId, deviceName } = route.params || {};
   const [search, setSearch] = useState('');
+  const serverFruits = useSelector(s => s.harvestlenz?.fruits);
 
   useEffect(() => {
     dispatch(fetchHarvestLenzFruits()).catch(() => {});
   }, [dispatch]);
 
-  const filteredFruits = FRUIT_CATALOG.filter(
+  // The server's /harvestlenz/fruits/ list is what the grading actually uses
+  // (shelf life, market and price per grade), so its values win over the
+  // local copy; the local catalog only adds icon, colour, description and
+  // storage climate. Falls back to the local catalog while offline.
+  const catalog = useMemo(() => {
+    if (!Array.isArray(serverFruits) || serverFruits.length === 0) {
+      return FRUIT_CATALOG;
+    }
+    return serverFruits.map(f => {
+      const local = FRUIT_CATALOG.find(c => c.key === f.key) || {
+        icon: 'fruit-cherries',
+        color: '#EA580C',
+        storageTemp: '—',
+        humidity: '—',
+        description: '',
+      };
+      const shelf = f.shelf_life_days || {};
+      const shelfDays = [shelf.Better, shelf.Good].filter(v => v != null);
+      const good = f.market?.Good;
+      return {
+        ...local,
+        key: f.key,
+        name: f.name || local.name,
+        scientific: f.scientific || local.scientific || '',
+        priceRange: good?.price_range || local.priceRange,
+        shelfLife: shelfDays.length
+          ? `${[...new Set(shelfDays)].join(' - ')} days`
+          : local.shelfLife,
+        market: good?.market || local.market,
+      };
+    });
+  }, [serverFruits]);
+
+  const filteredFruits = catalog.filter(
     f =>
       f.name.toLowerCase().includes(search.toLowerCase()) ||
       f.scientific.toLowerCase().includes(search.toLowerCase()),
@@ -214,7 +248,7 @@ export default function HarvestLenzFruitsScreen({ navigation, route }) {
       />
       <TopBar
         title="HarvestLENZ Catalog"
-        subtitle="8 Supported Fruit Vision Models"
+        subtitle={`${catalog.length} Supported Fruit Vision Models`}
         onBack={() => navigation.goBack()}
         theme={theme}
       />

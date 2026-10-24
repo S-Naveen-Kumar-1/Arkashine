@@ -176,6 +176,9 @@ export default function ReportsScreen({ navigation }) {
   const theme = useTheme();
   const T = theme.colors;
   const devices = useSelector(s => s.reports?.devices ?? []);
+  const devicesLoading = useSelector(s => s.reports?.devicesLoading);
+  const devicesLoaded = useSelector(s => s.reports?.devicesLoaded);
+  const devicesError = useSelector(s => s.reports?.devicesError);
 
   const [refreshing, setRefreshing] = useState(false);
   const [query, setQuery] = useState('');
@@ -283,14 +286,14 @@ export default function ReportsScreen({ navigation }) {
             <StatCard
               icon="check-circle-outline"
               label="Active"
-              value={activeDevices}
+              value={devicesLoaded ? activeDevices : '–'}
               color="#16A34A"
               T={T}
             />
             <StatCard
               icon="database-outline"
               label="Readings"
-              value={totalReadings}
+              value={devicesLoaded ? totalReadings : '–'}
               color="#2563EB"
               T={T}
             />
@@ -343,6 +346,23 @@ export default function ReportsScreen({ navigation }) {
               }
             />
           ))
+        ) : devicesLoading || !devicesLoaded ? (
+          <View style={[s.empty]}>
+            <ActivityIndicator size="large" color={T.primary} />
+            <Text style={[s.loadingText, { color: T.muted }]}>
+              Loading devices…
+            </Text>
+          </View>
+        ) : devicesError ? (
+          <View style={[s.empty]}>
+            <Icon name="cloud-off-outline" size={60} color={T.muted} />
+            <Text style={[s.emptyTitle, { color: T.text }]}>
+              Couldn't load devices
+            </Text>
+            <Text style={[s.emptySub, { color: T.muted }]}>
+              Check your internet connection and pull down to retry.
+            </Text>
+          </View>
         ) : (
           <View style={[s.empty]}>
             <Icon name="access-point-off" size={60} color={T.muted} />

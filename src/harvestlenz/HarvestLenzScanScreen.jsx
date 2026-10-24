@@ -25,13 +25,12 @@ import { useDispatch, useSelector } from 'react-redux';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 
 import useTheme from '../hooks/useTheme';
-import { Spacing, Radius, Shadow, Typography } from '../theme';
+import { Spacing, Radius, Shadow } from '../theme';
 import { TopBar } from '../components/common';
 import {
   scanFruitPhoto,
   clearHarvestScanResult,
   fetchHarvestLenzStats,
-  SCAN_FRUIT_SUCCESS,
 } from '../redux/actions/harvestlenzActions';
 import { getUserDevices } from '../redux/actions';
 
@@ -55,26 +54,29 @@ export default function HarvestLenzScanScreen({ navigation, route }) {
   const passedDeviceId = route?.params?.deviceId;
   const preselectedFruit = route?.params?.preselectedFruit;
   const rawDevices = useSelector(s => s.userDevices?.devices);
+  const loadingDevices = useSelector(s => s.userDevices?.loadingDevices);
+  const devicesLoaded = useSelector(s => s.userDevices?.devicesLoaded);
   const userDevices = useMemo(() => rawDevices || [], [rawDevices]);
   const { scanUploading, scanResult, scanError, stats } = useSelector(
     s => s.harvestlenz,
   );
 
-  // Find linked harvestlenz device or first available
+  // The scan API only accepts a harvestlenz device, so never fall back to
+  // some other device (or a made-up id) — the request would just 404.
   const harvestDevice = useMemo(() => {
+    const isHarvestLenz = d =>
+      d.devise_type === 'harvestlenz' || d.devise_type === 'harvest_lenz';
     if (passedDeviceId) {
-      return userDevices.find(d => String(d.id) === String(passedDeviceId));
+      const passed = userDevices.find(
+        d => String(d.id) === String(passedDeviceId),
+      );
+      if (passed && isHarvestLenz(passed)) return passed;
     }
-    return (
-      userDevices.find(
-        d => d.devise_type === 'harvestlenz' || d.devise_type === 'harvest_lenz',
-      ) ||
-      userDevices[0] ||
-      null
-    );
+    return userDevices.find(isHarvestLenz) || null;
   }, [passedDeviceId, userDevices]);
 
-  const deviceId = harvestDevice?.id || passedDeviceId || 1;
+  const deviceId = harvestDevice?.id ?? null;
+  const noDevice = !deviceId && !loadingDevices && devicesLoaded;
 
   // Form State
   const [isSingle, setIsSingle] = useState(true);
@@ -89,12 +91,15 @@ export default function HarvestLenzScanScreen({ navigation, route }) {
 
   useEffect(() => {
     dispatch(getUserDevices()).catch(() => {});
-    if (deviceId) {
-      dispatch(fetchHarvestLenzStats(deviceId)).catch(() => {});
-    }
     return () => {
       dispatch(clearHarvestScanResult());
     };
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (deviceId) {
+      dispatch(fetchHarvestLenzStats(deviceId)).catch(() => {});
+    }
   }, [dispatch, deviceId]);
 
   useEffect(() => {
@@ -223,6 +228,13 @@ export default function HarvestLenzScanScreen({ navigation, route }) {
       Alert.alert('No Image', 'Please capture or select a fruit photo first.');
       return;
     }
+    if (!deviceId) {
+      Alert.alert(
+        'No HarvestLENZ Device',
+        'No HarvestLENZ device is linked to your account. Please contact support to get one assigned.',
+      );
+      return;
+    }
 
     const formData = new FormData();
     formData.append('image', {
@@ -236,71 +248,12 @@ export default function HarvestLenzScanScreen({ navigation, route }) {
     formData.append('is_single', isSingle ? 'true' : 'false');
 
     try {
-      const targetId = harvestDevice?.id || passedDeviceId || 1;
-      const res = await dispatch(scanFruitPhoto(targetId, formData));
-      const resData = res?.payload?.data;
-      if (resData && (resData.field1 !== undefined || resData.overall || resData.analysis)) {
-        dispatch(fetchHarvestLenzStats(targetId)).catch(() => {});
-        return;
-      }
-      throw new Error('Fallback needed');
+      await dispatch(scanFruitPhoto(deviceId, formData));
+      dispatch(fetchHarvestLenzStats(deviceId)).catch(() => {});
     } catch (e) {
-      console.warn('Scan API fallback activated for:', selectedFruit, e);
-      // Realistic fallback based on HarvestLenz rules
-      const fruitKey = selectedFruit === 'auto' ? 'mango' : selectedFruit;
-      const fruitObj = SUPPORTED_FRUITS_LIST.find(f => f.key === fruitKey) || SUPPORTED_FRUITS_LIST[1];
-      
-      const goodCount = isSingle ? 1 : 4;
-      const betterCount = isSingle ? 0 : 2;
-      const rejectCount = 0;
-      const totalCount = goodCount + betterCount + rejectCount;
-      const score = Math.round((goodCount * 100 + betterCount * 75 + rejectCount * 30) / totalCount);
-
-      const fallbackResult = {
-        id: Date.now(),
-        tag: fruitKey,
-        fruit_name: fruitObj.name,
-        image_path: imageUri,
-        annotated_image: imageUri,
-        field1: score,
-        field2: goodCount,
-        field3: betterCount,
-        field4: rejectCount,
-        field5: totalCount,
-        field6: 7.0,
-        field7: 180.0,
-        field8: 234.0,
-        field9: 0,
-        field10: 0.94,
-        created_at: new Date().toISOString(),
-        summary: {
-          good: goodCount,
-          better: betterCount,
-          reject: rejectCount,
-          total: totalCount,
-        },
-        overall: {
-          overall_grade: score >= 90 ? 'Premium' : score >= 70 ? 'Good' : 'Reject',
-          score: score,
-          recommended_market: 'Export',
-          total_price: 180.0,
-          estimated_selling_price: 234.0,
-          profit_estimation: 54.0,
-          good_percentage: Math.round((goodCount / totalCount) * 100),
-          better_percentage: Math.round((betterCount / totalCount) * 100),
-          reject_percentage: 0,
-          average_shelf_life: 7,
-          ai_recommendations: [
-            `Premium quality ${fruitObj.name} detected. Suitable for export or premium retail.`,
-            'Store in cool, well-ventilated dry conditions (12°C - 15°C) to maintain peak freshness.',
-          ],
-        },
-      };
-
-      dispatch({
-        type: SCAN_FRUIT_SUCCESS,
-        payload: { data: fallbackResult },
-      });
+      // SCAN_FRUIT_FAIL already put the server's message in scanError,
+      // which is shown below the photo.
+      console.warn('HarvestLenz scan failed:', e?.message);
     }
   };
 
@@ -324,16 +277,16 @@ export default function HarvestLenzScanScreen({ navigation, route }) {
     );
   }, [selectedFruit]);
 
-  // Derived scan result metrics
+  // Derived scan result metrics — the server's `overall` block is the source
+  // of truth; the score cut-offs below mirror agri_ai/fruit/rules.py.
   const overallGrade = scanResult?.overall?.overall_grade || (
     Number(scanResult?.field1) >= 90 ? 'Premium' :
-    Number(scanResult?.field1) >= 70 ? 'Good' :
-    Number(scanResult?.field1) >= 50 ? 'Better' : 'Reject'
+    Number(scanResult?.field1) >= 70 ? 'Good' : 'Reject'
   );
 
   const qualityScore = scanResult?.overall?.score ?? Math.round(Number(scanResult?.field1 || 0));
 
-  const isMismatch = Boolean(scanResult?.field9 || scanResult?.mismatch);
+  const isMismatch = Boolean(scanResult?.mismatch || Number(scanResult?.field9) === 1);
 
   const gradeColor = isMismatch
     ? '#EF4444'
@@ -348,7 +301,9 @@ export default function HarvestLenzScanScreen({ navigation, route }) {
   const goodFruits = scanResult?.summary?.good ?? Number(scanResult?.field2 ?? 0);
   const betterFruits = scanResult?.summary?.better ?? Number(scanResult?.field3 ?? 0);
   const rejectFruits = scanResult?.summary?.reject ?? Number(scanResult?.field4 ?? 0);
-  const totalFruitsCount = scanResult?.summary?.total ?? Number(scanResult?.field5 ?? 1);
+  const totalFruitsCount = scanResult?.summary?.total ?? Number(scanResult?.field5 ?? 0);
+  const shelfLife = scanResult?.overall?.average_shelf_life ?? scanResult?.field6;
+  const recommendedMarket = scanResult?.overall?.recommended_market;
 
   return (
     <SafeAreaView style={[s.root, { backgroundColor: T.bg }]}>
@@ -406,6 +361,17 @@ export default function HarvestLenzScanScreen({ navigation, route }) {
           </View>
         </View>
 
+        {/* ── No device linked ── */}
+        {noDevice && (
+          <View style={s.errorBox}>
+            <Icon name="alert-circle-outline" size={18} color="#EF4444" />
+            <Text style={s.errorText}>
+              No HarvestLENZ device is linked to your account, so photos cannot
+              be graded yet. Please contact support to get one assigned.
+            </Text>
+          </View>
+        )}
+
         {/* ── Quick Stats Row ── */}
         {stats && (
           <View style={s.statsRow}>
@@ -437,7 +403,10 @@ export default function HarvestLenzScanScreen({ navigation, route }) {
                 { backgroundColor: T.card, borderColor: T.border },
               ]}
               onPress={() =>
-                navigation.navigate('HarvestLenzFruitsScreen')
+                navigation.navigate('HarvestLenzFruitsScreen', {
+                  deviceId,
+                  deviceName: harvestDevice?.name || 'HarvestLENZ',
+                })
               }
               activeOpacity={0.7}
             >
@@ -800,13 +769,13 @@ export default function HarvestLenzScanScreen({ navigation, route }) {
                   <View style={s.insightRow}>
                     <Icon name="calendar-clock" size={16} color="#3B82F6" />
                     <Text style={[s.insightText, { color: T.text }]}>
-                      Estimated Shelf Life: <Text style={{ fontWeight: '800' }}>{scanResult.overall?.average_shelf_life ?? scanResult.field6 ?? 5} Days</Text>
+                      Estimated Shelf Life: <Text style={{ fontWeight: '800' }}>{shelfLife != null ? `${shelfLife} Days` : '—'}</Text>
                     </Text>
                   </View>
                   <View style={s.insightRow}>
                     <Icon name="storefront-outline" size={16} color="#10B981" />
                     <Text style={[s.insightText, { color: T.text }]}>
-                      Recommended Market: <Text style={{ fontWeight: '800' }}>{scanResult.overall?.recommended_market || 'Retail'}</Text>
+                      Recommended Market: <Text style={{ fontWeight: '800' }}>{recommendedMarket || '—'}</Text>
                     </Text>
                   </View>
                 </View>
@@ -1092,13 +1061,13 @@ const s = StyleSheet.create({
   imageWrap: {
     width: '100%',
     borderRadius: Radius.lg,
-    overflow: 'hidden',
     position: 'relative',
     backgroundColor: '#0F172A',
   },
   previewImg: {
     width: '100%',
     height: 260,
+    borderRadius: Radius.lg,
   },
   scanLine: {
     position: 'absolute',

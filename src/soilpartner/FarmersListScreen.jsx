@@ -348,6 +348,7 @@ export default function FarmersListScreen({ navigation }) {
     farmers = [],
     farmersCount = 0,
     farmersLoading,
+    farmersLoaded,
   } = useSelector(s => s.soilPartner ?? {});
 
   const [search, setSearch] = useState('');
@@ -468,7 +469,7 @@ export default function FarmersListScreen({ navigation }) {
         contentContainerStyle={s.list}
         ListHeaderComponent={renderHeader()}
         ListEmptyComponent={
-          farmersLoading ? (
+          farmersLoading || !farmersLoaded ? (
             <ActivityIndicator
               color={PRIMARY}
               style={{ paddingVertical: 40 }}

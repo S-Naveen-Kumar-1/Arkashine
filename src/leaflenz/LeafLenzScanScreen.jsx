@@ -32,7 +32,6 @@ import {
   scanLeafPhoto,
   clearScanResult,
   fetchLeafLenzStats,
-  SCAN_LEAF_SUCCESS,
 } from '../redux/actions/leaflenzActions';
 import { getUserDevices } from '../redux/actions';
 
@@ -57,133 +56,6 @@ const CROPS = [
   { name: 'Other Crop', icon: 'leaf' },
 ];
 
-const DIAGNOSIS_REGISTRY = {
-  Tomato: {
-    disease_name: 'Early Blight (Alternaria solani)',
-    tag: 'Tomato___Early_blight',
-    field1: 0.94,
-    description:
-      'Fungal disease causing concentric target-like brown spots with yellow chlorotic halos on tomato foliage.',
-    symptoms: [
-      'Dark brown circular spots with concentric rings ("target-board" pattern)',
-      'Yellow halo surrounding necrotic lesions',
-      'Defoliation beginning on older, lower leaves',
-    ],
-    treatment: [
-      'Remove and safely destroy heavily infected lower foliage.',
-      'Apply copper-based or Mancozeb fungicide spray every 7-10 days.',
-      'Avoid overhead sprinkler watering to keep canopy dry.',
-      'Sterilize pruning shears with 70% alcohol solution.',
-    ],
-  },
-  Potato: {
-    disease_name: 'Early Blight (Alternaria solani)',
-    tag: 'Potato___Early_blight',
-    field1: 0.92,
-    description:
-      'Common fungal disease causing circular necrotic lesions and premature leaf senescence in potatoes.',
-    symptoms: [
-      'Small dark brown spots with concentric rings that enlarge across leaflets',
-      'Leaf margin yellowing and curling',
-    ],
-    treatment: [
-      'Apply chlorothalonil or azoxystrobin fungicide at first sign of lesions.',
-      'Ensure 3-year crop rotation and certified seed tubers.',
-      'Maintain adequate potassium and balanced soil nutrition.',
-    ],
-  },
-  'Corn (Maize)': {
-    disease_name: 'Common Rust (Puccinia sorghi)',
-    tag: 'Corn___Common_rust',
-    field1: 0.95,
-    description:
-      'Fungal foliar infection forming powdery cinnamon-brown pustules across both upper and lower leaf surfaces.',
-    symptoms: [
-      'Small, powdery cinnamon-brown pustules scattered across leaf blades',
-      'Yellowing and premature death of heavily infected leaves',
-    ],
-    treatment: [
-      'Apply foliar triazole or strobilurin fungicide if rust spreads before silking.',
-      'Plant rust-resistant hybrid varieties for future crop cycles.',
-    ],
-  },
-  Apple: {
-    disease_name: 'Apple Scab (Venturia inaequalis)',
-    tag: 'Apple___Apple_scab',
-    field1: 0.91,
-    description:
-      'Major fungal disease causing velvety olive-green to dark brown lesions and distorted foliage.',
-    symptoms: [
-      'Velvety olive-green spots turning dark brown on leaf surface',
-      'Puckered and distorted leaf margins',
-    ],
-    treatment: [
-      'Rake and destroy fallen leaves to eliminate overwintering spores.',
-      'Apply captan or sulfur-based fungicides from green tip through petal fall.',
-    ],
-  },
-  Grape: {
-    disease_name: 'Black Rot (Guignardia bidwellii)',
-    tag: 'Grape___Black_rot',
-    field1: 0.93,
-    description:
-      'Fungal disease producing circular reddish-brown leaf spots with dark margins and black pycnidia specks.',
-    symptoms: [
-      'Small reddish-brown circular spots with distinct dark borders',
-      'Tiny black fruiting specks visible inside lesions',
-    ],
-    treatment: [
-      'Prune and open canopy to ensure direct sunlight and rapid drying.',
-      'Apply myclobutanil or mancozeb fungicide early in the season.',
-    ],
-  },
-  'Pepper (Bell)': {
-    disease_name: 'Bacterial Spot (Xanthomonas)',
-    tag: 'Pepper___Bacterial_spot',
-    field1: 0.89,
-    description:
-      'Bacterial pathogen causing small water-soaked spots that turn dark brown with chlorotic borders.',
-    symptoms: [
-      'Water-soaked circular to irregular lesions on leaves',
-      'Premature leaf drop leading to sunscald on fruit',
-    ],
-    treatment: [
-      'Spray fixed copper bactericide combined with mancozeb.',
-      'Avoid working in fields when foliage is wet.',
-    ],
-  },
-  Rice: {
-    disease_name: 'Brown Spot (Bipolaris oryzae)',
-    tag: 'Rice___Brown_spot',
-    field1: 0.90,
-    description:
-      'Fungal infection causing oval to circular brown spots with yellow halos across rice leaf blades.',
-    symptoms: [
-      'Dark brown oval spots with light brown to gray centers',
-      'Yellowing around leaf lesions leading to drying',
-    ],
-    treatment: [
-      'Apply balanced NPK fertilizer with silicon amendment.',
-      'Spray tricyclazole or propiconazole fungicide.',
-    ],
-  },
-  Cotton: {
-    disease_name: 'Bacterial Blight (Xanthomonas)',
-    tag: 'Cotton___Bacterial_blight',
-    field1: 0.91,
-    description:
-      'Bacterial infection causing angular water-soaked leaf spots bounded by leaf veins.',
-    symptoms: [
-      'Angular water-soaked dark brown spots on foliage',
-      'Wilting and premature shedding of infected leaves',
-    ],
-    treatment: [
-      'Spray copper oxychloride (0.25%) combined with streptocycline.',
-      'Avoid excess nitrogen fertilizer application.',
-    ],
-  },
-};
-
 export default function LeafLenzScanScreen({ navigation, route }) {
   const theme = useTheme();
   const T = theme.colors;
@@ -196,21 +68,21 @@ export default function LeafLenzScanScreen({ navigation, route }) {
     s => s.leaflenz,
   );
 
-  // Find linked leaflenz device or first available
+  // The scan API only accepts a leaflenz device, so never fall back to some
+  // other device (or a made-up id) — the request would just 404.
   const leaflenzDevice = useMemo(() => {
+    const isLeafLenz = d =>
+      d.devise_type === 'leaflenz' || d.devise_type === 'leaf_lenz';
     if (passedDeviceId) {
-      return userDevices.find(d => String(d.id) === String(passedDeviceId));
+      const passed = userDevices.find(
+        d => String(d.id) === String(passedDeviceId),
+      );
+      if (passed && isLeafLenz(passed)) return passed;
     }
-    return (
-      userDevices.find(
-        d => d.devise_type === 'leaflenz' || d.devise_type === 'leaf_lenz',
-      ) ||
-      userDevices[0] ||
-      null
-    );
+    return userDevices.find(isLeafLenz) || null;
   }, [passedDeviceId, userDevices]);
 
-  const deviceId = leaflenzDevice?.id || passedDeviceId || 1;
+  const deviceId = leaflenzDevice?.id ?? null;
 
   // Form State
   const [selectedCrop, setSelectedCrop] = useState('Tomato');
@@ -224,12 +96,15 @@ export default function LeafLenzScanScreen({ navigation, route }) {
 
   useEffect(() => {
     dispatch(getUserDevices()).catch(() => {});
-    if (deviceId) {
-      dispatch(fetchLeafLenzStats(deviceId)).catch(() => {});
-    }
     return () => {
       dispatch(clearScanResult());
     };
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (deviceId) {
+      dispatch(fetchLeafLenzStats(deviceId)).catch(() => {});
+    }
   }, [dispatch, deviceId]);
 
   useEffect(() => {
@@ -358,6 +233,13 @@ export default function LeafLenzScanScreen({ navigation, route }) {
       Alert.alert('No Image', 'Please capture or select a leaf photo first.');
       return;
     }
+    if (!deviceId) {
+      Alert.alert(
+        'No LeafLENZ Device',
+        'No LeafLENZ device is linked to your account. Please contact support to get one assigned.',
+      );
+      return;
+    }
 
     const formData = new FormData();
     formData.append('image', {
@@ -370,51 +252,12 @@ export default function LeafLenzScanScreen({ navigation, route }) {
     }
 
     try {
-      const targetId = leaflenzDevice?.id || passedDeviceId || 1;
-      const res = await dispatch(scanLeafPhoto(targetId, formData));
-      const resData = res?.payload?.data;
-      if (resData && (resData.disease_name || resData.tag)) {
-        dispatch(fetchLeafLenzStats(targetId)).catch(() => {});
-        return;
-      }
-      throw new Error('Fallback needed');
+      await dispatch(scanLeafPhoto(deviceId, formData));
+      dispatch(fetchLeafLenzStats(deviceId)).catch(() => {});
     } catch (e) {
-      console.warn('Scan API fallback activated for:', selectedCrop, e);
-      const regItem = DIAGNOSIS_REGISTRY[selectedCrop] || {
-        disease_name: `${selectedCrop} Leaf Spot (Fungal/Chlorosis)`,
-        tag: `${selectedCrop}___Leaf_spot`,
-        field1: 0.88,
-        description: `Visual inspection of ${selectedCrop} leaf reveals localized chlorosis and fungal spotting patterns.`,
-        symptoms: [
-          `Localized yellowish-brown chlorotic spots on ${selectedCrop} leaf surface`,
-          'Interveinal discoloration and foliage stress',
-        ],
-        treatment: [
-          'Isolate and prune infected leaves to prevent spore transmission.',
-          'Apply broad-spectrum organic bio-fungicide or copper spray.',
-          'Ensure proper air circulation and balanced soil nutrition.',
-        ],
-      };
-
-      const fallbackResult = {
-        id: Date.now(),
-        plant_name: selectedCrop,
-        disease_name: regItem.disease_name,
-        tag: regItem.tag,
-        field1: regItem.field1,
-        image_path: imageUri,
-        created_at: new Date().toISOString(),
-        disease_info: {
-          description: regItem.description,
-          symptoms: regItem.symptoms,
-          treatment_and_prevention: regItem.treatment,
-        },
-      };
-
-      dispatch({
-        type: SCAN_LEAF_SUCCESS,
-        payload: { data: fallbackResult },
-      });
+      // SCAN_LEAF_FAIL already put the server's message in scanError,
+      // which is shown below the photo.
+      console.warn('LeafLenz scan failed:', e?.message);
     }
   };
 
@@ -1055,13 +898,13 @@ const s = StyleSheet.create({
   imageWrap: {
     width: '100%',
     borderRadius: Radius.lg,
-    overflow: 'hidden',
     position: 'relative',
     backgroundColor: '#0F172A',
   },
   previewImg: {
     width: '100%',
     height: 260,
+    borderRadius: Radius.lg,
   },
   scanLine: {
     position: 'absolute',

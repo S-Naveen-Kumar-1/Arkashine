@@ -414,9 +414,11 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
     farmers,
     farmersCount,
     farmersLoading,
+    farmersLoaded,
     payments,
     paymentsMeta,
     paymentsLoading,
+    paymentsLoaded,
   } = useSelector(s => s.soilPartner ?? {});
 
   const safeFarmers = farmers ?? [];
@@ -500,21 +502,21 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
           <StatCard
             icon="account-group-outline"
             label="My Farmers"
-            value={farmersCount ?? safeFarmers.length}
+            value={farmersLoaded ? farmersCount ?? safeFarmers.length : '–'}
             color={PRIMARY}
             T={T}
           />
           <StatCard
             icon="check-circle-outline"
             label="Paid (₹)"
-            value={paymentsMeta?.paid_amount ?? '0'}
+            value={paymentsLoaded ? paymentsMeta?.paid_amount ?? '0' : '–'}
             color={BLUE}
             T={T}
           />
           <StatCard
             icon="clock-outline"
             label="Pending (₹)"
-            value={paymentsMeta?.pending_amount ?? '0'}
+            value={paymentsLoaded ? paymentsMeta?.pending_amount ?? '0' : '–'}
             color={AMBER}
             T={T}
           />
@@ -582,7 +584,7 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
             onPress={() => navigation.navigate('FarmersListScreen')}
             actionLabel="View all"
           />
-          {farmersLoading && safeFarmers.length === 0 ? (
+          {(farmersLoading || !farmersLoaded) && safeFarmers.length === 0 ? (
             <ActivityIndicator
               color={PRIMARY}
               style={{ paddingVertical: Spacing.lg }}
@@ -702,7 +704,7 @@ export default function SoilPartnerDashboardScreen({ navigation }) {
               </Text>
             </View>
           </View>
-          {paymentsLoading && safePayments.length === 0 ? (
+          {(paymentsLoading || !paymentsLoaded) && safePayments.length === 0 ? (
             <ActivityIndicator
               color={AMBER}
               style={{ paddingVertical: Spacing.lg }}

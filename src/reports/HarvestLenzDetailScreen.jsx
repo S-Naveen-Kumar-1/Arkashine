@@ -1,6 +1,6 @@
 // src/reports/HarvestLenzDetailScreen.jsx
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useDispatch, useSelector } from 'react-redux';
 
 import useTheme from '../hooks/useTheme';
-import { Spacing, Radius, Shadow, Typography } from '../theme';
+import { Spacing, Radius, Shadow } from '../theme';
 import { TopBar } from '../components/common';
 import { fetchHarvestLenzDetail } from '../redux/actions/harvestlenzActions';
 import { BASE_URL } from '../ApiConfig';
@@ -57,33 +57,54 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
     }
   }, [dispatch, deviceId, readingId]);
 
-  const reading = scanDetail || passedReading || {};
+  // scanDetail is shared redux state, so it may still hold the last report
+  // opened — only use it once it is the reading this screen asked for.
+  const freshDetail =
+    scanDetail && String(scanDetail.id) === String(readingId) ? scanDetail : null;
+  const reading = freshDetail || passedReading || {};
+  const overall = reading.overall || {};
 
   // Extract fruit tag
-  const fruitKey = (reading.tag || reading.fruit_type || 'mango').toLowerCase();
+  const fruitKey = (reading.tag || reading.fruit_type || '').toLowerCase();
   const fruitMeta = FRUIT_INFO[fruitKey] || {
-    name: reading.tag || 'Fruit',
+    name: reading.fruit_name || reading.tag || 'Fruit',
     icon: 'fruit-cherries',
-    temp: '10-12°C',
-    humidity: '85-90%',
-    market: 'Fresh Produce Mandi',
+    temp: null,
+    humidity: null,
+    market: null,
   };
 
-  // Extract metrics from fields
-  const qualityScore = reading.field1 != null ? Math.round(Number(reading.field1)) : 82;
-  const goodCount = reading.field2 != null ? Number(reading.field2) : 14;
-  const betterCount = reading.field3 != null ? Number(reading.field3) : 6;
-  const rejectCount = reading.field4 != null ? Number(reading.field4) : 2;
-  const totalCount = reading.field5 != null ? Number(reading.field5) : (goodCount + betterCount + rejectCount);
-  const shelfLifeDays = reading.field6 != null ? Math.round(Number(reading.field6)) : 7;
-  const totalPrice = reading.field7 != null ? Number(reading.field7).toFixed(0) : '1,840';
-  const pricePerUnit = reading.field8 != null ? Number(reading.field8).toFixed(1) : '92.0';
-  const isMismatch = reading.field9 ? Number(reading.field9) === 1 : false;
-  const confidence = reading.field10 != null ? Math.round(Number(reading.field10) * 100) : 94;
+  // Metrics straight from the stored fields (see HARVESTLENZ_FIELDS on the
+  // server) — never invent numbers when one is missing.
+  const num = v => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : null);
+  const qualityScore = Math.round(num(overall.score) ?? num(reading.field1) ?? 0);
+  const goodCount = num(reading.summary?.good) ?? num(reading.field2) ?? 0;
+  const betterCount = num(reading.summary?.better) ?? num(reading.field3) ?? 0;
+  const rejectCount = num(reading.summary?.reject) ?? num(reading.field4) ?? 0;
+  const totalCount = num(reading.summary?.total) ?? num(reading.field5) ?? (goodCount + betterCount + rejectCount);
+  const shelfLifeRaw = num(overall.average_shelf_life) ?? num(reading.field6);
+  const shelfLifeDays = shelfLifeRaw != null ? Math.round(shelfLifeRaw) : null;
+  const wholesaleRaw = num(overall.total_price) ?? num(reading.field7);
+  const sellingRaw = num(overall.estimated_selling_price) ?? num(reading.field8);
+  const confidenceRaw = num(reading.field10);
+  const isMismatch = Boolean(reading.mismatch || num(reading.field9) === 1);
 
-  // Grade classification
-  const gradeLabel = qualityScore >= 80 ? 'Grade A (Premium)' : qualityScore >= 60 ? 'Grade B (Standard)' : 'Grade C (Secondary)';
-  const gradeColor = qualityScore >= 80 ? '#10B981' : qualityScore >= 60 ? '#F59E0B' : '#EF4444';
+  const formatRs = v => (v != null ? `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '—');
+  const totalPrice = formatRs(wholesaleRaw);
+  const sellingPrice = formatRs(sellingRaw);
+  const shelfLifeText = shelfLifeDays != null ? `${shelfLifeDays} days` : '—';
+  const confidenceText = confidenceRaw != null ? `${Math.round(confidenceRaw * 100)}%` : '—';
+  const recommendedMarket = overall.recommended_market || fruitMeta.market || '—';
+  const aiRecommendations = Array.isArray(overall.ai_recommendations) ? overall.ai_recommendations : [];
+
+  // Grade classification — the server's overall grade, with the same score
+  // cut-offs as agri_ai/fruit/rules.py when it is missing.
+  const overallGrade = isMismatch
+    ? 'Mismatch'
+    : overall.overall_grade || (qualityScore >= 90 ? 'Premium' : qualityScore >= 70 ? 'Good' : 'Reject');
+  const gradeLabel = overallGrade === 'Mismatch' ? 'Fruit Mismatch' : `${overallGrade} Quality`;
+  const gradeColor =
+    overallGrade === 'Premium' ? '#10B981' : overallGrade === 'Good' ? '#22C55E' : '#EF4444';
 
   // Format Image URLs
   const resolveUrl = path => {
@@ -109,7 +130,7 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `HarvestLENZ AI Grading Report #${readingId || ''}\nFruit: ${fruitMeta.name}\nQuality Score: ${qualityScore} / 100 (${gradeLabel})\nTotal Count: ${totalCount} pieces\nGood: ${goodCount} | Better: ${betterCount} | Reject: ${rejectCount}\nEst. Value: ₹${totalPrice}\nShelf-life: ~${shelfLifeDays} days`,
+        message: `HarvestLENZ AI Grading Report #${readingId || ''}\nFruit: ${fruitMeta.name}\nQuality Score: ${qualityScore} / 100 (${gradeLabel})\nTotal Count: ${totalCount} pieces\nGood: ${goodCount} | Better: ${betterCount} | Reject: ${rejectCount}\nWholesale Value: ${totalPrice}\nEst. Selling Price: ${sellingPrice}\nShelf-life: ${shelfLifeText}\nRecommended Market: ${recommendedMarket}`,
       });
     } catch (e) {
       console.warn('Share error:', e);
@@ -125,6 +146,29 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
         minute: '2-digit',
       })
     : 'Recently';
+
+  if (!reading?.id && !scanDetailLoading && scanDetailError) {
+    return (
+      <SafeAreaView style={[s.root, { backgroundColor: T.bg }]}>
+        <TopBar
+          title={`Harvest #${readingId || ''}`}
+          subtitle="HarvestLENZ AI Report"
+          onBack={() => navigation.goBack()}
+          theme={theme}
+        />
+        <View style={s.centerBox}>
+          <Icon name="alert-circle-outline" size={48} color="#EF4444" />
+          <Text style={[s.loadingText, { color: T.muted }]}>{scanDetailError}</Text>
+          <TouchableOpacity
+            onPress={() => dispatch(fetchHarvestLenzDetail(deviceId, readingId)).catch(() => {})}
+            style={[s.footerBtn, { backgroundColor: '#EA580C', marginTop: 16, paddingHorizontal: 24 }]}
+          >
+            <Text style={s.footerBtnText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (scanDetailLoading && !reading?.id) {
     return (
@@ -231,7 +275,7 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
               <Text style={s.fruitChipText}>{fruitMeta.name}</Text>
             </View>
             <View style={[s.statusChip, { backgroundColor: gradeColor }]}>
-              <Text style={s.statusChipText}>{gradeLabel.split(' ')[0]}</Text>
+              <Text style={s.statusChipText}>{overallGrade}</Text>
             </View>
           </View>
         </View>
@@ -257,15 +301,15 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
           <View style={[s.stripGrid, { borderColor: T.border }]}>
             <View style={s.stripCell}>
               <Text style={[s.stripLabel, { color: T.muted }]}>Est. Value</Text>
-              <Text style={[s.stripVal, { color: '#10B981' }]}>₹{totalPrice}</Text>
+              <Text style={[s.stripVal, { color: '#10B981' }]}>{totalPrice}</Text>
             </View>
             <View style={[s.stripCell, s.cellBorder, { borderColor: T.border }]}>
               <Text style={[s.stripLabel, { color: T.muted }]}>Shelf Life</Text>
-              <Text style={[s.stripVal, { color: '#EA580C' }]}>{shelfLifeDays} days</Text>
+              <Text style={[s.stripVal, { color: '#EA580C' }]}>{shelfLifeText}</Text>
             </View>
             <View style={s.stripCell}>
               <Text style={[s.stripLabel, { color: T.muted }]}>AI Confidence</Text>
-              <Text style={[s.stripVal, { color: '#3B82F6' }]}>{confidence}%</Text>
+              <Text style={[s.stripVal, { color: '#3B82F6' }]}>{confidenceText}</Text>
             </View>
           </View>
         </View>
@@ -401,14 +445,14 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
 
               <View style={s.valuationGrid}>
                 <View style={s.valBox}>
-                  <Text style={[s.valBoxSub, { color: T.muted }]}>Estimated Total Value</Text>
-                  <Text style={s.valBoxBig}>₹{totalPrice}</Text>
-                  <Text style={[s.valBoxNote, { color: '#10B981' }]}>Based on current APMC rates</Text>
+                  <Text style={[s.valBoxSub, { color: T.muted }]}>Wholesale Value</Text>
+                  <Text style={s.valBoxBig}>{totalPrice}</Text>
+                  <Text style={[s.valBoxNote, { color: '#10B981' }]}>Sum of per-grade fruit prices</Text>
                 </View>
                 <View style={s.valBox}>
-                  <Text style={[s.valBoxSub, { color: T.muted }]}>Avg Price / Unit</Text>
-                  <Text style={[s.valBoxBig, { color: '#3B82F6' }]}>₹{pricePerUnit}</Text>
-                  <Text style={[s.valBoxNote, { color: T.muted }]}>Calculated across all grades</Text>
+                  <Text style={[s.valBoxSub, { color: T.muted }]}>Est. Selling Price</Text>
+                  <Text style={[s.valBoxBig, { color: '#3B82F6' }]}>{sellingPrice}</Text>
+                  <Text style={[s.valBoxNote, { color: T.muted }]}>For the whole batch</Text>
                 </View>
               </View>
 
@@ -418,10 +462,23 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
                 <Icon name="storefront-outline" size={24} color="#EA580C" />
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={[s.marketTitle, { color: T.text }]}>Recommended Market Channel</Text>
-                  <Text style={[s.marketVal, { color: '#EA580C' }]}>{fruitMeta.market}</Text>
+                  <Text style={[s.marketVal, { color: '#EA580C' }]}>{recommendedMarket}</Text>
                 </View>
               </View>
             </View>
+
+            {/* AI Recommendations from the server */}
+            {aiRecommendations.length > 0 && (
+              <View style={[s.sectionCard, { backgroundColor: T.card, borderColor: T.border }]}>
+                <Text style={[s.cardHeading, { color: T.text }]}>AI Recommendations</Text>
+                {aiRecommendations.map((rec, idx) => (
+                  <View key={idx} style={[s.handlingItem, idx > 0 && { marginTop: 10 }]}>
+                    <Icon name="lightbulb-on-outline" size={18} color="#EA580C" />
+                    <Text style={[s.handlingText, { color: T.textSub }]}>{rec}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
 
             {/* Channel Profit Strategy */}
             <View style={[s.sectionCard, { backgroundColor: T.card, borderColor: T.border }]}>
@@ -434,7 +491,7 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={[s.stratTitle, { color: T.text }]}>Sort Good Grade for Premium Outlets</Text>
                   <Text style={[s.stratDesc, { color: T.muted }]}>
-                    Segregate the {goodCount} Grade A pieces to fetch a 20-35% price premium in Tier-1 city markets or modern supermarkets.
+                    Segregate the {goodCount} Good grade pieces to fetch a 20-35% price premium in Tier-1 city markets or modern supermarkets.
                   </Text>
                 </View>
               </View>
@@ -446,7 +503,7 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={[s.stratTitle, { color: T.text }]}>Direct Wholesale Dispatch</Text>
                   <Text style={[s.stratDesc, { color: T.muted }]}>
-                    Send the {betterCount} Grade B items immediately to local Mandis within 48 hours to prevent quality degradation.
+                    Send the {betterCount} Better grade items immediately to local Mandis within 48 hours to prevent quality degradation.
                   </Text>
                 </View>
               </View>
@@ -476,12 +533,16 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
               <View style={s.shelfHeroRow}>
                 <View style={s.shelfDial}>
                   <Icon name="calendar-clock" size={32} color="#EA580C" />
-                  <Text style={s.shelfDaysNum}>{shelfLifeDays}</Text>
+                  <Text style={s.shelfDaysNum}>{shelfLifeDays ?? '—'}</Text>
                   <Text style={[s.shelfDaysLbl, { color: T.muted }]}>Days Left</Text>
                 </View>
                 <View style={{ flex: 1, marginLeft: 16 }}>
                   <Text style={[s.shelfStatus, { color: shelfLifeDays > 5 ? '#10B981' : '#F59E0B' }]}>
-                    {shelfLifeDays > 5 ? 'High Shelf Stability' : 'Expedited Sale Needed'}
+                    {shelfLifeDays == null || shelfLifeDays === 0
+                      ? 'Shelf Life Not Available'
+                      : shelfLifeDays > 5
+                      ? 'High Shelf Stability'
+                      : 'Expedited Sale Needed'}
                   </Text>
                   <Text style={[s.shelfNote, { color: T.muted }]}>
                     Estimated under standard ambient conditions. Cool storage can extend this duration by up to 40%.
@@ -498,13 +559,13 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
                 <View style={[s.envBox, { backgroundColor: T.cardAlt ?? T.card, borderColor: T.border }]}>
                   <Icon name="thermometer" size={24} color="#3B82F6" />
                   <Text style={[s.envLabel, { color: T.muted }]}>Temperature</Text>
-                  <Text style={[s.envVal, { color: T.text }]}>{fruitMeta.temp}</Text>
+                  <Text style={[s.envVal, { color: T.text }]}>{fruitMeta.temp || '—'}</Text>
                 </View>
 
                 <View style={[s.envBox, { backgroundColor: T.cardAlt ?? T.card, borderColor: T.border }]}>
                   <Icon name="water-percent" size={24} color="#06B6D4" />
                   <Text style={[s.envLabel, { color: T.muted }]}>Relative Humidity</Text>
-                  <Text style={[s.envVal, { color: T.text }]}>{fruitMeta.humidity}</Text>
+                  <Text style={[s.envVal, { color: T.text }]}>{fruitMeta.humidity || '—'}</Text>
                 </View>
               </View>
 
@@ -547,7 +608,7 @@ export default function HarvestLenzDetailScreen({ navigation, route }) {
 
           <TouchableOpacity
             style={[s.footerBtnAlt, { borderColor: T.border, backgroundColor: T.card }]}
-            onPress={() => navigation.navigate('HarvestLenzFruitsScreen')}
+            onPress={() => navigation.navigate('HarvestLenzFruitsScreen', { deviceId, deviceName })}
             activeOpacity={0.8}
           >
             <Icon name="book-open-page-variant-outline" size={18} color={T.text} style={{ marginRight: 6 }} />

@@ -7,6 +7,7 @@ const init = {
   farmers: [],
   farmersCount: 0,
   farmersLoading: false,
+  farmersLoaded: false, // true once the first fetch has finished
   farmersError: null,
 
   // Farmer detail
@@ -69,6 +70,7 @@ const init = {
     pending_count: 0,
   },
   paymentsLoading: false,
+  paymentsLoaded: false, // true once the first fetch has finished
   paymentsError: null,
 };
 
@@ -105,6 +107,7 @@ export default function soilPartnerReducer(state = init, action) {
       return {
         ...state,
         farmersLoading: false,
+        farmersLoaded: true,
         farmers: d?.results ?? [],
         farmersCount: d?.count ?? 0,
       };
@@ -114,6 +117,7 @@ export default function soilPartnerReducer(state = init, action) {
       return {
         ...state,
         farmersLoading: false,
+        farmersLoaded: true,
         farmersError:
           action.error?.response?.data?.detail ??
           action.error?.message ??
@@ -426,6 +430,7 @@ export default function soilPartnerReducer(state = init, action) {
       return {
         ...state,
         paymentsLoading: false,
+        paymentsLoaded: true,
         payments: d?.payments ?? [],
         paymentsMeta: {
           count: d?.count ?? 0,
@@ -442,6 +447,7 @@ export default function soilPartnerReducer(state = init, action) {
       return {
         ...state,
         paymentsLoading: false,
+        paymentsLoaded: true,
         paymentsError:
           action.error?.response?.data?.detail ??
           action.error?.message ??

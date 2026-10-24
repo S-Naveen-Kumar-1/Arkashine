@@ -48,6 +48,7 @@ export const REPORTS_ACTION_TYPES = {
 const init = {
   devices: [],
   devicesLoading: false,
+  devicesLoaded: false, // true once the first fetch has finished (ok or failed)
   devicesError: null,
   devicesMeta: { count: 0, total_pages: 1, page: 1, per_page: 50 },
 
@@ -87,6 +88,7 @@ export default function reportsReducer(state = init, action) {
       return {
         ...state,
         devicesLoading: false,
+        devicesLoaded: true,
         devices: d.results ?? [],
         devicesMeta: {
           count: d.count ?? 0,
@@ -101,6 +103,7 @@ export default function reportsReducer(state = init, action) {
       return {
         ...state,
         devicesLoading: false,
+        devicesLoaded: true,
         devicesError: action.error?.message ?? 'Failed to load devices',
       };
 

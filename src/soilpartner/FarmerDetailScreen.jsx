@@ -1164,6 +1164,7 @@ export default function FarmerDetailScreen({ navigation, route }) {
     updateFarmerError,
     farmerApiCalls,
     farmerApiCallsLoading,
+    farmerApiCallsError,
   } = useSelector(s => s.soilPartner ?? {});
 
   const farmer = farmerDetail ?? passedFarmer;
@@ -1936,7 +1937,7 @@ export default function FarmerDetailScreen({ navigation, route }) {
           </View>
 
           <View style={s.apiBody}>
-            {farmerApiCallsLoading && !farmerApiCalls ? (
+            {(farmerApiCallsLoading || !farmerApiCallsError) && !farmerApiCalls ? (
               <View style={s.apiLoading}>
                 <ActivityIndicator color="#1D4ED8" />
                 <Text style={[s.apiLoadingTxt, { color: T.muted }]}>

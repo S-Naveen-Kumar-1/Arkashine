@@ -57,6 +57,9 @@ export const scanFruitPhoto = (deviceId, formData) => ({
       url: `/api/mobile/devices/${deviceId}/harvestlenz/scan/`,
       method: 'POST',
       data: formData,
+      // Grading runs one CNN pass per fruit (and loads the model on first
+      // use), so it can take well over the default 15 s client timeout.
+      timeout: 60000,
       headers: {
         'Content-Type': 'multipart/form-data',
       },

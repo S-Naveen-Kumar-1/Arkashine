@@ -226,7 +226,8 @@ export default function DeviceReadingsScreen({ navigation, route }) {
   const slot = useSelector(s => s.reports.readingsByDevice[deviceId]);
   const rawReadings = slot?.data;
   const readings = useMemo(() => rawReadings ?? [], [rawReadings]);
-  const readingsLoading = slot?.loading ?? false;
+  // No slot yet means the first fetch hasn't been dispatched — treat as loading
+  const readingsLoading = slot ? slot.loading : true;
   const readingsError = slot?.error ?? null;
   const readingsMeta = slot?.meta ?? {};
   const currentPage = readingsMeta.page ?? 1;

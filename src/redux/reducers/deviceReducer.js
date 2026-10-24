@@ -1,6 +1,7 @@
 const initialState = {
   devices: [],
   loadingDevices: false,
+  devicesLoaded: false, // true once the first fetch has finished
   devicesError: null,
   userDeviceDetails: null,
   selectedProduct: null,
@@ -22,6 +23,7 @@ const deviceReducer = (state = initialState, action) => {
       return {
         ...state,
         loadingDevices: false,
+        devicesLoaded: true,
         devices: action.payload.data.results,
         userDeviceDetails: action.payload.data,
       };
@@ -30,6 +32,7 @@ const deviceReducer = (state = initialState, action) => {
       return {
         ...state,
         loadingDevices: false,
+        devicesLoaded: true,
         devicesError: action.error,
       };
     case 'SET_SELECTED_PRODUCT':
