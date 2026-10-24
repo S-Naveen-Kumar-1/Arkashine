@@ -61,7 +61,10 @@ export default function LeafLenzDetailScreen({ navigation, route }) {
     if (!reading?.image_path) return null;
     if (
       reading.image_path.startsWith('http://') ||
-      reading.image_path.startsWith('https://')
+      reading.image_path.startsWith('https://') ||
+      reading.image_path.startsWith('data:') ||
+      reading.image_path.startsWith('file://') ||
+      reading.image_path.startsWith('content://')
     ) {
       return reading.image_path;
     }

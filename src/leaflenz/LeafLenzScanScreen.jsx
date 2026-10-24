@@ -284,6 +284,7 @@ export default function LeafLenzScanScreen({ navigation, route }) {
 
     const options = {
       mediaType: 'photo',
+      includeBase64: true,
       quality: 0.85,
       maxWidth: 1200,
       maxHeight: 1200,
@@ -299,16 +300,13 @@ export default function LeafLenzScanScreen({ navigation, route }) {
         return;
       }
       const asset = response.assets?.[0];
-      if (asset?.uri) {
-        const cleanUri =
-          Platform.OS === 'android' &&
-          !asset.uri.startsWith('content://') &&
-          !asset.uri.startsWith('file://')
-            ? `file://${asset.uri}`
-            : asset.uri;
-        setImageUri(cleanUri);
+      if (asset) {
+        const displayUri = asset.base64
+          ? `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`
+          : asset.uri;
+        setImageUri(displayUri);
         setImageFile({
-          uri: cleanUri,
+          uri: asset.uri,
           type: asset.type || 'image/jpeg',
           name: asset.fileName || `leaf_${Date.now()}.jpg`,
         });
@@ -320,6 +318,7 @@ export default function LeafLenzScanScreen({ navigation, route }) {
   const handleGallery = useCallback(() => {
     const options = {
       mediaType: 'photo',
+      includeBase64: true,
       quality: 0.85,
       maxWidth: 1200,
       maxHeight: 1200,
@@ -334,16 +333,13 @@ export default function LeafLenzScanScreen({ navigation, route }) {
         return;
       }
       const asset = response.assets?.[0];
-      if (asset?.uri) {
-        const cleanUri =
-          Platform.OS === 'android' &&
-          !asset.uri.startsWith('content://') &&
-          !asset.uri.startsWith('file://')
-            ? `file://${asset.uri}`
-            : asset.uri;
-        setImageUri(cleanUri);
+      if (asset) {
+        const displayUri = asset.base64
+          ? `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`
+          : asset.uri;
+        setImageUri(displayUri);
         setImageFile({
-          uri: cleanUri,
+          uri: asset.uri,
           type: asset.type || 'image/jpeg',
           name: asset.fileName || `leaf_${Date.now()}.jpg`,
         });
