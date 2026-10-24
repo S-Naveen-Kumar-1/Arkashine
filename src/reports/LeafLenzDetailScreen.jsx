@@ -187,7 +187,7 @@ export default function LeafLenzDetailScreen({ navigation, route }) {
             <Image
               source={{ uri: imageUrl }}
               style={s.leafImage}
-              resizeMode="cover"
+              resizeMode="contain"
             />
           ) : (
             <View style={[s.placeholderImage, { backgroundColor: T.cardAlt ?? T.card }]}>
@@ -516,7 +516,7 @@ const s = StyleSheet.create({
     height: 240,
     marginBottom: Spacing.md,
     position: 'relative',
-    backgroundColor: '#00000008',
+    backgroundColor: '#0F172A',
     ...Shadow.md,
   },
   leafImage: {

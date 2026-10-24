@@ -18,6 +18,7 @@ import {
   Alert,
   Platform,
   PermissionsAndroid,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -284,27 +285,24 @@ export default function LeafLenzScanScreen({ navigation, route }) {
 
     const options = {
       mediaType: 'photo',
-      includeBase64: true,
       quality: 0.85,
       maxWidth: 1200,
       maxHeight: 1200,
       saveToPhotos: false,
     };
-    launchCamera(options, response => {
-      if (response.didCancel) return;
-      if (response.errorCode) {
+    try {
+      const response = await launchCamera(options);
+      if (response?.didCancel) return;
+      if (response?.errorCode) {
         Alert.alert(
           'Camera Error',
           response.errorMessage || 'Could not open camera.',
         );
         return;
       }
-      const asset = response.assets?.[0];
-      if (asset) {
-        const displayUri = asset.base64
-          ? `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`
-          : asset.uri;
-        setImageUri(displayUri);
+      const asset = response?.assets?.[0];
+      if (asset?.uri) {
+        setImageUri(asset.uri);
         setImageFile({
           uri: asset.uri,
           type: asset.type || 'image/jpeg',
@@ -312,32 +310,31 @@ export default function LeafLenzScanScreen({ navigation, route }) {
         });
         dispatch(clearScanResult());
       }
-    });
+    } catch (err) {
+      console.warn('launchCamera error:', err);
+    }
   }, [dispatch]);
 
-  const handleGallery = useCallback(() => {
+  const handleGallery = useCallback(async () => {
     const options = {
       mediaType: 'photo',
-      includeBase64: true,
       quality: 0.85,
       maxWidth: 1200,
       maxHeight: 1200,
     };
-    launchImageLibrary(options, response => {
-      if (response.didCancel) return;
-      if (response.errorCode) {
+    try {
+      const response = await launchImageLibrary(options);
+      if (response?.didCancel) return;
+      if (response?.errorCode) {
         Alert.alert(
           'Gallery Error',
           response.errorMessage || 'Could not select photo.',
         );
         return;
       }
-      const asset = response.assets?.[0];
-      if (asset) {
-        const displayUri = asset.base64
-          ? `data:${asset.type || 'image/jpeg'};base64,${asset.base64}`
-          : asset.uri;
-        setImageUri(displayUri);
+      const asset = response?.assets?.[0];
+      if (asset?.uri) {
+        setImageUri(asset.uri);
         setImageFile({
           uri: asset.uri,
           type: asset.type || 'image/jpeg',
@@ -345,7 +342,9 @@ export default function LeafLenzScanScreen({ navigation, route }) {
         });
         dispatch(clearScanResult());
       }
-    });
+    } catch (err) {
+      console.warn('launchImageLibrary error:', err);
+    }
   }, [dispatch]);
 
   const handleRemoveImage = () => {
@@ -578,7 +577,7 @@ export default function LeafLenzScanScreen({ navigation, route }) {
                 key={imageUri}
                 source={{ uri: imageUri }}
                 style={s.previewImg}
-                resizeMode="cover"
+                resizeMode="contain"
               />
 
               {/* Scanning Overlay line */}
@@ -1055,16 +1054,14 @@ const s = StyleSheet.create({
   },
   imageWrap: {
     width: '100%',
-    height: 240,
     borderRadius: Radius.lg,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: '#00000008',
+    backgroundColor: '#0F172A',
   },
   previewImg: {
     width: '100%',
-    height: 240,
-    borderRadius: Radius.lg,
+    height: 260,
   },
   scanLine: {
     position: 'absolute',
