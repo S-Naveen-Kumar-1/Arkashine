@@ -44,6 +44,9 @@ import PhBottleDetailScreen from './reports/PhBottleDetailScreen';
 import LeafLenzDetailScreen from './reports/LeafLenzDetailScreen';
 import LeafLenzScanScreen from './leaflenz/LeafLenzScanScreen';
 import LeafLenzDiseaseLibraryScreen from './leaflenz/LeafLenzDiseaseLibraryScreen';
+import HarvestLenzDetailScreen from './reports/HarvestLenzDetailScreen';
+import HarvestLenzScanScreen from './harvestlenz/HarvestLenzScanScreen';
+import HarvestLenzFruitsScreen from './harvestlenz/HarvestLenzFruitsScreen';
 import ForgotPasswordScreen from './screens/profile/ForgotPasswordModal';
 import SoilPartnerInfoScreen from './screens/profile/SoilPartnerInfoScreen';
 import SoilPartnerEnquiryScreen from './screens/profile/SoilPartnerEnquiryScreen';
@@ -394,6 +397,24 @@ export const AppStack = () => {
         <Stack.Screen
           name="LeafLenzDiseaseLibraryScreen"
           component={LeafLenzDiseaseLibraryScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="HarvestLenzScanScreen"
+          component={HarvestLenzScanScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="HarvestLenzDetailScreen"
+          component={HarvestLenzDetailScreen}
+          options={{ headerShown: false }}
+        />
+
+        <Stack.Screen
+          name="HarvestLenzFruitsScreen"
+          component={HarvestLenzFruitsScreen}
           options={{ headerShown: false }}
         />
         

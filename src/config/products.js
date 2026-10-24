@@ -100,6 +100,22 @@ export const PRODUCTS = [
   },
 
   {
+    id: 11,
+    name: 'Harvest Lenz',
+    shortName: 'HarvestLenz',
+    device_type: 'harvestlenz',
+    icon: 'fruit-cherries',
+    color: '#F97316',
+    description:
+      'AI fruit grading & quality inspection — Good / Better / Reject grading with shelf life & market valuation.',
+    category: 'Post Harvest',
+    tag: 'AI Vision',
+    active: true,
+    route: 'HarvestLenzScanScreen',
+    stats: { tests: 52, lastUsed: 'Recent' },
+  },
+
+  {
     id: 7,
     name: 'AI Agronomy',
     shortName: 'AIAgronomy',
@@ -176,6 +192,7 @@ export const CATEGORIES = [
   'Planning',
   'Environment',
   'Plant Health',
+  'Post Harvest',
 ];
 
 export const QUICK_STATS = [
@@ -195,7 +212,8 @@ export const mapProductsWithDevices = (products, deviceResponse) => {
       ?.trim();
 
   return products.map(product => {
-    const isSoftwareProduct = product.device_type === 'leaflenz';
+    const isSoftwareProduct =
+      product.device_type === 'leaflenz' || product.device_type === 'harvestlenz';
     const matchedDevice = Array.isArray(devices)
       ? devices.find(
           d => normalize(d.devise_type) === normalize(product.device_type),

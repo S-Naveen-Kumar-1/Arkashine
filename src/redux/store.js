@@ -19,6 +19,7 @@ import reportsReducer from './reducers/reportsReducer';
 import soilPartnerReducer from './reducers/soilPartnerReducer';
 import carbonReducer from './reducers/CarbonReducer';
 import leaflenzReducer from './reducers/leaflenzReducer';
+import harvestlenzReducer from './reducers/harvestlenzReducer';
 
 const rootReducer = combineReducers({
   auth: authReducer,
@@ -32,6 +33,7 @@ const rootReducer = combineReducers({
   soilPartner: soilPartnerReducer,
   carbon: carbonReducer,
   leaflenz: leaflenzReducer,
+  harvestlenz: harvestlenzReducer,
 });
 
 // ─── Axios client ─────────────────────────────────────────────────────────────

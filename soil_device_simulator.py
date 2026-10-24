@@ -21,6 +21,9 @@ import time
 import sys
 import random
 import asyncio
+import hashlib
+import base64
+import struct
 from datetime import datetime
 
 # ==============================================================================
@@ -32,6 +35,9 @@ FIRMWARE_DATA_UUID    = "abcd1234-5678-1234-5678-1234567890ab"
 SOFTWARE_VERSION      = "1.1.1.1"
 DEVICE_ID             = "naveen_123"
 SERIAL_NO             = "ARK-SIM-2026"
+WIFI_WS_PORT          = 8765
+WIFI_WS_GUID          = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+_ws_clients           = set()
 
 # OTA update simulation (dummy values)
 LATEST_VERSION         = "1.1.14"     # what CHECKUPDATE reports as available
@@ -127,22 +133,66 @@ def save_calibration_db(data):
         print(f"Error saving calibration db: {e}")
 
 # ==============================================================================
+# WI-FI / WEBSOCKET NOTIFY HELPER & FRAMING
+# ==============================================================================
+def _make_ws_frame(message: str) -> bytes:
+    data = message.encode("utf-8")
+    length = len(data)
+    if length < 126:
+        header = struct.pack("!BB", 0x81, length)
+    elif length <= 0xFFFF:
+        header = struct.pack("!BBH", 0x81, 126, length)
+    else:
+        header = struct.pack("!BBQ", 0x81, 127, length)
+    return header + data
+
+
+def ws_broadcast(data: dict):
+    if not _ws_clients:
+        return
+    frame = _make_ws_frame(json.dumps(data))
+    print(f"📤 Wi-Fi TX: {data}")
+    dead = []
+    for writer in list(_ws_clients):
+        try:
+            writer.write(frame)
+        except Exception:
+            dead.append(writer)
+    for w in dead:
+        _ws_clients.discard(w)
+
+
+# ==============================================================================
 # BLE NOTIFY HELPER
 # ==============================================================================
 def _do_notify(server, data: dict):
-    try:
-        payload = json.dumps(data).encode("utf-8")
-        char = server.get_characteristic(FIRMWARE_DATA_UUID)
-        char.value = bytearray(payload)
-        server.update_value(FIRMWARE_SERVICE_UUID, FIRMWARE_DATA_UUID)
-        print(f"📤 BLE TX: {data}")
-    except Exception as ex:
-        print(f"❌ BLE TX Error: {ex}")
+    if server is not None:
+        try:
+            payload = json.dumps(data).encode("utf-8")
+            char = server.get_characteristic(FIRMWARE_DATA_UUID)
+            char.value = bytearray(payload)
+            server.update_value(FIRMWARE_SERVICE_UUID, FIRMWARE_DATA_UUID)
+            print(f"📤 BLE TX: {data}")
+        except Exception as ex:
+            print(f"❌ BLE TX Error: {ex}")
 
 
 def ble_notify(server, data: dict):
+    # 1. Always broadcast to Wi-Fi WebSocket clients
+    if _ble_loop is not None:
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is not _ble_loop:
+            _ble_loop.call_soon_threadsafe(ws_broadcast, data)
+        else:
+            ws_broadcast(data)
+    else:
+        ws_broadcast(data)
+
+    # 2. Notify BLE if server active
     if server is None:
-        print(f"⚠️ [MOCK BLE NOTIFY]: {data}")
         return
     # The workflow simulations run in worker threads, but bless/dbus_next is
     # not thread-safe: touching the characteristic from another thread
@@ -539,84 +589,163 @@ def handle_ble_command(server, raw_bytes: bytes):
         print(f"ℹ️ [SIMULATOR] Ignored/Unrecognized command: {cmd}")
 
 # ==============================================================================
-# BLE SERVER INITIALIZATION
+# WI-FI / WEBSOCKET CLIENT HANDLER
+# ==============================================================================
+async def _ws_client_handler(reader, writer, server_ref):
+    try:
+        req_lines = []
+        while True:
+            line = await reader.readline()
+            if not line or line == b"\r\n":
+                break
+            req_lines.append(line.decode("utf-8", errors="ignore").strip())
+
+        headers = {}
+        for l in req_lines[1:]:
+            if ":" in l:
+                k, v = l.split(":", 1)
+                headers[k.strip().lower()] = v.strip()
+
+        key = headers.get("sec-websocket-key")
+        if not key:
+            writer.close()
+            return
+
+        accept_raw = hashlib.sha1((key + WIFI_WS_GUID).encode("utf-8")).digest()
+        accept_key = base64.b64encode(accept_raw).decode("utf-8")
+
+        resp = (
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Accept: {accept_key}\r\n\r\n"
+        )
+        writer.write(resp.encode("utf-8"))
+        await writer.drain()
+        _ws_clients.add(writer)
+        print("🌐 [WIFI] Mobile App / Client Connected via WebSocket!")
+
+        while True:
+            h = await reader.readexactly(2)
+            b1, b2 = h[0], h[1]
+            opcode = b1 & 0x0F
+            is_masked = bool(b2 & 0x80)
+            length = b2 & 0x7F
+            if length == 126:
+                (length,) = struct.unpack("!H", await reader.readexactly(2))
+            elif length == 127:
+                (length,) = struct.unpack("!Q", await reader.readexactly(8))
+
+            masks = await reader.readexactly(4) if is_masked else b""
+            raw = await reader.readexactly(length)
+            if opcode == 0x08:  # Close
+                break
+            elif opcode == 0x09:  # Ping
+                writer.write(struct.pack("!BB", 0x8A, 0))
+                await writer.drain()
+                continue
+            elif opcode == 0x01:  # Text frame
+                if is_masked:
+                    payload = bytes(b ^ masks[i % 4] for i, b in enumerate(raw))
+                else:
+                    payload = raw
+                handle_ble_command(server_ref, payload)
+    except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
+        pass
+    except Exception as e:
+        print(f"⚠️ [WIFI] Client warning: {e}")
+    finally:
+        _ws_clients.discard(writer)
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+        print("🔌 [WIFI] Client Disconnected")
+
+# ==============================================================================
+# DUAL SERVER INITIALIZATION (BLE + WI-FI)
 # ==============================================================================
 def run_simulator():
     print("=" * 70)
-    print("🚀 ARKASHINE-SOIL HARDWARE BLE SIMULATOR")
+    print("🚀 ARKASHINE-SOIL HARDWARE SIMULATOR (DUAL BLE + WI-FI)")
     print(f"📡 Device Name: {DEVICE_NAME}")
+    print(f"📶 Wi-Fi Port : ws://0.0.0.0:{WIFI_WS_PORT}")
     print(f"📡 Service UUID: {FIRMWARE_SERVICE_UUID}")
     print(f"📡 Characteristic UUID: {FIRMWARE_DATA_UUID}")
     print("=" * 70)
 
     try:
         from bless import BlessServer, GATTCharacteristicProperties, GATTAttributePermissions
+        has_ble = True
     except ImportError:
-        print("\n❌ Error: The 'bless' Python library is not installed.")
-        print("👉 Install it with: pip install bless\n")
-        sys.exit(1)
+        has_ble = False
+        print("\nℹ️ 'bless' Python library not installed — BLE mode disabled.")
+        print(f"👉 Wi-Fi mode is ACTIVE and ready on ws://0.0.0.0:{WIFI_WS_PORT}!\n")
 
-    async def _ble_main():
+    async def _main():
         global _ble_server_ref, _ble_loop
         loop = asyncio.get_running_loop()
         _ble_loop = loop
-        server = BlessServer(name=DEVICE_NAME, loop=loop)
-        _ble_server_ref = server
+        server = None
 
-        await server.add_new_service(FIRMWARE_SERVICE_UUID)
-
-        char_flags = (
-            GATTCharacteristicProperties.read |
-            GATTCharacteristicProperties.write |
-            GATTCharacteristicProperties.write_without_response |
-            GATTCharacteristicProperties.notify
-        )
-        permissions = (
-            GATTAttributePermissions.readable |
-            GATTAttributePermissions.writeable
-        )
-
-        await server.add_new_characteristic(
-            FIRMWARE_SERVICE_UUID,
-            FIRMWARE_DATA_UUID,
-            char_flags,
-            None,
-            permissions,
-        )
-
-        def write_request(characteristic, value):
+        if has_ble:
             try:
-                handle_ble_command(server, bytes(value))
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
+                server = BlessServer(name=DEVICE_NAME, loop=loop)
+                _ble_server_ref = server
+                await server.add_new_service(FIRMWARE_SERVICE_UUID)
+                char_flags = (
+                    GATTCharacteristicProperties.read |
+                    GATTCharacteristicProperties.write |
+                    GATTCharacteristicProperties.write_without_response |
+                    GATTCharacteristicProperties.notify
+                )
+                permissions = (
+                    GATTAttributePermissions.readable |
+                    GATTAttributePermissions.writeable
+                )
+                await server.add_new_characteristic(
+                    FIRMWARE_SERVICE_UUID,
+                    FIRMWARE_DATA_UUID,
+                    char_flags,
+                    None,
+                    permissions,
+                )
 
-        # Without a read handler bless raises on every GATT read, which some
-        # Android stacks treat as a broken link.
-        def read_request(characteristic, **kwargs):
-            return characteristic.value or bytearray()
+                def write_request(characteristic, value):
+                    try:
+                        handle_ble_command(server, bytes(value))
+                    except Exception as e:
+                        import traceback
+                        traceback.print_exc()
 
-        server.read_request_func = read_request
-        server.write_request_func = write_request
+                def read_request(characteristic, **kwargs):
+                    return characteristic.value or bytearray()
 
-        print("\n🔵 Starting BLE advertising...")
-        await server.start()
-        print(f"✅ BLE Simulator is RUNNING and advertising as '{DEVICE_NAME}'!")
-        print("📱 You can now open your mobile app, scan, and connect!\n")
+                server.read_request_func = read_request
+                server.write_request_func = write_request
+                print("🔵 Starting BLE advertising...")
+                await server.start()
+                print(f"✅ BLE Simulator is RUNNING and advertising as '{DEVICE_NAME}'!")
+            except Exception as ble_err:
+                print(f"⚠️ Could not start BLE advertising ({ble_err}). Continuing with Wi-Fi only.")
+                server = None
+                _ble_server_ref = None
 
-        was_connected = False
-        while True:
-            await asyncio.sleep(1)
-            try:
-                connected = await server.is_connected()
-            except Exception:
-                continue
-            if connected != was_connected:
-                print("🔗 App CONNECTED" if connected else "🔌 App DISCONNECTED")
-                was_connected = connected
+        # Start Wi-Fi WebSocket Server
+        ws_srv = await asyncio.start_server(
+            lambda r, w: _ws_client_handler(r, w, server),
+            "0.0.0.0",
+            WIFI_WS_PORT,
+        )
+        print(f"✅ Wi-Fi WebSocket Server is RUNNING on ws://0.0.0.0:{WIFI_WS_PORT}!")
+        print("📱 Mobile App can connect via BLE OR Wi-Fi using the exact same commands!\n")
+
+        async with ws_srv:
+            await ws_srv.serve_forever()
 
     try:
-        asyncio.run(_ble_main())
+        asyncio.run(_main())
     except KeyboardInterrupt:
         print("\n👋 Stopping simulator...")
 

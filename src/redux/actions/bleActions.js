@@ -51,6 +51,8 @@ export const bleManager = new BleManager();
 let _device = null,
   _config = null,
   _notifySub = null;
+let _wifiSocket = null,
+  _isWifi = false;
 let _reconnectTimer = null,
   _scanTimer = null,
   _dataCount = 0;
@@ -596,6 +598,30 @@ async function _sendJSON(payload, dispatch) {
     return false;
   }
   if (_mockMode) return _mockSendJSON(payload, dispatch);
+
+  // ─── Wi-Fi (WebSocket) transmission path ─────────────────────────────────
+  if (_wifiSocket && _wifiSocket.readyState === WebSocket.OPEN) {
+    const jsonStr = JSON.stringify(payload);
+    dispatch(ac.log('CMD', `[WIFI] → ${jsonStr}`));
+    console.log('[WIFI SEND]', jsonStr);
+    try {
+      _wifiSocket.send(jsonStr);
+      dispatch(ac.log('CMD', '✅ sent (Wi-Fi)'));
+      dispatch(ac.cmdSent(jsonStr));
+      return true;
+    } catch (err) {
+      const msg = `Wi-Fi send failed: ${err.message}`;
+      dispatch(ac.log('CMD', `❌ ${msg}`));
+      dispatch(ac.cmdFailed(msg));
+      showMessage({
+        message: 'Command failed to send',
+        description: 'Check your Wi-Fi connection and try again.',
+        type: 'danger',
+      });
+      return false;
+    }
+  }
+
   if (!_device || !_config) {
     dispatch(ac.log('CMD', 'Not connected — dropped'));
     return false;
@@ -1523,6 +1549,15 @@ export const disconnectDevice = () => async dispatch => {
   _notifySub?.remove();
   _notifySub = null;
   _chunkBuffer = '';
+  if (_wifiSocket) {
+    try {
+      _wifiSocket.close();
+    } catch (e) {
+      console.warn('[WIFI] close error:', e);
+    }
+    _wifiSocket = null;
+  }
+  _isWifi = false;
   if (_device) {
     _intentionallyDisconnectedDeviceIds.add(_device.id);
     try {
@@ -1538,6 +1573,130 @@ export const disconnectDevice = () => async dispatch => {
   setTimeout(() => {
     _isUserDisconnecting = false;
   }, 1200);
+};
+
+// ─── Wi-Fi (WebSocket) Device Connection ────────────────────────────────────
+// Connects to an ArkaShine hardware device or simulator over Wi-Fi/WebSocket.
+// Feeds incoming JSON notifications directly into the identical parsePayload()
+// pipeline, and _sendJSON automatically routes commands through the WebSocket.
+export const connectWifiDevice = (host = '192.168.4.1', port = 8765) => async dispatch => {
+  _loggedOut = false;
+  clearTimeout(_reconnectTimer);
+  _reconnectTimer = null;
+  clearTimeout(_scanTimer);
+  try {
+    bleManager.stopDeviceScan();
+  } catch (_) {}
+  dispatch(ac.scanStop());
+
+  // Cleanly disconnect any active connection first
+  await dispatch(disconnectDevice());
+
+  const targetHost = String(host || '192.168.4.1').trim();
+  const targetPort = Number(port) || 8765;
+  const wsUrl = `ws://${targetHost}:${targetPort}`;
+  const wifiDeviceId = `WIFI-${targetHost}`;
+
+  dispatch(ac.connectRequest(wifiDeviceId));
+  dispatch(ac.log('CONNECT', `Connecting via Wi-Fi to ${wsUrl}…`));
+  _isWifi = true;
+  _dataCount = 0;
+
+  try {
+    const ws = new WebSocket(wsUrl);
+    _wifiSocket = ws;
+
+    const connectionTimeout = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        try {
+          ws.close();
+        } catch (_) {}
+        if (_wifiSocket === ws) _wifiSocket = null;
+        _isWifi = false;
+        dispatch(ac.connectFailed('Wi-Fi connection timed out'));
+        dispatch(ac.log('CONNECT', `❌ Timed out reaching ${wsUrl}`));
+        showMessage({
+          message: 'Connection Timed Out',
+          description: `Could not reach ${wsUrl}. Verify your device is powered on and Wi-Fi is connected.`,
+          type: 'danger',
+          duration: 4000,
+        });
+      }
+    }, 8000);
+
+    ws.onopen = () => {
+      clearTimeout(connectionTimeout);
+      dispatch(ac.log('CONNECT', `✅ Wi-Fi connected to ${targetHost}:${targetPort}`));
+      const cfg = {
+        serviceUUID: 'WIFI-WEBSOCKET',
+        notifyUUID: 'WIFI-DATA',
+        writeUUID: 'WIFI-DATA',
+      };
+      _config = cfg;
+      dispatch(ac.configResolved(cfg));
+      dispatch(
+        ac.connectSuccess({
+          id: wifiDeviceId,
+          name: `ArkaShine (Wi-Fi)`,
+          isWifi: true,
+          ip: targetHost,
+          port: targetPort,
+        }),
+      );
+      dispatch(ac.handshakeStart());
+      dispatch(ac.log('HANDSHAKE', '→ {"HANDSHAKE":"HELLO"}'));
+      showMessage({
+        message: 'Wi-Fi Connected',
+        description: 'Waiting for device handshake…',
+        type: 'info',
+        duration: 2000,
+      });
+      _armHandshakeTimer(dispatch);
+      _sendJSON({ HANDSHAKE: 'HELLO' }, dispatch);
+    };
+
+    ws.onmessage = event => {
+      const data = event.data;
+      if (!data) return;
+      _dataCount++;
+      dispatch(ac.dataReceived(data));
+      dispatch(ac.log('RX_WIFI', typeof data === 'string' ? data : '[binary data]'));
+      if (typeof data === 'string') {
+        try {
+          parsePayload(data, dispatch);
+        } catch (err) {
+          console.warn('[WIFI RX ERROR]', err);
+        }
+      }
+    };
+
+    ws.onerror = err => {
+      clearTimeout(connectionTimeout);
+      const errMsg = err?.message || 'WebSocket connection error';
+      dispatch(ac.log('WIFI_ERROR', errMsg));
+      dispatch(ac.connectFailed(errMsg));
+      showMessage({
+        message: 'Wi-Fi Connection Failed',
+        description: `Failed to connect to ${wsUrl}. Check IP/hotspot settings.`,
+        type: 'danger',
+        duration: 4000,
+      });
+    };
+
+    ws.onclose = () => {
+      clearTimeout(connectionTimeout);
+      dispatch(ac.log('DISCONNECT', `Wi-Fi connection closed`));
+      if (_wifiSocket === ws) {
+        _wifiSocket = null;
+        _isWifi = false;
+        dispatch(ac.disconnect());
+      }
+    };
+  } catch (e) {
+    _isWifi = false;
+    _wifiSocket = null;
+    dispatch(ac.connectFailed(e.message));
+  }
 };
 
 // ─── Simulated device (dev-only) ───────────────────────────────────────────

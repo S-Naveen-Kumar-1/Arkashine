@@ -1,6 +1,6 @@
 // src/screens/ble/DeviceScanScreen.jsx
 
-import React, { useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   FlatList,
   ActivityIndicator,
   Animated,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
@@ -23,6 +24,7 @@ import {
   stopScan,
   connectDevice,
   connectMockDevice,
+  connectWifiDevice,
   disconnectDevice,
   retryHandshake,
   cmdGetSystemInfo,
@@ -42,6 +44,10 @@ export default function DeviceScanScreen({ route, navigation }) {
   const dispatch = useDispatch();
   const theme = useTheme();
   const T = theme.colors;
+
+  const [wifiIp, setWifiIp] = useState('192.168.4.1');
+  const [wifiPort, setWifiPort] = useState('8765');
+  const [showWifiConfig, setShowWifiConfig] = useState(false);
 
   const {
     bleAdapterState,
@@ -213,6 +219,110 @@ export default function DeviceScanScreen({ route, navigation }) {
           </TouchableOpacity>
         )}
 
+        {/* ── Wi-Fi Connection Card ─────────────────────────── */}
+        {!connected && (
+          <View
+            style={[
+              s.wifiCard,
+              {
+                borderColor: T.primary + '44',
+                backgroundColor: T.card,
+              },
+            ]}
+          >
+            <View style={s.wifiRow}>
+              <View
+                style={[
+                  s.wifiIconWrap,
+                  { backgroundColor: T.primaryGlow },
+                ]}
+              >
+                <Icon name="wifi" size={22} color={T.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.wifiTitle, { color: T.text }]}>
+                  Connect via Wi-Fi
+                </Text>
+                <Text style={[s.wifiSub, { color: T.muted }]}>
+                  {wifiIp}:{wifiPort}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[
+                  s.wifiConfigBtn,
+                  { borderColor: T.border, backgroundColor: T.cardAlt },
+                ]}
+                onPress={() => setShowWifiConfig(p => !p)}
+              >
+                <Icon
+                  name={showWifiConfig ? 'chevron-up' : 'cog-outline'}
+                  size={18}
+                  color={T.muted}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  s.wifiConnectBtn,
+                  { backgroundColor: T.primary },
+                  connectingDeviceId?.startsWith('WIFI-') && { opacity: 0.7 },
+                ]}
+                onPress={() => dispatch(connectWifiDevice(wifiIp, wifiPort))}
+                disabled={connectingDeviceId?.startsWith('WIFI-')}
+              >
+                {connectingDeviceId?.startsWith('WIFI-') ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={s.wifiConnectText}>Connect</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {showWifiConfig && (
+              <View style={[s.wifiConfigBox, { borderTopColor: T.border }]}>
+                <View style={s.wifiInputCol}>
+                  <Text style={[s.wifiInputLabel, { color: T.muted }]}>
+                    Device IP Address
+                  </Text>
+                  <TextInput
+                    style={[
+                      s.wifiInput,
+                      {
+                        color: T.text,
+                        borderColor: T.border,
+                        backgroundColor: T.cardAlt,
+                      },
+                    ]}
+                    value={wifiIp}
+                    onChangeText={setWifiIp}
+                    placeholder="192.168.4.1"
+                    placeholderTextColor={T.muted}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+                <View style={[s.wifiInputCol, { flex: 0.45 }]}>
+                  <Text style={[s.wifiInputLabel, { color: T.muted }]}>Port</Text>
+                  <TextInput
+                    style={[
+                      s.wifiInput,
+                      {
+                        color: T.text,
+                        borderColor: T.border,
+                        backgroundColor: T.cardAlt,
+                      },
+                    ]}
+                    value={wifiPort}
+                    onChangeText={setWifiPort}
+                    placeholder="8765"
+                    placeholderTextColor={T.muted}
+                    keyboardType="numeric"
+                  />
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* ── Connected banner with handshake status ────── */}
         {connected && connectedDevice && (
           <ConnectedBanner
@@ -356,7 +466,11 @@ function ConnectedBanner({
     >
       {/* Device name + buttons */}
       <View style={cb.topRow}>
-        <Icon name="bluetooth-connect" size={20} color={T.primary} />
+        <Icon
+          name={device?.isWifi ? 'wifi-check' : 'bluetooth-connect'}
+          size={20}
+          color={T.primary}
+        />
         <Text style={[cb.name, { color: T.primary, flex: 1 }]}>
           {device.name || 'Device'}
         </Text>
@@ -406,25 +520,42 @@ function ConnectedBanner({
       {/* Device-ID check (SoiLENZ / pH Bottle) */}
       {idCheck && idCheck.state !== 'skip' ? <IdCheckRow idCheck={idCheck} T={T} onRetry={onRetryIdCheck} /> : null}
 
-      {/* UUIDs (debug info) */}
+      {/* UUIDs / Connection Details (debug info) */}
       {bleConfig && (
         <View style={[cb.uuidBox, { borderColor: T.border }]}>
-          {[
-            ['SVC', bleConfig.serviceUUID],
-            ['NTF', bleConfig.notifyUUID],
-            ['WRT', bleConfig.writeUUID],
-          ].map(([label, val]) => (
-            <View key={label} style={cb.uuidRow}>
-              <Text style={[cb.uuidLabel, { color: T.muted }]}>{label}</Text>
-              <Text
-                style={[cb.uuidVal, { color: T.textSub ?? T.text }]}
-                numberOfLines={1}
-                ellipsizeMode="middle"
-              >
-                {val}
-              </Text>
-            </View>
-          ))}
+          {device?.isWifi ? (
+            <>
+              <View style={cb.uuidRow}>
+                <Text style={[cb.uuidLabel, { color: T.muted }]}>NET</Text>
+                <Text style={[cb.uuidVal, { color: T.textSub ?? T.text }]}>
+                  Wi-Fi Direct / WebSocket
+                </Text>
+              </View>
+              <View style={cb.uuidRow}>
+                <Text style={[cb.uuidLabel, { color: T.muted }]}>URL</Text>
+                <Text style={[cb.uuidVal, { color: T.textSub ?? T.text }]}>
+                  ws://{device.ip || '192.168.4.1'}:{device.port || 8765}
+                </Text>
+              </View>
+            </>
+          ) : (
+            [
+              ['SVC', bleConfig.serviceUUID],
+              ['NTF', bleConfig.notifyUUID],
+              ['WRT', bleConfig.writeUUID],
+            ].map(([label, val]) => (
+              <View key={label} style={cb.uuidRow}>
+                <Text style={[cb.uuidLabel, { color: T.muted }]}>{label}</Text>
+                <Text
+                  style={[cb.uuidVal, { color: T.textSub ?? T.text }]}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  {val}
+                </Text>
+              </View>
+            ))
+          )}
         </View>
       )}
     </View>
@@ -686,6 +817,60 @@ const s = StyleSheet.create({
   list: { paddingBottom: Spacing.xl },
   pulseWrap: { alignItems: 'center', paddingTop: 40, gap: 12 },
   pulseText: { fontSize: 13 },
+  wifiCard: {
+    borderRadius: Radius.lg,
+    borderWidth: 1.5,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  wifiRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  wifiIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wifiTitle: { fontSize: 14, fontWeight: '800' },
+  wifiSub: { fontSize: 11, marginTop: 2 },
+  wifiConfigBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wifiConnectBtn: {
+    borderRadius: Radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    minWidth: 78,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wifiConnectText: { color: '#fff', fontSize: 13, fontWeight: '800' },
+  wifiConfigBox: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  wifiInputCol: { flex: 1 },
+  wifiInputLabel: { fontSize: 11, fontWeight: '700', marginBottom: 4 },
+  wifiInput: {
+    borderWidth: 1,
+    borderRadius: Radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 13,
+    fontFamily: 'Courier',
+  },
 });
 const cb = StyleSheet.create({
   wrap: {

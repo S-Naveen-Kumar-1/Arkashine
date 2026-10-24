@@ -60,6 +60,11 @@ const DEVICE_META = {
     color: '#65A30D',
     label: 'LeafLenz',
   },
+  harvestlenz: {
+    icon: 'fruit-cherries',
+    color: '#EA580C',
+    label: 'HarvestLenz',
+  },
   soil_map: {
     icon: 'map-outline',
     color: '#EA580C',
@@ -548,6 +553,8 @@ export default function DeviceReadingsScreen({ navigation, route }) {
         ? 'SoilSparshDetailScreen'
         : deviceType === 'leaflenz'
         ? 'LeafLenzDetailScreen'
+        : deviceType === 'harvestlenz'
+        ? 'HarvestLenzDetailScreen'
         : 'PhBottleDetailScreen';
 
     navigation.navigate(screen, {
