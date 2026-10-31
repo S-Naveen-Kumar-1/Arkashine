@@ -354,13 +354,36 @@ export default function AssessmentScreen({ navigation }) {
     try {
       const path = await ensureReportDownloaded();
       if (!path) return;
-      await FileViewer.open(path, { showOpenWithDialog: true });
+      try {
+        await FileViewer.open(path, { showOpenWithDialog: true });
+      } catch (viewerErr) {
+        const errStr = viewerErr?.message || '';
+        if (
+          errStr.includes('No app associated') ||
+          errStr.includes('mime type')
+        ) {
+          try {
+            await Share.open({
+              url: Platform.OS === 'android' ? `file://${path}` : path,
+              type: 'application/pdf',
+              title: 'Carbon Credit Report',
+            });
+            return;
+          } catch (shareErr) {
+            if (shareErr?.message === 'User did not share') return;
+            throw new Error(
+              'No PDF viewer found on your device. Please install a PDF reader (such as Google Drive or Adobe Acrobat).',
+            );
+          }
+        }
+        throw viewerErr;
+      }
     } catch (error) {
       const message = extractReportErrorMessage(
         error,
         'Could not open the PDF report.',
       );
-      setDownloadError(`Could not download PDF: ${message}`);
+      setDownloadError(message);
     } finally {
       setIsDownloading(false);
     }
@@ -384,7 +407,7 @@ export default function AssessmentScreen({ navigation }) {
         error,
         'Could not share the PDF report.',
       );
-      setDownloadError(`Could not download PDF: ${message}`);
+      setDownloadError(message);
     } finally {
       setIsDownloading(false);
     }

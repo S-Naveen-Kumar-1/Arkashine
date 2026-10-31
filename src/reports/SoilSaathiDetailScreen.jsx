@@ -252,7 +252,30 @@ function PDFDownloadButton({
     try {
       const path = await ensureDownloaded();
       if (!path) return;
-      await FileViewer.open(path, { showOpenWithDialog: true });
+      try {
+        await FileViewer.open(path, { showOpenWithDialog: true });
+      } catch (viewerErr) {
+        const errStr = viewerErr?.message || '';
+        if (
+          errStr.includes('No app associated') ||
+          errStr.includes('mime type')
+        ) {
+          try {
+            await Share.open({
+              url: `file://${path}`,
+              type: 'application/pdf',
+              title: `Share ${title}`,
+            });
+            return;
+          } catch (shareErr) {
+            if (shareErr?.message === 'User did not share') return;
+            throw new Error(
+              'No PDF viewer found on your device. Please install a PDF reader (such as Google Drive or Adobe Acrobat).',
+            );
+          }
+        }
+        throw viewerErr;
+      }
     } catch (error) {
       const msg = extractPdfErrorMessage(error, 'Failed to open PDF report');
       showMessage({ message: msg, type: 'danger' });
@@ -378,7 +401,30 @@ function SoiLenzAdvisoryBanner({ deviceId, readingId, T, dispatch }) {
     try {
       const path = await ensureDownloaded();
       if (!path) return;
-      await FileViewer.open(path, { showOpenWithDialog: true });
+      try {
+        await FileViewer.open(path, { showOpenWithDialog: true });
+      } catch (viewerErr) {
+        const errStr = viewerErr?.message || '';
+        if (
+          errStr.includes('No app associated') ||
+          errStr.includes('mime type')
+        ) {
+          try {
+            await Share.open({
+              url: `file://${path}`,
+              type: 'application/pdf',
+              title: 'SoiLENZ Advisory Report',
+            });
+            return;
+          } catch (shareErr) {
+            if (shareErr?.message === 'User did not share') return;
+            throw new Error(
+              'No PDF viewer found on your device. Please install a PDF reader (such as Google Drive or Adobe Acrobat).',
+            );
+          }
+        }
+        throw viewerErr;
+      }
     } catch (e) {
       const msg = extractPdfErrorMessage(e, 'Failed to open advisory report PDF');
       showMessage({ message: msg, type: 'danger' });

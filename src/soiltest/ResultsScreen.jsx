@@ -1596,7 +1596,30 @@ export function SoilResultsScreen({ navigation, route }) {
         setAdvisoryPath(path);
         notifyPdfDownloaded({ title: 'SoiLENZ Advisory Report', filePath: path });
       }
-      await FileViewer.open(path, { showOpenWithDialog: true });
+      try {
+        await FileViewer.open(path, { showOpenWithDialog: true });
+      } catch (viewerErr) {
+        const errStr = viewerErr?.message || '';
+        if (
+          errStr.includes('No app associated') ||
+          errStr.includes('mime type')
+        ) {
+          try {
+            await RNShare.open({
+              url: `file://${path}`,
+              type: 'application/pdf',
+              title: 'SoiLENZ Advisory Report',
+            });
+            return;
+          } catch (shareErr) {
+            if (shareErr?.message === 'User did not share') return;
+            throw new Error(
+              'No PDF viewer found on your device. Please install a PDF reader (such as Google Drive or Adobe Acrobat).',
+            );
+          }
+        }
+        throw viewerErr;
+      }
     } catch (e) {
       const axiosError = e?.error ?? e;
       const msg =

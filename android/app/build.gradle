@@ -27,8 +27,8 @@ android {
         applicationId "com.arkashine"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.1"
+        versionCode 3
+        versionName "1.0.3"
     }
   signingConfigs {
     debug {
